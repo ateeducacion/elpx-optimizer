@@ -97,9 +97,8 @@ const es = {
   helpCliTitle: 'Línea de órdenes (CLI)',
   helpCliIntro:
     'El mismo motor, con FFmpeg y libvips nativos: más rápido con proyectos grandes y útil para procesar muchos de una vez. Funciona con Node.js 22 o Bun.',
-  helpStep1: 'Instala FFmpeg (y Node.js 22 o Bun)',
-  helpStep1Note: 'Sin FFmpeg se optimizan igualmente las imágenes.',
-  helpStep2: 'Descarga el código y prepara el CLI',
+  helpStep1: 'Instala FFmpeg para vídeo y audio',
+  helpStep1Note: 'Sin FFmpeg se optimizan igualmente las imágenes y los PDF.',
   helpStep3: 'Comprueba que todo está disponible',
   helpStep4: 'Revisa un proyecto sin cambiar nada',
   helpStep5: 'Mira el plan antes de aplicarlo',
@@ -109,7 +108,8 @@ const es = {
   helpDocker: 'Solo necesitas Docker: la imagen publicada en ghcr.io ya incluye FFmpeg y todo lo demás. Ejecútalo en la carpeta donde está tu proyecto:',
   helpDockerWindows:
     '--user hace que el resultado sea tuyo y que el contenedor pueda escribir en la carpeta. En Windows (PowerShell), quita --user y usa -v "${PWD}:/work".',
-  helpLocalTitle: 'Sin Docker, desde el código',
+  helpNpxTitle: 'Con npx (Node.js 22 o superior)',
+  helpNpx: 'Sin instalar nada más: npx descarga elpx-optimizer de npm la primera vez. Ejecútalo en la carpeta donde está tu proyecto:',
   helpCliDocs: 'Todas las opciones y códigos de salida (docs/cli.md)',
   helpSkillTitle: 'Agent Skill para asistentes de IA',
   helpSkillIntro:
@@ -373,9 +373,8 @@ const en: Record<keyof typeof es, string> = {
   helpTitle: 'Use it from the terminal and with agents',
   helpCliTitle: 'Command line (CLI)',
   helpCliIntro: 'The same engine with native FFmpeg and libvips: faster with large projects and handy to process many at once. Runs on Node.js 22 or Bun.',
-  helpStep1: 'Install FFmpeg (and Node.js 22 or Bun)',
-  helpStep1Note: 'Without FFmpeg, images are still optimized.',
-  helpStep2: 'Get the code and build the CLI',
+  helpStep1: 'Install FFmpeg for video and audio',
+  helpStep1Note: 'Without FFmpeg, images and PDFs are still optimized.',
   helpStep3: 'Check that everything is available',
   helpStep4: 'Review a project without changing anything',
   helpStep5: 'See the plan before applying it',
@@ -385,7 +384,8 @@ const en: Record<keyof typeof es, string> = {
   helpDocker: 'You only need Docker: the image published on ghcr.io already includes FFmpeg and everything else. Run it in the folder that holds your project:',
   helpDockerWindows:
     '--user makes the result yours and lets the container write to the folder. On Windows (PowerShell), drop --user and use -v "${PWD}:/work".',
-  helpLocalTitle: 'Without Docker, from the source code',
+  helpNpxTitle: 'With npx (Node.js 22 or newer)',
+  helpNpx: 'Nothing else to install: npx downloads elpx-optimizer from npm the first time. Run it in the folder that holds your project:',
   helpCliDocs: 'Every option and exit code (docs/cli.md)',
   helpSkillTitle: 'Agent Skill for AI assistants',
   helpSkillIntro:

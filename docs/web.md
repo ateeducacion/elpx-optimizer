@@ -56,8 +56,8 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
   the package, so its scripts never run and nothing is fetched (D22). The current thumbnail is
   previewed from its row in the contents.
 - Side panels (native `<dialog>` elements): licenses of the app and of every bundled component, with
-  the texts served from `licenses/` on the same site; and how to use the CLI (the ghcr.io Docker
-  images first, then a local installation) and the Agent Skill. The header links to `SKILL.md` on
+  the texts served from `licenses/` on the same site; and how to use the CLI (the Docker image first,
+  then `npx elpx-optimizer`) and the Agent Skill. The header links to `SKILL.md` on
   GitHub.
 - The footer carries the ATE logo with "Hecho por el Área de Tecnología Educativa del Gobierno de
   Canarias" ("Made by the Educational Technology Area of the Government of the Canary Islands") and

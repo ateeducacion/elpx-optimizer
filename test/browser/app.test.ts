@@ -1773,8 +1773,8 @@ describe('side panels', () => {
     expect(helpButton.querySelector('.visually-hidden')!.textContent).toBe('Use it from the terminal and with agents');
     const dialog = open('header button.help-button', 'help-panel');
     expect(dialog.querySelector('#help-title')!.textContent).toBe('Use it from the terminal and with agents');
-    // Docker first (the published image), then from the source code.
-    expect([...dialog.querySelectorAll('h4')].map((x) => x.textContent)).toEqual(['With Docker (the simplest)', 'Without Docker, from the source code']);
+    // Docker first (the published image), then npx (the npm package).
+    expect([...dialog.querySelectorAll('h4')].map((x) => x.textContent)).toEqual(['With Docker (the simplest)', 'With npx (Node.js 22 or newer)']);
     const [docker, local] = [...dialog.querySelectorAll('ol.help-steps')];
     const titles = (list: Element): (string | null)[] => [...list.querySelectorAll(':scope > li .fw-bold')].map((x) => x.textContent);
     expect(titles(docker!)).toEqual(['Review a project without changing anything', 'See the plan before applying it', 'Optimize']);
@@ -1784,8 +1784,7 @@ describe('side panels', () => {
       ),
     ).toBe(true);
     expect(titles(local!)).toEqual([
-      'Install FFmpeg (and Node.js 22 or Bun)',
-      'Get the code and build the CLI',
+      'Install FFmpeg for video and audio',
       'Check that everything is available',
       'Review a project without changing anything',
       'See the plan before applying it',
@@ -1795,9 +1794,10 @@ describe('side panels', () => {
     const notes = (list: Element): boolean[] =>
       [...list.querySelectorAll(':scope > li')].map((li) => li.querySelector(':scope > .text-body-secondary') !== null);
     expect(notes(docker!)).toEqual([false, false, true]);
-    expect(notes(local!)).toEqual([true, false, false, false, false, true]);
+    expect(notes(local!)).toEqual([true, false, false, false, true]);
+    expect([...local!.querySelectorAll('code')].slice(1).every((c) => c.textContent!.startsWith('npx elpx-optimizer '))).toBe(true);
     const codes = [...dialog.querySelectorAll('.code-block code')].map((c) => c.textContent!);
-    expect(codes).toContain('node dist/cli/elpx-optimizer.mjs doctor');
+    expect(codes).toContain('npx elpx-optimizer doctor');
     expect(codes.some((c) => c.includes('--flatten legacy --missing-references remove'))).toBe(true);
     expect(dialog.textContent).toContain('On Windows (PowerShell), drop --user and use -v "${PWD}:/work".');
     expectExternal([...dialog.querySelectorAll<HTMLAnchorElement>('a')]);
@@ -1813,11 +1813,11 @@ describe('side panels', () => {
     // Copying puts the command on the clipboard and says so.
     const write = vi.fn(() => Promise.resolve());
     vi.spyOn(navigator, 'clipboard', 'get').mockReturnValue({ writeText: write } as unknown as Clipboard);
-    const copy = copyOf('node dist/cli/elpx-optimizer.mjs doctor');
+    const copy = copyOf('npx elpx-optimizer doctor');
     expect(copy.getAttribute('aria-label')).toBe('Copy');
     const before = copy.innerHTML;
     copy.click();
-    expect(write).toHaveBeenCalledWith('node dist/cli/elpx-optimizer.mjs doctor');
+    expect(write).toHaveBeenCalledWith('npx elpx-optimizer doctor');
     await waitFor(() => copy.innerHTML !== before, 2000, 'copied icon');
     expect(copy.querySelector('svg')!.outerHTML).toBe(icon('clipboard-check').outerHTML);
     expect($('[role="status"]').textContent).toBe('Copied to the clipboard');
