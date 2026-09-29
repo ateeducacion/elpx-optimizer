@@ -363,3 +363,35 @@ pushed by digest; a second job joins the two digests into one multi-platform ima
 builds). Image jobs have a time limit, and CI builds and tests both images natively on every pull
 request, so an arm64-only breakage shows before a release. A release re-run would use the workflow
 of the tagged commit, so the workflow can also be run by hand with an existing tag.
+
+## D22. A new thumbnail drawn as an SVG image, or chosen by the user
+
+eXeLearning shows `screenshot.png` when a project is opened. It makes it from the first page with
+html2canvas in a hidden frame at 1280×720, once, and never refreshes it, so it can be out of date or
+wrong; an author can also upload an image (16:9, at least 600 px wide, up to 2 MB, scaled to fit
+1280×720) (`public/app/yjs/YjsProjectBridge.js` `generateScreenshotFromFirstPage`,
+`public/app/workarea/project/properties/formProperties.js`). elpx-optimizer offers both, with the
+same rules, as `options.screenshot` (`--screenshot FILE` in the CLI, a "Project thumbnail" section in
+the web app).
+
+Options for drawing the page: (a) html2canvas, as eXeLearning; (b) the page as an SVG image with a
+`<foreignObject>`, drawn into a canvas; (c) not offering it. (a) adds a dependency and needs the
+page in a live same-origin document; eXeLearning only strips `<script>` elements with a regular
+expression, so event handler attributes would still run. Chosen (b): the page is parsed with
+`DOMParser` (an inert document), `<script>`, `<noscript>`, frames, objects, `<base>` and `<meta>` are
+removed, style sheets become `<style>` elements with their `url()`s inlined as `data:` URLs, images
+too, and eXeLearning's clean-up CSS (navigation, search, footer hidden) is added. The result is
+serialized as XHTML inside an SVG loaded from a `data:` URL: an image never runs scripts and never
+loads anything, so this is the one place where the app renders project HTML without executing it
+and without any network request. A `blob:` URL is not used because Chromium then taints the canvas.
+Differences with eXeLearning's result come from what needs scripts (games, galleries built at load
+time) and from `@import`ed style sheets, which are dropped. The CLI has no browser, so it only takes
+an image.
+
+The new PNG is not part of the options JSON: the options carry its SHA-256 and size, so the plan
+hash covers it, and the bytes are handed to the run, which refuses others. It must be a PNG of at
+most 1280×720 with eXeLearning's ratio. It replaces `screenshot.png` (stored, as eXeLearning writes
+it) or is added last when the package has none, with `libs/elpx-manifest.js` updated; the
+verification expects exactly that entry to change or appear. A new thumbnail is a change the user
+asked for, delivered even when the package does not get smaller. `pp_screenshot` in `content.xml`
+(upstream-review §5) is left as it is: eXeLearning never reads it.

@@ -106,6 +106,8 @@ Images:
   --strip-metadata           Remove EXIF/XMP/IPTC/text (ICC always kept)
   --image-force              Re-encode images that already look efficient
   --include-screenshot       Also optimize screenshot.png (lossless only)
+  --screenshot FILE          New project thumbnail: a 16:9 image at least 600 px wide,
+                             saved as screenshot.png (PNG, at most 1280×720)
 
 Audio (WAV, AIFF and FLAC become MP3 with the .mp3 extension; references are rewritten):
   --audio-bitrate N          kb/s for stereo, mono uses half (64-320; default 192/128/96)
@@ -185,6 +187,7 @@ const COMMANDS: Record<string, { options: NonNullable<ParseArgsConfig['options']
       'strip-metadata': { type: 'boolean' },
       'image-force': { type: 'boolean' },
       'include-screenshot': { type: 'boolean' },
+      screenshot: { type: 'string' },
       'min-savings-percent': { type: 'string' },
       'min-savings-bytes': { type: 'string' },
       threads: { type: 'string' },

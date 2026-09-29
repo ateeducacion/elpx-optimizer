@@ -16,9 +16,12 @@ export type ClientMessage =
       readonly maxVideoBytes?: number;
     }
   | { readonly type: 'plan'; readonly id: number; readonly options: OptionsInput }
-  | { readonly type: 'optimize'; readonly id: number; readonly planHash: string }
+  /** Executes the plan; `screenshot` is the PNG named by the plan's options.screenshot. */
+  | { readonly type: 'optimize'; readonly id: number; readonly planHash: string; readonly screenshot?: Blob }
   /** Extracts one image, audio or video resource of the analyzed project for a local preview. */
   | { readonly type: 'preview'; readonly id: number; readonly path: string }
+  /** Reads the page files a thumbnail is drawn from (HTML, CSS, images and fonts), as untyped bytes. */
+  | { readonly type: 'read'; readonly id: number; readonly path: string }
   | { readonly type: 'cancel' }
   | { readonly type: 'playback-result'; readonly requestId: number; readonly result: 'playable' | 'not-playable' | 'unsupported' };
 
@@ -37,6 +40,8 @@ export type WorkerMessage =
   | { readonly type: 'analysis'; readonly id: number; readonly result: AnalysisResult }
   | { readonly type: 'plan'; readonly id: number; readonly plan: OptimizationPlan }
   | { readonly type: 'preview'; readonly id: number; readonly blob: Blob }
+  /** The entry's bytes, or no blob when the package has no such file. */
+  | { readonly type: 'read'; readonly id: number; readonly blob?: Blob }
   | { readonly type: 'result'; readonly id: number; readonly report: OptimizationReport; readonly output?: Blob; readonly fileName: string }
   | { readonly type: 'error'; readonly id: number; readonly code: string; readonly message: string }
   | { readonly type: 'cancelled'; readonly id: number }

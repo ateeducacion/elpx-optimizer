@@ -18,6 +18,7 @@ import type { OptionsInput } from '../../src/core/plan/options.js';
 import type { OptimizationPlan } from '../../src/core/plan/plan.js';
 import type { OptimizationReport } from '../../src/core/report/report.js';
 import { openZip } from '../../src/core/zip/reader.js';
+import { sha256Hex } from '../../src/core/io/hash.js';
 import { fixtureFile, waitFor } from './helpers.js';
 
 const VIDEO = 'content/resources/media/clase 1.mp4';
@@ -59,7 +60,9 @@ function harness(deps: Partial<PipelineDeps> = {}, answerPlayback = true) {
     analyze: async (file: File, threading?: 'auto' | 'single') =>
       (await send((id) => ({ type: 'analyze', id, file, ...(threading ? { threading } : {}) }))) as Of<'analysis'> | Of<'error'> | Of<'cancelled'>,
     plan: async (options: OptionsInput) => (await send((id) => ({ type: 'plan', id, options }))) as Of<'plan'> | Of<'error'>,
-    optimize: async (planHash: string) => (await send((id) => ({ type: 'optimize', id, planHash }))) as Of<'result'> | Of<'error'> | Of<'cancelled'>,
+    optimize: async (planHash: string, screenshot?: Blob) =>
+      (await send((id) => ({ type: 'optimize', id, planHash, ...(screenshot ? { screenshot } : {}) }))) as Of<'result'> | Of<'error'> | Of<'cancelled'>,
+    read: async (path: string) => (await send((id) => ({ type: 'read', id, path }))) as Of<'read'> | Of<'error'>,
     preview: async (path: string) => (await send((id) => ({ type: 'preview', id, path }))) as Of<'preview'> | Of<'error'>,
     analyzeLimited: async (file: File, maxVideoBytes: number) => (await send((id) => ({ type: 'analyze', id, file, maxVideoBytes }))) as Of<'analysis'>,
     engineStatuses: (): EngineStatus[] => messages.filter((m): m is Of<'engine'> => m.type === 'engine').map((m) => m.status),
@@ -451,5 +454,42 @@ describe('pipeline handler previews', () => {
     expect(await h.preview('content/resources/enorme.mp4')).toMatchObject({ type: 'error', code: 'limit-exceeded', message: 'Too large to preview' });
     // Smaller stored media of the same project are still available.
     expectType(await h.preview('content/resources/clip.mp4'), 'preview');
+  });
+});
+
+describe('pipeline handler: a new thumbnail', () => {
+  it('reads any file of the project, and nothing when it does not exist', async () => {
+    const h = harness();
+    expect(await h.read('index.html')).toMatchObject({ type: 'error', code: 'internal', message: 'Analyze a project first' });
+    const file = await fixtureFile(courseUrl, 'c.elpx');
+    expectType(await h.analyze(file), 'analysis');
+    const original = unzipSync(new Uint8Array(await file.arrayBuffer()));
+    const blob = expectType(await h.read('index.html'), 'read').blob!;
+    expect(blob.type).toBe('');
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(original['index.html']);
+    expect(expectType(await h.read('no/such.css'), 'read').blob).toBeUndefined();
+    expect(expectType(await h.read('content/'), 'read').blob).toBeUndefined();
+  });
+
+  it('writes the thumbnail named by the plan into the optimized project', async () => {
+    const h = harness({ imageConcurrency: 1 });
+    expectType(await h.analyze(await fixtureFile(courseUrl, 'c.elpx')), 'analysis');
+    const canvas = new OffscreenCanvas(1280, 720);
+    canvas.getContext('2d')!.fillRect(0, 0, 1280, 720);
+    const png = new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
+    const options: OptionsInput = {
+      video: { enabled: false },
+      images: { enabled: false },
+      audio: { enabled: false },
+      pdf: { enabled: false },
+      screenshot: { sha256: sha256Hex(png), size: png.length },
+    };
+    const plan = expectType(await h.plan(options), 'plan').plan;
+    expect(plan.operations.map((o) => o.op)).toEqual(['replace-screenshot']);
+    expect(await h.optimize(plan.planHash)).toMatchObject({ type: 'error', code: 'plan-mismatch' });
+    const result = expectType(await h.optimize(plan.planHash, new Blob([png])), 'result');
+    expect(result.report.status).toBe('optimized');
+    const out = unzipSync(new Uint8Array(await result.output!.arrayBuffer()));
+    expect(out['screenshot.png']).toEqual(png);
   });
 });

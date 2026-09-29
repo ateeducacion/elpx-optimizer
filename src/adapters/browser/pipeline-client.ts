@@ -102,6 +102,7 @@ export class PipelineClient {
         else if (m.type === 'analysis') p.resolve(m.result);
         else if (m.type === 'plan') p.resolve(m.plan);
         else if (m.type === 'preview') p.resolve(m.blob);
+        else if (m.type === 'read') p.resolve(m.blob);
         else p.resolve({ report: m.report, fileName: m.fileName, ...(m.output ? { output: m.output } : {}) });
       }
     }
@@ -143,10 +144,16 @@ export class PipelineClient {
     return this.request((id) => ({ type: 'preview', id, path }));
   }
 
-  /** Executes the confirmed plan. */
-  async optimize(planHash: string, onProgress?: (e: ProgressEvent) => void): Promise<OptimizeResult> {
+  /** Returns a file of the analyzed project as untyped bytes (undefined when it does not exist). */
+  async read(path: string): Promise<Blob | undefined> {
     await this.ensureAnalyzed();
-    return this.request((id) => ({ type: 'optimize', id, planHash }), onProgress);
+    return this.request((id) => ({ type: 'read', id, path }));
+  }
+
+  /** Executes the confirmed plan; `screenshot` is the PNG its options name, if any. */
+  async optimize(planHash: string, onProgress?: (e: ProgressEvent) => void, screenshot?: Blob): Promise<OptimizeResult> {
+    await this.ensureAnalyzed();
+    return this.request((id) => ({ type: 'optimize', id, planHash, ...(screenshot ? { screenshot } : {}) }), onProgress);
   }
 
   /** Cancels the running job; guarantees the worker stops within the grace period. */

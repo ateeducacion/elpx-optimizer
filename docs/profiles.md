@@ -53,7 +53,8 @@ handled by the audio policy below.
   as already efficient, which avoids generation loss.
 - Skipped: animated PNG/WebP/GIF, JPEGs with extra images (MPF), CMYK/YCCK JPEGs, 16-bit images,
   SVG (never rasterized), other formats, files whose content does not match the extension, corrupt
-  files, and `screenshot.png` unless `--include-screenshot` (then lossless only, it must stay a PNG).
+  files, and `screenshot.png` unless `--include-screenshot` (then lossless only, it must stay a PNG;
+  a thumbnail replaced with `--screenshot` is not also recompressed).
 - Images used by resolution-sensitive iDevices (magnifier, hidden image, puzzle, map, before/after,
   identify, image gallery) are never resized.
 - Metadata: ICC colour profiles are always kept (no colour conversion is done). EXIF (including the

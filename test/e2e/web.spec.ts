@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { join } from 'node:path';
 import { strFromU8 } from 'fflate';
+import sharp from 'sharp';
 import {
   assertOnlyStaticRequests,
   analyzeFile,
@@ -485,4 +486,32 @@ test('cleans file names by default and rewrites every reference @cross-browser',
   expect(analysis.diagnostics.filter((d) => d.severity === 'error' || d.code === 'missing-resource' || d.code === 'manifest-stale')).toEqual([]);
   // The video under its new name is still the recompressed one.
   expect(files[`${R}/media/clase-1.mp4`]!.length).toBeLessThan((await readEntry(COURSE, VIDEO_ENTRY)).length);
+});
+
+test('regenerates the project thumbnail from the first page, without running it or fetching anything @cross-browser', async ({ page }, testInfo) => {
+  const requests = recordRequests(page);
+  await page.goto('/');
+  await page.setInputFiles('#file-input', EFFICIENT);
+  await waitForReview(page);
+  await page.getByRole('button', { name: /Regenerar desde la primera página|Regenerate from the first page/ }).click();
+  await expect(page.locator('.screenshot-status')).toHaveText(/Nueva miniatura lista|New thumbnail ready/, { timeout: 30_000 });
+  await expect(page.locator('.screenshot-preview')).toBeVisible();
+  await ui.reviewPlan(page).click();
+  await expect(page.locator('.plan-ops')).toContainText(/Miniatura del proyecto|Project thumbnail/);
+  const { path } = await runDownload(page, testInfo);
+
+  const original = await readEntry(EFFICIENT, 'screenshot.png');
+  const shot = await readEntry(path, 'screenshot.png');
+  expect(Buffer.from(shot).equals(Buffer.from(original))).toBe(false);
+  const meta = await sharp(shot).metadata();
+  expect([meta.format, meta.width, meta.height]).toEqual(['png', 1280, 720]);
+  // The page was drawn: not a blank canvas.
+  const { channels } = await sharp(shot).stats();
+  expect(Math.min(...channels.slice(0, 3).map((c) => c.min))).toBeLessThan(200);
+  // Everything else is untouched.
+  expect(Buffer.from(await readEntry(path, 'content.xml')).equals(Buffer.from(await readEntry(EFFICIENT, 'content.xml')))).toBe(true);
+  const analysis = await analyzeFile(path);
+  expect(analysis.ok).toBe(true);
+  expect(analysis.diagnostics.filter((d) => d.code === 'screenshot-invalid')).toEqual([]);
+  expect(assertOnlyStaticRequests(requests, 'http://127.0.0.1:4173', '/')).toEqual([]);
 });

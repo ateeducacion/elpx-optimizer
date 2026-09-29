@@ -6,7 +6,7 @@ import type { ProgressEvent } from '../../core/media/engine.js';
 import { normalizeOptions } from '../../core/plan/options.js';
 import { buildOptimizationPlan, type OptimizationPlan } from '../../core/plan/plan.js';
 import { optimizeArchive } from '../../core/optimize/optimize.js';
-import { readEntry } from '../../core/zip/reader.js';
+import { readEntry, readEntryBytes } from '../../core/zip/reader.js';
 import { BlobByteSource, BlobOutputTarget, BlobStore } from './blob-io.js';
 import { BrowserMediaEngine, type BrowserEngineOptions } from './browser-media-engine.js';
 import type { FfmpegAssets, ThreadingPreference } from './ffmpeg-loader.js';
@@ -161,6 +161,18 @@ export function createPipelineHandler(deps: PipelineDeps, post: (m: WorkerMessag
         }
         return;
       }
+      case 'read': {
+        try {
+          const archive = analysis?.archive;
+          if (!archive) throw new ElpxError('internal', 'Analyze a project first');
+          const entry = archive.byName.get(message.path);
+          const blob = entry && !entry.isDirectory ? new Blob([(await readEntryBytes(archive, entry, PREVIEW_MAX_INFLATE)).slice()]) : undefined;
+          post({ type: 'read', id: message.id, ...(blob ? { blob } : {}) });
+        } catch (error) {
+          fail(message.id, error);
+        }
+        return;
+      }
       case 'optimize': {
         controller = new AbortController();
         try {
@@ -179,7 +191,12 @@ export function createPipelineHandler(deps: PipelineDeps, post: (m: WorkerMessag
               imageConcurrency: deps.imageConcurrency ?? getEngine().imageConcurrency,
               createOutput: () => Promise.resolve(target),
             },
-            { signal: controller.signal, onProgress: progress(message.id), outputName: fileName },
+            {
+              signal: controller.signal,
+              onProgress: progress(message.id),
+              outputName: fileName,
+              ...(message.screenshot ? { screenshot: new Uint8Array(await message.screenshot.arrayBuffer()) } : {}),
+            },
           );
           if (outcome.report.status === 'cancelled') {
             post({ type: 'cancelled', id: message.id });

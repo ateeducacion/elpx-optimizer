@@ -47,6 +47,9 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 - Images: `--image-quality 30-100`, `--webp-quality 30-100`, `--image-max-dimension N|none`
   (default 2560/1920/1600 px by preset), `--no-png`, `--strip-metadata`, `--image-force`,
   `--include-screenshot`.
+- Thumbnail: `--screenshot FILE` replaces (or adds) `screenshot.png` with a 16:9 image at least 600 px
+  wide, saved as a PNG of up to 1280×720 (plan op `replace-screenshot`). Only the web app can redraw
+  it from the first page.
 - Audio files: WAV/AIFF/FLAC become MP3 renamed to `.mp3` (references and `type` attributes
   rewritten; a file whose references cannot follow stays unchanged); MP3, M4A and Opus (WebM/Ogg)
   are re-encoded in place only when their bitrate is ≥ 1.4 × the target. `--audio-bitrate 64-320`
@@ -75,7 +78,7 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 - `optimize --dry-run`: `schema: "elpx-optimizer/dry-run"` with `plan.operations[]` (`op`:
   `transcode-video`, `recompress-image`, `transcode-audio` with `to` when renamed, `optimize-pdf`,
   `remove-unused`, `deduplicate`, `move-resource` and `rename-resource` with `to`,
-  `remove-missing-reference`, `rewrite-references`, `update-manifest`), `plan.skipped[]` (kind,
+  `remove-missing-reference`, `rewrite-references`, `update-manifest`, `replace-screenshot`), `plan.skipped[]` (kind,
   reason code, detail),
   `plan.estimate` (an estimate, not a measurement), `plan.risks[]`.
 - `optimize`: `schema: "elpx-optimizer/report"` with `status`, `sizes`, `operations[]` (status
