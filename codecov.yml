@@ -1,14 +1,14 @@
 # Coverage from the "Tests and coverage" CI job (Vitest, Node and Chromium merged; lcov).
-# The thresholds that fail CI live in vitest.config.ts; Codecov reports and comments.
+# vitest.config.ts fails CI under 90% of the whole code; Codecov adds a status on every pull
+# request that fails when the project drops under 90% or the changed lines are under 90% covered.
 coverage:
   status:
     project:
       default:
-        target: auto
-        threshold: 0.5%
+        target: 90%
     patch:
       default:
-        informational: true
+        target: 90%
 comment:
   layout: 'condensed_header, diff, files'
   require_changes: true

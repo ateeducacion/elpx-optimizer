@@ -143,8 +143,12 @@ jobs:
       - run: bun scripts/validate-skill.ts
 
   e2e:
-    name: E2E (static web app, ffmpeg.wasm in the browser)
+    name: E2E in ${{ matrix.browser }} (static web app, ffmpeg.wasm in the browser)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -153,13 +157,13 @@ jobs:
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
-      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: bun run build:web
-      - run: npx playwright test
+      - run: npx playwright test --project ${{ matrix.browser }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: e2e-report
+          name: e2e-report-${{ matrix.browser }}
           path: |
             playwright-report/
             test-results/e2e-results.json
