@@ -46,6 +46,7 @@ make compat                # when touching format, reference or restructuring co
   Actions. When a component the builds redistribute changes (sharp, ffmpeg.wasm, jSquash, fflate,
   `@noble/hashes`, `@neslinesli93/qpdf-wasm`), update its entry in `THIRD-PARTY-NOTICES.md` (and
   `licenses/qpdf-wasm-NOTICES.txt` and `QPDF_VERSION` for qpdf). Keep the `Dockerfile` base images
-  as literal `FROM` lines, without `ARG`s, so Dependabot can update them.
+  as literal `FROM` lines, without `ARG`s, so Dependabot can update them, and `bun.lock` at
+  `"lockfileVersion": 1` (Dependabot cannot read 2; CI checks it).
 - Updating eXeLearning compatibility: bump the SHA in `scripts/fetch-upstream.sh`,
   `src/core/version.ts` and `docs/upstream-review.md`, then run `make compat`.

@@ -28,6 +28,12 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: bun install --frozen-lockfile
+      - name: bun.lock stays readable by Dependabot
+        run: |
+          grep -q '"lockfileVersion": 1,' bun.lock || {
+            echo '::error file=bun.lock::Dependabot reads bun.lock up to lockfileVersion 1; set it back to 1 (Bun 1.4 accepts it unchanged)'
+            exit 1
+          }
       - run: npx eslint .
       - run: npx prettier --check .
       - run: bun run typecheck

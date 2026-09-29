@@ -344,3 +344,9 @@ The `Dockerfile` writes the base images literally in its `FROM` lines (`oven/bun
 build and CLI stages, `nginxinc/nginx-unprivileged:1.29-alpine` for the web stage) instead of the
 `ARG BUN_IMAGE` and `ARG NGINX_IMAGE` it used before, so that Dependabot's Docker ecosystem can read
 and update the tags.
+
+`bun.lock` declares `"lockfileVersion": 1`: Dependabot's Bun cannot read version 2, the format Bun 1.4
+writes for a new lockfile. For this project both formats are the same text apart from that number,
+Bun 1.4 installs a version 1 lockfile with `--frozen-lockfile` and keeps it at version 1 on
+`bun install` and `bun add`; only a lockfile created from scratch comes out as version 2. CI checks
+the number.
