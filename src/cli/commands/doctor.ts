@@ -124,6 +124,12 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
           encoders: info.video.encoders,
           ...(info.video.reason ? { reason: info.video.reason } : {}),
         },
+        audio: {
+          // Audio uses the same FFmpeg processes as video.
+          available: (info.audio?.available ?? false) && checks.find((c) => c.name === 'video-encode')!.ok,
+          encoders: info.audio?.encoders ?? [],
+          ...(info.audio?.reason ? { reason: info.audio.reason } : {}),
+        },
         image: {
           available: info.image.available && checks.find((c) => c.name === 'image-encode')!.ok,
           encoders: info.image.encoders,
@@ -143,6 +149,12 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
         line(
           result.capabilities.video.available,
           `video: ${result.capabilities.video.available ? `ffmpeg ${info.versions['ffmpeg']}, ffprobe ${info.versions['ffprobe']}, encoders ${info.video.encoders.join(', ')}` : (info.video.reason ?? 'unavailable')}`,
+        ),
+      );
+      io.stdout(
+        line(
+          result.capabilities.audio.available,
+          `audio: ${result.capabilities.audio.available ? `encoders ${result.capabilities.audio.encoders.join(', ')}` : (info.audio?.reason ?? 'unavailable')}`,
         ),
       );
       io.stdout(
