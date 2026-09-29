@@ -4,6 +4,7 @@ import type { Limits } from '../limits.js';
 import type { EngineInfo } from '../media/engine.js';
 import { decideImage, type ImageJob, type ImageSkipReason } from '../media/image-policy.js';
 import { decideVideo, type VideoJob, type VideoSkipReason } from '../media/video-policy.js';
+import { decideAudio, type AudioJob, type AudioSkipReason } from '../media/audio-policy.js';
 import { sha256Hex } from '../io/hash.js';
 import { MANIFEST_PATH } from '../format/manifest.js';
 import { IMAGE_EXTENSIONS } from '../analyze/analyze.js';
@@ -40,6 +41,18 @@ export type PlanOperation =
       readonly job: ImageJob;
       readonly estimatedBytes?: number;
     }
+  | {
+      readonly id: string;
+      readonly op: 'transcode-audio';
+      readonly path: string;
+      readonly size: number;
+      readonly lossy: true;
+      readonly conversions: readonly string[];
+      readonly job: AudioJob;
+      /** New path when the format (and so the extension) changes. */
+      readonly to?: string;
+      readonly estimatedBytes?: number;
+    }
   | { readonly id: string; readonly op: 'remove-unused'; readonly path: string; readonly size: number; readonly reason: string }
   | {
       readonly id: string;
@@ -71,8 +84,8 @@ export type PlanOperation =
 
 export interface SkippedResource {
   readonly path: string;
-  readonly kind: 'video' | 'image' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference';
-  readonly reason: VideoSkipReason | ImageSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
+  readonly kind: 'video' | 'image' | 'audio' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference';
+  readonly reason: VideoSkipReason | ImageSkipReason | AudioSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
   readonly detail: string;
 }
 
@@ -122,7 +135,37 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
         }
       }
     }
-    const restructure = restructurePlan(analysis, options, removedByCleanup);
+    // Audio decisions come first: a change of format is a rename that the restructuring verifies.
+    const audioJobs = new Map<string, AudioJob>();
+    for (const e of result.entries) {
+      if (e.isDirectory || e.role !== 'user-asset' || e.kind !== 'audio' || removedByCleanup.has(e.path)) continue;
+      if (excluded.has(e.path)) {
+        skipped.push({ path: e.path, kind: 'audio', reason: 'excluded', detail: 'Kept as original by request' });
+        continue;
+      }
+      const job = planAudio(analysis, e, options, engine, limits, skipped);
+      if (job) audioJobs.set(e.path, job);
+    }
+    const convert = new Map([...audioJobs].filter(([, job]) => job.rename).map(([path, job]) => [path, job.target]));
+    const restructure = restructurePlan(analysis, options, removedByCleanup, convert);
+    for (const [path, job] of audioJobs) {
+      if (restructure.merged.has(path)) continue;
+      const to = job.rename ? restructure.renames.get(path) : undefined;
+      // A conversion whose references cannot follow the new name is reported by the restructuring.
+      if (job.rename && to === undefined) continue;
+      const size = result.entries.find((x) => x.path === path)!.size;
+      operations.push({
+        id: `audio:${path}`,
+        op: 'transcode-audio',
+        path,
+        size,
+        lossy: true,
+        conversions: job.conversions,
+        job,
+        ...(to !== undefined ? { to } : {}),
+        estimatedBytes: Math.min(size, Math.round((job.bitrateKbps * 1000 * job.expected.duration) / 8)),
+      });
+    }
     const sizeOf = new Map(result.entries.map((x) => [x.path, x.size]));
     for (const m of restructure.merges) {
       operations.push({
@@ -140,7 +183,11 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
     for (const u of restructure.unlinks) {
       operations.push({ id: `unlink:${u.key}`, op: 'remove-missing-reference', path: u.key, references: u.references, actions: u.actions, entries: u.entries });
     }
-    for (const s of restructure.skipped) skipped.push({ path: s.path, kind: s.kind, reason: 'kept', detail: s.reason });
+    for (const s of restructure.skipped) {
+      if (s.kind === 'convert')
+        skipped.push({ path: s.path, kind: 'audio', reason: 'kept', detail: `Not converted: its references cannot follow a new name (${s.reason})` });
+      else skipped.push({ path: s.path, kind: s.kind, reason: 'kept', detail: s.reason });
+    }
     for (const [entry, list] of restructure.edits) {
       operations.push({
         id: `rewrite:${entry}`,
@@ -164,16 +211,22 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
       if (e.kind === 'video') planVideo(analysis, e, options, engine, limits, operations, skipped);
       else planImage(analysis, e, options, engine, limits, operations, skipped, isScreenshot);
     }
-    const removals = operations.some((o) => o.op === 'remove-unused' || o.op === 'deduplicate' || o.op === 'move-resource');
+    const removals = operations.some(
+      (o) => o.op === 'remove-unused' || o.op === 'deduplicate' || o.op === 'move-resource' || (o.op === 'transcode-audio' && o.to !== undefined),
+    );
     if (removals && analysis.manifest) {
       operations.push({ id: `manifest:${MANIFEST_PATH}`, op: 'update-manifest', path: MANIFEST_PATH, reason: 'list the final set of entries' });
     }
     for (const op of operations) {
-      if (op.op === 'transcode-video' || op.op === 'recompress-image') estimate += Math.max(0, op.size - (op.estimatedBytes ?? op.size));
+      if (op.op === 'transcode-video' || op.op === 'recompress-image' || op.op === 'transcode-audio')
+        estimate += Math.max(0, op.size - (op.estimatedBytes ?? op.size));
       else if (op.op === 'remove-unused' || op.op === 'deduplicate') estimate += op.size;
     }
-    if (operations.some((o) => o.op === 'transcode-video' || (o.op === 'recompress-image' && o.lossy))) {
-      risks.push('Lossy re-encoding changes image/video quality; originals are kept when a result is not valid or not smaller.');
+    if (operations.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || (o.op === 'recompress-image' && o.lossy))) {
+      risks.push('Lossy re-encoding changes image, audio or video quality; originals are kept when a result is not valid or not smaller.');
+    }
+    if (operations.some((o) => o.op === 'transcode-audio' && o.to !== undefined)) {
+      risks.push('WAV, AIFF and FLAC recordings become MP3 files with the .mp3 extension; their references are rewritten.');
     }
     if (operations.some((o) => (o.op === 'transcode-video' && o.job.scale) || (o.op === 'recompress-image' && o.job.resize))) {
       risks.push('Some media will be downscaled.');
@@ -212,15 +265,54 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
   return { ...plan, planHash: sha256Hex(canonicalJson({ ...plan, estimate: undefined })) };
 }
 
-/** Replays the restructuring decisions for these options (also used by execution). */
-export function restructurePlan(analysis: Analysis, options: NormalizedOptions, removed: ReadonlySet<string>): RestructurePlan {
+/**
+ * Replays the restructuring decisions for these options (also used by
+ * execution, where `convert` only holds the conversions that succeeded).
+ */
+export function restructurePlan(
+  analysis: Analysis,
+  options: NormalizedOptions,
+  removed: ReadonlySet<string>,
+  convert: ReadonlyMap<string, string> = new Map(),
+): RestructurePlan {
   return planRestructure(analysis, {
     deduplicate: options.deduplicate === 'exact',
     flatten: options.flatten === 'legacy',
     removeMissing: options.missingReferences === 'remove',
     excluded: new Set(options.exclude),
     removed,
+    convert,
   });
+}
+
+/** Decides an audio job, or records why the file is left unchanged. */
+function planAudio(
+  analysis: Analysis,
+  e: InventoryEntry,
+  options: NormalizedOptions,
+  engine: EngineInfo,
+  limits: Limits,
+  skipped: SkippedResource[],
+): AudioJob | undefined {
+  const caps = engine.audio ?? { available: false, encoders: [], reason: 'This engine does not process audio' };
+  const probe = analysis.probes.get(e.path);
+  if (!options.audio.enabled) {
+    skipped.push({ path: e.path, kind: 'audio', reason: 'audio-disabled', detail: 'Audio optimization is disabled' });
+    return undefined;
+  }
+  if (!probe) {
+    if (!caps.available) skipped.push({ path: e.path, kind: 'audio', reason: 'engine-unavailable', detail: caps.reason ?? 'No audio engine' });
+    else if (e.size > limits.maxVideoBytes)
+      skipped.push({ path: e.path, kind: 'audio', reason: 'exceeds-size-limit', detail: `File is larger than ${limits.maxVideoBytes} bytes` });
+    else skipped.push({ path: e.path, kind: 'audio', reason: 'unsupported-format', detail: `${e.format.toUpperCase()} audio is left unchanged` });
+    return undefined;
+  }
+  const decision = decideAudio({ format: e.format, size: e.size, probe }, options.audio, caps, limits);
+  if (decision.action === 'skip') {
+    skipped.push({ path: e.path, kind: 'audio', reason: decision.reason, detail: decision.detail });
+    return undefined;
+  }
+  return decision.job;
 }
 
 /** Explains why an entry's references are rewritten. */
@@ -230,6 +322,7 @@ function rewriteReason(entry: string, restructure: RestructurePlan, analysis: An
     if (r.site?.entry !== entry) continue;
     const target = r.status === 'resolved' ? r.target : undefined;
     if (target && restructure.merged.has(target)) reasons.add('references to removed duplicates');
+    else if (target && restructure.conversions.some((c) => c.from === target)) reasons.add('references to converted audio');
     else if (target && restructure.renames.has(target)) reasons.add('references to moved files');
   }
   if (restructure.unlinks.some((u) => u.entries.includes(entry))) reasons.add('references to missing files taken out');

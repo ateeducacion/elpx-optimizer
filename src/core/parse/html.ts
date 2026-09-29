@@ -33,6 +33,8 @@ export interface HtmlElementInfo {
    * explicit end tag and nothing but whitespace or comments inside.
    */
   readonly removableSpan?: HtmlSpan;
+  /** Source span of the `type` attribute's value, when it can be replaced as plain text. */
+  readonly typeValueSpan?: HtmlSpan;
 }
 
 export interface HtmlAttributeField {
@@ -111,12 +113,17 @@ function walk(nodes: readonly Node[], html: string, ancestors: string[], out: Ht
   for (const node of nodes) {
     if (isElement(node)) {
       const removableSpan = elementSpan(node);
+      const typeLoc = node.sourceCodeLocation?.attrs?.['type'];
+      const typeAttr = node.attrs.find((a) => a.name === 'type' && !a.prefix);
+      const typeField = typeLoc && typeAttr ? attributeField(html, FRAGMENT_ROOT, 'type', typeAttr.value, typeLoc.startOffset, typeLoc.endOffset) : undefined;
+      const typeValueSpan = typeField?.rewritable ? { start: typeField.rawStart, end: typeField.rawEnd } : undefined;
       const info: HtmlElementInfo = {
         tagName: node.tagName,
         attributes: Object.fromEntries(node.attrs.map((a) => [a.name, a.value])),
         ancestors: [...ancestors],
         startOffset: node.sourceCodeLocation?.startOffset ?? -1,
         ...(removableSpan ? { removableSpan } : {}),
+        ...(typeValueSpan ? { typeValueSpan } : {}),
       };
       const locs = node.sourceCodeLocation?.attrs;
       for (const attr of node.attrs) {

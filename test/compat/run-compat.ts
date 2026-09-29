@@ -42,6 +42,8 @@ const cases: { fixture: string; flags: string[]; label?: string }[] = [
     label: 'flatten',
   },
   { fixture: 'test/fixtures/elpx/legacy-folders.elpx', flags: [...DEFAULT, '--flatten', 'legacy'], label: 'flatten' },
+  // Audio converted to MP3 (renamed, references and declared types updated).
+  { fixture: 'test/fixtures/elpx/audio-course.elpx', flags: DEFAULT, label: 'audio' },
   // References to missing files taken out.
   { fixture: 'test/fixtures/elpx/broken-refs.elpx', flags: [...DEFAULT, '--missing-references', 'remove'], label: 'unlink' },
   { fixture: 'test/fixtures/upstream/missing-asset-refs.elpx', flags: [...DEFAULT, '--missing-references', 'remove'], label: 'unlink' },
@@ -97,7 +99,9 @@ for (const { fixture: f, flags, label } of cases) {
   const unlinked = report.operations.filter((o) => o.op === 'remove-missing-reference' && o.status === 'applied').length;
   const detail = compat
     ? [
-        ...['structureDiffs', 'metaDiffs', 'newMissing', 'newUnresolved', 'newPlaceholders', 'reimportDiffs'].map((k) => `${k}:${(compat[k] as unknown[]).length}`),
+        ...['structureDiffs', 'metaDiffs', 'newMissing', 'newUnresolved', 'newPlaceholders', 'reimportDiffs'].map(
+          (k) => `${k}:${(compat[k] as unknown[]).length}`,
+        ),
         ...(() => {
           const left = compat['placeholdersLeftByUpstream'] as { before: number; after: number };
           return left.before + left.after > 0 ? [`upstreamUnconverted:${left.before}→${left.after}`] : [];

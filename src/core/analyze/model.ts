@@ -30,6 +30,14 @@ export interface VideoSummary {
   readonly otherStreams: number;
 }
 
+export interface AudioSummary {
+  readonly codec: string;
+  readonly duration?: number;
+  readonly channels?: number;
+  readonly sampleRate?: number;
+  readonly bitRate?: number;
+}
+
 export interface ImageSummary {
   readonly width?: number;
   readonly height?: number;
@@ -68,6 +76,8 @@ export interface InventoryEntry {
   readonly duplicateGroup?: number;
   readonly image?: ImageSummary;
   readonly video?: VideoSummary;
+  /** Present for probed audio files (and audio-only recordings in video containers). */
+  readonly audio?: AudioSummary;
 }
 
 /** Serializable view of a reference. */

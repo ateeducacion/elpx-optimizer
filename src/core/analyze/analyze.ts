@@ -21,6 +21,7 @@ import { legacyFolderOf } from '../format/legacy-folders.js';
 import { ANALYSIS_SCHEMA_VERSION, TOOL_NAME, TOOL_VERSION, UPSTREAM_VERSION } from '../version.js';
 import type {
   Analysis,
+  AudioSummary,
   AnalysisResult,
   DuplicateGroup,
   EntryRole,
@@ -49,6 +50,8 @@ const RUNTIME_PREFIXES = ['theme/', 'libs/', 'idevices/', 'content/css/', 'conte
 const PACKAGE_FILES = new Set(['content.xml', 'content.dtd', 'screenshot.png', 'search_index.js', MANIFEST_PATH]);
 const RESOLUTION_SENSITIVE_TYPES = new Set(['magnifier', 'hidden-image', 'puzzle', 'map', 'beforeafter', 'identify', 'image-gallery']);
 const DEDUP_KINDS = new Set(['image', 'video', 'audio', 'document', 'font']);
+/** Audio formats inspected with ffprobe (those the audio policy can act on). */
+const PROBED_AUDIO = new Set(['wav', 'aiff', 'flac', 'mp3', 'm4a']);
 /** Extensions of images whose headers are inspected (other names are never decoded). */
 export const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['jpg', 'jpeg', 'jpe', 'png', 'webp', 'gif', 'apng']);
 /** eXeLearning hosted import limits (importPolicy.ts). */
@@ -238,13 +241,17 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
   const probes = new Map<string, ProbeResult>();
   let mediaNote: string | undefined;
   let mediaEngine: string | undefined;
-  const videos = files.filter((f) => sniffs.get(f.name)?.kind === 'video' && entryRole(f.name) === 'user-asset');
+  // Videos, and the audio formats the audio policy can re-encode, are inspected with ffprobe.
+  const videos = files.filter((f) => {
+    const s = sniffs.get(f.name);
+    return entryRole(f.name) === 'user-asset' && (s?.kind === 'video' || (s?.kind === 'audio' && PROBED_AUDIO.has(s.format)));
+  });
   if (options.media && videos.length > 0) {
     const info = await options.media.engine.info();
     mediaEngine = info.engine;
     if (!info.video.available) {
       mediaNote = info.video.reason ?? 'Video inspection unavailable';
-      diagnostics.push(diagnostic('media-engine-unavailable', `Videos were not inspected: ${mediaNote}`));
+      diagnostics.push(diagnostic('media-engine-unavailable', `Videos and audio were not inspected: ${mediaNote}`));
     } else {
       let n = 0;
       for (const v of videos) {
@@ -266,7 +273,7 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
       }
     }
   } else if (videos.length > 0) {
-    mediaNote = 'Videos were not inspected (no media engine)';
+    mediaNote = 'Videos and audio were not inspected (no media engine)';
   }
 
   const inventory = buildInventory(archive, sniffs, references, images, probes, duplicates, ode, diagnostics);
@@ -775,9 +782,27 @@ function buildInventory(
       resolutionSensitive: sensitive.has(e.name),
       ...(dupOf.has(e.name) ? { duplicateGroup: dupOf.get(e.name)! } : {}),
       ...(imageInfo ? { image: imageSummary(imageInfo) } : {}),
-      ...(probe ? { video: videoSummary(probe) } : {}),
+      ...(probe && s.kind === 'video' ? { video: videoSummary(probe) } : {}),
+      ...(probe && (audioOnly || s.kind === 'audio') ? audioSummary(probe) : {}),
     };
   });
+}
+
+/** Summarizes the first audio stream of a probe. */
+function audioSummary(p: ProbeResult): { audio?: AudioSummary } {
+  const a = p.streams.find((x) => x.type === 'audio');
+  if (!a) return {};
+  const duration = a.duration ?? p.duration;
+  const bitRate = a.bitRate ?? p.bitRate;
+  return {
+    audio: {
+      codec: a.codec,
+      ...(duration !== undefined ? { duration } : {}),
+      ...(a.channels !== undefined ? { channels: a.channels } : {}),
+      ...(a.sampleRate !== undefined ? { sampleRate: a.sampleRate } : {}),
+      ...(bitRate !== undefined ? { bitRate } : {}),
+    },
+  };
 }
 
 function imageSummary(i: ImageInfo): ImageSummary {

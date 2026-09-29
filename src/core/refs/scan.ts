@@ -41,6 +41,10 @@ export interface ElementAnchor {
   readonly key: HtmlSpan;
   /** Span of the whole element when it can be deleted on its own (see HtmlElementInfo.removableSpan). */
   readonly span?: HtmlSpan;
+  /** The element's decoded attributes (for example `type`). */
+  readonly attributes?: Readonly<Record<string, string>>;
+  /** Span of the `type` attribute's value, when it can be replaced. */
+  readonly typeSpan?: HtmlSpan;
 }
 
 /**
@@ -296,6 +300,8 @@ function scanHtmlField(field: HtmlField, ctx: ScanContext): void {
           lift: ctx.lift,
           tag,
           key: { start: field.element.startOffset, end: field.element.startOffset },
+          attributes: field.element.attributes,
+          ...(field.element.typeValueSpan ? { typeSpan: field.element.typeValueSpan } : {}),
           ...(field.element.removableSpan ? { span: field.element.removableSpan } : {}),
         }
       : undefined;

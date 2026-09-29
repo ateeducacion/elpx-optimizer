@@ -18,6 +18,7 @@ import type { EngineInfo, MediaEngine, ProgressListener, ResourceStore, StoredRe
 import { inspectImage } from '../media/image-inspect.js';
 import { extractMetadata, injectMetadata } from '../media/image-metadata.js';
 import { isWorthReplacing, validateVideoCandidate } from '../media/video-policy.js';
+import { audioDemuxer, validateAudioCandidate } from '../media/audio-policy.js';
 import { applyTextEdits } from '../refs/rewrite.js';
 import { buildOptimizationPlan, restructurePlan, type OptimizationPlan, type PlanOperation } from '../plan/plan.js';
 import { canonicalJson } from '../plan/options.js';
@@ -118,6 +119,32 @@ export async function optimizeArchive(
       results.push(r.result);
       if (r.candidate) replacements.set(op.path, r.candidate);
     }
+    // Audio: a converted file (e.g. WAV → MP3) is renamed below, so its references follow it.
+    const audioOps = plan.operations.filter((o): o is Extract<PlanOperation, { op: 'transcode-audio' }> => o.op === 'transcode-audio');
+    const converted = new Map<string, string>();
+    // Audio encoders are single-threaded: natively, several files run at once (the browser engine queues them).
+    let nextAudio = 0;
+    const audioWorker = async (): Promise<void> => {
+      while (nextAudio < audioOps.length) {
+        throwIfCancelled(signal);
+        const item = ++nextAudio;
+        const op = audioOps[item - 1]!;
+        const thresholds = { minSavingsPercent: plan.options.audio.minSavingsPercent, minSavingsBytes: plan.options.audio.minSavingsBytes };
+        const r = await runAudio(op, archive.byName.get(op.path)!, analysis, platform, engineInfo, {
+          signal,
+          progress,
+          thresholds,
+          item,
+          items: audioOps.length,
+        });
+        results.push(r.result);
+        if (r.candidate) {
+          replacements.set(op.path, r.candidate);
+          if (op.job.rename) converted.set(op.path, op.job.target);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(platform.imageConcurrency, audioOps.length)) }, audioWorker));
     let next = 0;
     let finished = 0;
     const worker = async (): Promise<void> => {
@@ -141,7 +168,15 @@ export async function optimizeArchive(
         results.push({ id: op.id, op: op.op, path: op.path, status: 'applied', before: op.size, after: 0, detail: op.reason });
       }
     }
-    const restructure = restructurePlan(analysis, plan.options, new Set(removed));
+    const restructure = restructurePlan(analysis, plan.options, new Set(removed), converted);
+    // Defensive: a converted file whose rename did not hold keeps its original bytes and name.
+    for (const path of converted.keys()) {
+      if (restructure.renames.has(path) || restructure.merged.has(path)) continue;
+      await replacements.get(path)?.dispose();
+      replacements.delete(path);
+      const i = results.findIndex((r) => r.op === 'transcode-audio' && r.path === path);
+      results[i] = { ...results[i]!, status: 'reverted', detail: 'its references could not follow the new name; the original was kept' };
+    }
     for (const d of restructure.merges) {
       for (const p of d.remove) {
         removed.add(p);
@@ -370,6 +405,61 @@ async function runVideo(
     await input?.dispose().catch(() => undefined);
     await candidate?.dispose().catch(() => undefined);
     return { result: { ...base, status: 'reverted', ...(candidate ? { after: candidate.size } : {}), detail } };
+  }
+}
+
+/** Runs one audio job with validation; returns the accepted candidate, if any. */
+async function runAudio(
+  op: Extract<PlanOperation, { op: 'transcode-audio' }>,
+  entry: ZipEntry,
+  analysis: Analysis,
+  platform: Platform,
+  engineInfo: EngineInfo,
+  step: StepContext,
+): Promise<{ result: OperationResult; candidate?: StoredResource }> {
+  const base = { id: op.id, op: op.op, path: op.path, before: op.size, lossy: true, conversions: op.conversions } as const;
+  const ctx = {
+    resourcePath: op.path,
+    timeoutMs: platform.limits.videoTimeoutMs,
+    ...(step.signal ? { signal: step.signal } : {}),
+    onProgress: step.progress,
+  };
+  let input: StoredResource | undefined;
+  let candidate: StoredResource | undefined;
+  const reject = async (detail: string): Promise<{ result: OperationResult }> => {
+    await input?.dispose().catch(() => undefined);
+    await candidate?.dispose().catch(() => undefined);
+    return { result: { ...base, status: 'reverted', ...(candidate ? { after: candidate.size } : {}), detail } };
+  };
+  try {
+    if (!platform.engine.transcodeAudio) throw new ElpxError('media-engine-unavailable', 'This engine does not process audio');
+    step.progress({ stage: 'extract', resource: op.path, ...(step.item ? { item: step.item, items: step.items! } : {}) });
+    input = await platform.store.fromEntry(analysis.archive!, entry, extname(op.path) || 'bin', step.signal);
+    step.progress({ stage: 'transcode', resource: op.path, processedSeconds: 0, totalSeconds: op.job.expected.duration });
+    candidate = await platform.engine.transcodeAudio(input, op.job, ctx);
+    step.progress({ stage: 'validate', resource: op.path, message: 'Inspecting the new audio' });
+    const check = validateAudioCandidate(op.job, await platform.engine.probe(candidate, ctx));
+    if (!check.ok) return await reject(`candidate rejected: ${check.problems.join('; ')}`);
+    const checks = ['stream, duration, channels and sample rate match the plan'];
+    await platform.engine.decodeCheck(candidate, { demuxer: audioDemuxer(op.job.target) }, ctx);
+    checks.push('full decode without errors');
+    if (platform.engine.playbackCheck) {
+      const mime = op.job.target === 'mp3' ? 'audio/mpeg' : 'audio/mp4';
+      const original = analysis.result.entries.find((e) => e.path === op.path)?.mime ?? mime;
+      const before = await platform.engine.playbackCheck(input, original, ctx);
+      const after = await platform.engine.playbackCheck(candidate, mime, ctx);
+      if (before === 'playable' && after !== 'playable') return await reject('the new audio does not play in this browser');
+      checks.push(after === 'unsupported' ? `playback: ${mime} not supported by this browser` : `playback in this browser: ${after} (original: ${before})`);
+    }
+    if (!isWorthReplacing(op.size, candidate.size, step.thresholds)) return await reject(`not smaller enough (${op.size} → ${candidate.size} bytes)`);
+    await input.dispose();
+    const detail = op.to !== undefined ? `converted to ${op.job.target.toUpperCase()} and renamed to ${op.to}` : undefined;
+    return { result: { ...base, status: 'applied', after: candidate.size, engine: engineInfo.engine, checks, ...(detail ? { detail } : {}) }, candidate };
+  } catch (error) {
+    await input?.dispose().catch(() => undefined);
+    await candidate?.dispose().catch(() => undefined);
+    if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
+    return { result: { ...base, status: 'failed', detail: errorMessage(error) } };
   }
 }
 

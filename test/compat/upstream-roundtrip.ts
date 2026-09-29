@@ -41,6 +41,10 @@ const reportArg = args.find((a) => a.startsWith('--report='));
 const renamesArg = args.find((a) => a.startsWith('--renames='));
 const contentChanges = args.includes('--content-changes');
 const renames: Record<string, string> = renamesArg ? JSON.parse(await fs.readFile(renamesArg.slice('--renames='.length), 'utf8')) : {};
+const extOf = (p: string): string => p.slice(p.lastIndexOf('.') + 1).toLowerCase();
+// Audio converted to another format (WAV → MP3) legitimately updates the declared type of its element.
+const formatChanges = Object.entries(renames).some(([to, from]) => extOf(to) !== extOf(from));
+const AUDIO_TYPE = /type=(\\?)"audio\/[^"\\]*\1"/g;
 const [originalPath, optimizedPath] = args.filter((a) => !a.startsWith('--'));
 if (!originalPath || !optimizedPath || !reportArg) {
   console.error('usage: bun roundtrip.ts <original.elpx> <optimized.elpx> --report=FILE');
@@ -125,7 +129,7 @@ function originalHash(target: string, originalFiles: Record<string, string>): st
  * package that introduces new unconverted placeholders is caught.
  */
 function normalize(text: string, l: Loaded, originalFiles: Record<string, string>, unresolved: Set<string>, placeholders: Set<string>): string {
-  return text
+  return (formatChanges ? text.replace(AUDIO_TYPE, 'type=$1"audio/*$1"') : text)
     .replace(ASSET_REF, (m) => {
       const target = resolveRef(m, l.extracted);
       if (!target) {

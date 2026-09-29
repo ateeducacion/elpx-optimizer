@@ -75,6 +75,7 @@ Selection:
   --preset NAME              conservative | balanced (default) | aggressive
   --no-video                 Do not touch videos
   --no-images                Do not touch images
+  --no-audio                 Do not touch audio files
   --remove-unused MODE       off (default) | safe
   --deduplicate MODE         off (default) | exact
   --flatten MODE             off (default) | legacy: move files out of eXeLearning 3
@@ -100,6 +101,10 @@ Images:
   --strip-metadata           Remove EXIF/XMP/IPTC/text (ICC always kept)
   --image-force              Re-encode images that already look efficient
   --include-screenshot       Also optimize screenshot.png (lossless only)
+
+Audio (WAV, AIFF and FLAC become MP3 with the .mp3 extension; references are rewritten):
+  --audio-bitrate N          kb/s for stereo, mono uses half (64-320; default 192/128/96)
+  --audio-force              Re-encode MP3/M4A even when their bitrate is close to the target
   --min-savings-percent N    Minimum saving to replace a resource (default 5)
   --min-savings-bytes N      Minimum saving in bytes (default 1024; videos 10240)
 
@@ -154,6 +159,9 @@ const COMMANDS: Record<string, { options: NonNullable<ParseArgsConfig['options']
       'remove-unused': { type: 'string' },
       deduplicate: { type: 'string' },
       flatten: { type: 'string' },
+      'no-audio': { type: 'boolean' },
+      'audio-bitrate': { type: 'string' },
+      'audio-force': { type: 'boolean' },
       'missing-references': { type: 'string' },
       exclude: { type: 'string', multiple: true },
       'video-crf': { type: 'string' },

@@ -8,7 +8,8 @@
  * obfuscated DataGame payloads with link anchors, a local interactive video,
  * the download-source-file manifest, duplicates, unused files and a video
  * that is deliberately inefficient, and an eXeLearning 3 style project with
- * files in editor folders (content/resources/<ODE-ID>/) and broken references.
+ * files in editor folders (content/resources/<ODE-ID>/) and broken references,
+ * and a course with WAV, FLAC, AIFF and high-bitrate MP3 audio.
  *
  * Usage: bun scripts/generate-elpx-fixtures.ts
  * The ZIPs are written with fflate (not with this project's writer), using a
@@ -218,6 +219,52 @@ function buildPackage(...args: Parameters<typeof build> extends [unknown, ...inf
         [`content/resources/${E}/nota.png`]: read('deep-16bit.png'),
         'content/resources/mis fotos/playa.jpg': read('progressive.jpg'),
         'content/resources/20240101120000FFFFFF/': new Uint8Array(0),
+      },
+      { download: true },
+    ),
+  );
+}
+
+// ---------------------------------------------------------------- audio-course.elpx (WAV, FLAC, AIFF and a high-bitrate MP3)
+{
+  const R = '{{context_path}}/content/resources/audio';
+  const textHtml =
+    `<p><audio controls="controls" src="${R}/lectura.wav" type="audio/wav"></audio></p>` +
+    `<p><audio controls="controls"><source src="${R}/musica.flac" type="audio/flac"></audio></p>` +
+    `<p><a href="${R}/pista.aiff">Pista</a> <audio controls="controls" src="${R}/alta.mp3"></audio></p>` +
+    `<script>var extra = "content/resources/audio/codigo.wav";</script>`;
+  const gameHtml =
+    '<div class="adivina-IDevice"><div class="adivina-DataGame js-hidden">' +
+    JSON.stringify({ wordsGame: [{ word: 'hola', audio: `${R}/lectura.wav` }] }) +
+    '</div><p>Juego</p></div>';
+  const pages: Page[] = [
+    {
+      id: 'page-1',
+      name: 'Escucha',
+      file: 'index.html',
+      blocks: [
+        {
+          id: 'block-1',
+          name: 'Audio',
+          components: [
+            { id: 'idevice-1', type: 'text', html: textHtml, json: { textTextarea: textHtml } },
+            { id: 'idevice-2', type: 'guess', html: gameHtml },
+          ],
+        },
+      ],
+    },
+  ];
+  writeFileSync(
+    join(out, 'audio-course.elpx'),
+    buildPackage(
+      'Curso con audio',
+      pages,
+      {
+        'content/resources/audio/lectura.wav': read('tone.wav'),
+        'content/resources/audio/musica.flac': read('tone.flac'),
+        'content/resources/audio/pista.aiff': read('tone.aiff'),
+        'content/resources/audio/alta.mp3': read('tone-320.mp3'),
+        'content/resources/audio/codigo.wav': read('tone.wav').slice(0, 44 + 44100 * 4),
       },
       { download: true },
     ),

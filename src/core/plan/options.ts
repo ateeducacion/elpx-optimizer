@@ -1,6 +1,7 @@
 import { ElpxError } from '../errors.js';
 import { IMAGE_PROFILES, type ImageOptions } from '../media/image-policy.js';
 import { RESOLUTION_CAPS, VIDEO_PROFILES, X264_PRESETS, type Preset, type ResolutionCap, type VideoOptions } from '../media/video-policy.js';
+import { AUDIO_PROFILES, type AudioOptions } from '../media/audio-policy.js';
 
 /**
  * User-facing options and their normalization. The CLI flags, the web form
@@ -30,6 +31,13 @@ export interface OptionsInput {
     force?: boolean;
     includeScreenshot?: boolean;
   };
+  audio?: {
+    enabled?: boolean;
+    /** Target bitrate in kb/s for stereo (mono uses half, at least 64). */
+    bitrate?: number;
+    /** Re-encode MP3/M4A even when their bitrate is close to the target. */
+    force?: boolean;
+  };
   removeUnused?: 'off' | 'safe';
   deduplicate?: 'off' | 'exact';
   /** Move files out of eXeLearning 3 editor folders (content/resources/<ODE-ID>/) into content/resources/. */
@@ -46,6 +54,7 @@ export interface NormalizedOptions {
   readonly preset: Preset;
   readonly video: VideoOptions;
   readonly images: ImageOptions & { readonly includeScreenshot: boolean };
+  readonly audio: AudioOptions;
   readonly removeUnused: 'off' | 'safe';
   readonly deduplicate: 'off' | 'exact';
   readonly flatten: 'off' | 'legacy';
@@ -86,7 +95,7 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (typeof input !== 'object' || input === null) invalid('Options must be an object');
   checkKeys(
     input,
-    ['preset', 'video', 'images', 'removeUnused', 'deduplicate', 'flatten', 'missingReferences', 'minSavingsPercent', 'minSavingsBytes', 'exclude'],
+    ['preset', 'video', 'images', 'audio', 'removeUnused', 'deduplicate', 'flatten', 'missingReferences', 'minSavingsPercent', 'minSavingsBytes', 'exclude'],
     '',
   );
   const preset = input.preset ?? 'balanced';
@@ -131,6 +140,17 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
     force: i.force === undefined ? false : bool(i.force, 'images.force'),
     includeScreenshot: i.includeScreenshot === undefined ? false : bool(i.includeScreenshot, 'images.includeScreenshot'),
   };
+  const au = input.audio ?? {};
+  if (typeof au !== 'object' || au === null) invalid('audio must be an object');
+  checkKeys(au, ['enabled', 'bitrate', 'force'], 'audio.');
+  const audio: AudioOptions = {
+    enabled: au.enabled === undefined ? true : bool(au.enabled, 'audio.enabled'),
+    preset,
+    bitrateKbps: au.bitrate === undefined ? AUDIO_PROFILES[preset].bitrateKbps : intIn(au.bitrate, 64, 320, 'audio.bitrate'),
+    minSavingsPercent: minPercent,
+    minSavingsBytes: minBytes,
+    force: au.force === undefined ? false : bool(au.force, 'audio.force'),
+  };
   const removeUnused = input.removeUnused ?? 'off';
   if (removeUnused !== 'off' && removeUnused !== 'safe') invalid('removeUnused must be "off" or "safe"');
   const deduplicate = input.deduplicate ?? 'off';
@@ -141,7 +161,7 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (missingReferences !== 'keep' && missingReferences !== 'remove') invalid('missingReferences must be "keep" or "remove"');
   const exclude = input.exclude ?? [];
   if (!Array.isArray(exclude) || !exclude.every((p) => typeof p === 'string')) invalid('exclude must be a list of paths');
-  return { preset, video, images, removeUnused, deduplicate, flatten, missingReferences, exclude: [...new Set(exclude)].sort() };
+  return { preset, video, images, audio, removeUnused, deduplicate, flatten, missingReferences, exclude: [...new Set(exclude)].sort() };
 }
 
 /** Canonical JSON (sorted keys) used for hashing plans and options. */

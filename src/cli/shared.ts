@@ -72,7 +72,7 @@ export function progressPrinter(io: CliIO, quiet: boolean): (e: ProgressEvent) =
         line = `Checking entries${item}`;
         break;
       case 'probe':
-        line = `Inspecting video${item} ${e.resource ?? ''}`;
+        line = `Inspecting media${item} ${e.resource ?? ''}`;
         break;
       case 'encode-image':
         line = `Images${item}`;

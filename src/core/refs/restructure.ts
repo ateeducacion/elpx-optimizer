@@ -26,6 +26,8 @@ export interface RestructureOptions {
   readonly excluded: ReadonlySet<string>;
   /** Files already removed by the unused-file cleanup. */
   readonly removed: ReadonlySet<string>;
+  /** Files re-encoded into another format (e.g. WAV → MP3): path → new extension. */
+  readonly convert?: ReadonlyMap<string, string>;
 }
 
 export interface MergeDecision {
@@ -53,13 +55,15 @@ export interface UnlinkDecision {
 
 export interface RestructureSkip {
   readonly path: string;
-  readonly kind: 'duplicate' | 'flatten' | 'missing-reference';
+  readonly kind: 'duplicate' | 'flatten' | 'missing-reference' | 'convert';
   readonly reason: string;
 }
 
 export interface RestructurePlan {
   readonly merges: readonly MergeDecision[];
   readonly moves: readonly MoveDecision[];
+  /** Files renamed because their format changes (they may also have been moved out of an editor folder). */
+  readonly conversions: readonly MoveDecision[];
   readonly unlinks: readonly UnlinkDecision[];
   readonly skipped: readonly RestructureSkip[];
   /** Edits per text entry (raw offsets in the entry text). */
@@ -147,7 +151,28 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
     }
   }
 
-  // 3. Verify merges and moves together; cancel what does not hold.
+  // 3. Converted files get their new extension (after any move); their references follow them.
+  const converting = new Set<string>();
+  if (options.convert && options.convert.size > 0) {
+    const occupied = new Map<string, string>();
+    for (const p of alive) if (!mergeInto.has(p) && !options.convert.has(p)) occupy(occupied, moveTo.get(p) ?? p, p);
+    for (const [path, ext] of [...options.convert].sort(([a], [b]) => compare(a, b))) {
+      if (mergeInto.has(path) || options.removed.has(path) || !inventory.has(path)) continue;
+      const reason = staticReason(path, false) ?? typeMismatch(path, ext, byTarget);
+      if (reason) {
+        skipped.push({ path, kind: 'convert', reason });
+        occupy(occupied, moveTo.get(path) ?? path, path);
+        continue;
+      }
+      const base = moveTo.get(path) ?? path;
+      const to = freeName(withExtension(base, ext), occupied);
+      moveTo.set(path, to);
+      converting.add(path);
+      occupy(occupied, to, path);
+    }
+  }
+
+  // 4. Verify merges and moves together; cancel what does not hold.
   // Each failing round cancels at least one change, so this ends (at the latest with no changes left).
   let outcome = verify(analysis, alive, mergeInto, moveTo);
   while (outcome.failures.size > 0) {
@@ -158,7 +183,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
         skipped.push({ path, kind: merge.kind, reason });
       }
       if (moveTo.delete(path)) {
-        skipped.push({ path, kind: 'flatten', reason });
+        skipped.push({ path, kind: converting.delete(path) ? 'convert' : 'flatten', reason });
         // Identical copies only merged because this file was moving stay where they are.
         for (const [other, m] of [...mergeInto]) {
           if (m.keep === path && m.kind === 'flatten') {
@@ -173,7 +198,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
   const edits = outcome.edits;
   const rewrittenCount = outcome.rewritten;
 
-  // 4. References to missing files.
+  // 5. References to missing files.
   const unlinks: UnlinkDecision[] = [];
   if (options.removeMissing) planUnlinks(analysis, edits, unlinks, skipped);
 
@@ -184,7 +209,9 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
     const sorted = [...remove].sort(compare);
     merges.push({ keep, remove: sorted, rewritten: Object.fromEntries(sorted.map((p) => [p, rewrittenCount.get(p) ?? 0])) });
   }
-  const moves = [...moveTo].sort(([a], [b]) => compare(a, b)).map(([from, to]) => ({ from, to, references: rewrittenCount.get(from) ?? 0 }));
+  const decisions = [...moveTo].sort(([a], [b]) => compare(a, b)).map(([from, to]) => ({ from, to, references: rewrittenCount.get(from) ?? 0 }));
+  const moves = decisions.filter((d) => !converting.has(d.from));
+  const conversions = decisions.filter((d) => converting.has(d.from));
   const merged = new Set(mergeInto.keys());
   const finalFiles = alive.filter((p) => !merged.has(p)).map((p) => moveTo.get(p) ?? p);
   const changed = [...merged, ...moveTo.keys()];
@@ -196,6 +223,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
   return {
     merges,
     moves,
+    conversions,
     unlinks,
     skipped: dedupeSkips(skipped),
     edits: normalizeEdits(edits),
@@ -203,6 +231,37 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
     merged,
     emptiedDirectories,
   };
+}
+
+/** Replaces a path's extension. */
+function withExtension(path: string, ext: string): string {
+  const slash = path.lastIndexOf('/');
+  const dot = path.lastIndexOf('.');
+  return `${dot > slash ? path.slice(0, dot) : path}.${ext}`;
+}
+
+/** MIME types a `type` attribute may declare for each converted format; the first is written. */
+const TYPE_FOR: Readonly<Record<string, readonly string[]>> = { mp3: ['audio/mpeg', 'audio/mp3'], m4a: ['audio/mp4', 'audio/aac', 'audio/x-m4a'] };
+
+function extensionOf(path: string): string {
+  const slash = path.lastIndexOf('/');
+  const dot = path.lastIndexOf('.');
+  return dot > slash ? path.slice(dot + 1).toLowerCase() : '';
+}
+
+/** The declared type of the element holding a reference, when it no longer matches the new format. */
+function staleType(ref: ReferenceInternal, ext: string): string | undefined {
+  const type = ref.element?.attributes?.['type']?.trim().toLowerCase().split(';')[0];
+  return type && TYPE_FOR[ext] && !TYPE_FOR[ext].includes(type) ? type : undefined;
+}
+
+/** A `type="audio/wav"` that cannot be rewritten would make browsers skip the converted file. */
+function typeMismatch(path: string, ext: string, byTarget: ReadonlyMap<string, readonly ReferenceInternal[]>): string | undefined {
+  for (const ref of byTarget.get(path) ?? []) {
+    const type = staleType(ref, ext);
+    if (type && !ref.element?.typeSpan) return `a ${ref.element!.tag} declares type="${type}", which cannot be updated`;
+  }
+  return undefined;
 }
 
 /** Case- and normalization-insensitive key for a path, as file systems compare names. */
@@ -343,6 +402,17 @@ function verify(
       }
       const list = edits.get(ref.site.entry) ?? [];
       list.push(lifted);
+      // A new format also updates the element's declared type (<source type="audio/wav"> → audio/mpeg).
+      const ext = extensionOf(to);
+      if (ext !== extensionOf(target) && staleType(ref, ext)) {
+        const el = ref.element!;
+        const typeEdit = el.lift({ start: el.typeSpan!.start, end: el.typeSpan!.end, text: TYPE_FOR[ext]![0]! });
+        if (!typeEdit) {
+          fail(target, `the type attribute in ${ref.location.entry ?? '?'} cannot be updated`);
+          continue;
+        }
+        list.push(typeEdit);
+      }
       edits.set(ref.site.entry, list);
       rewritten.set(target, (rewritten.get(target) ?? 0) + 1);
       continue;
