@@ -249,7 +249,8 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
   if (options.media && videos.length > 0) {
     const info = await options.media.engine.info();
     mediaEngine = info.engine;
-    if (!info.video.available) {
+    // Inspection only needs ffprobe: an engine that can process audio but not video still inspects both.
+    if (!info.video.available && !info.audio?.available) {
       mediaNote = info.video.reason ?? 'Video inspection unavailable';
       diagnostics.push(diagnostic('media-engine-unavailable', `Videos and audio were not inspected: ${mediaNote}`));
     } else {

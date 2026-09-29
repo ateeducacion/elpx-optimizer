@@ -51,7 +51,8 @@ if (!originalPath || !optimizedPath || !reportArg) {
   process.exit(2);
 }
 const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
-const ASSET_REF = /asset:\/\/[^"'\s<>\\]+/g;
+// File names may contain spaces ("mi foto 1.jpg"): a reference runs to the closing quote.
+const ASSET_REF = /asset:\/\/[^"'<>\\]*[^"'\s<>\\]/g;
 const PLACEHOLDER = /\{\{context_path\}\}\/([^"'\s<>\\]+)/g;
 const trimRef = (r: string): string => (r.endsWith(')') && !r.includes('(') ? r.slice(0, -1) : r);
 const warnings: string[] = [];

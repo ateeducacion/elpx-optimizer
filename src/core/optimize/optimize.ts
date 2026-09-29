@@ -169,12 +169,15 @@ export async function optimizeArchive(
       }
     }
     const restructure = restructurePlan(analysis, plan.options, new Set(removed), converted);
-    // Defensive: a converted file whose rename did not hold keeps its original bytes and name.
-    for (const path of converted.keys()) {
-      if (restructure.renames.has(path) || restructure.merged.has(path)) continue;
+    for (const [path, target] of converted) {
+      const i = results.findIndex((r) => r.op === 'transcode-audio' && r.path === path);
+      const to = restructure.renames.get(path);
+      // Names are chosen again from the conversions that succeeded: report the one used, not the planned one.
+      if (to !== undefined) results[i] = { ...results[i]!, detail: `converted to ${target.toUpperCase()} and renamed to ${to}` };
+      if (to !== undefined || restructure.merged.has(path)) continue;
+      // Defensive: a converted file whose rename did not hold keeps its original bytes and name.
       await replacements.get(path)?.dispose();
       replacements.delete(path);
-      const i = results.findIndex((r) => r.op === 'transcode-audio' && r.path === path);
       results[i] = { ...results[i]!, status: 'reverted', detail: 'its references could not follow the new name; the original was kept' };
     }
     for (const d of restructure.merges) {
@@ -201,6 +204,15 @@ export async function optimizeArchive(
         path: m.from,
         status: 'applied',
         detail: `moved to ${m.to}; ${m.references} ${m.references === 1 ? 'reference' : 'references'} rewritten`,
+      });
+    }
+    for (const m of restructure.renamed) {
+      results.push({
+        id: `rename:${m.from}`,
+        op: 'rename-resource',
+        path: m.from,
+        status: 'applied',
+        detail: `renamed to ${m.to}; ${m.references} ${m.references === 1 ? 'reference' : 'references'} rewritten`,
       });
     }
     for (const u of restructure.unlinks) {
@@ -296,7 +308,7 @@ export async function optimizeArchive(
     // the package does not get smaller.
     const applied = results.filter((r) => r.status === 'applied');
     const sizeAfter = outSource.size;
-    const structural = applied.some((r) => r.op === 'move-resource' || r.op === 'remove-missing-reference');
+    const structural = applied.some((r) => r.op === 'move-resource' || r.op === 'rename-resource' || r.op === 'remove-missing-reference');
     if (applied.length === 0 || (sizeAfter >= source.size && !structural)) {
       const copy = await target.useOriginal(source);
       const outSha = await hashSource(copy, signal);
@@ -392,7 +404,8 @@ async function runVideo(
     if (!isWorthReplacing(op.size, candidate.size, step.thresholds)) {
       return reject(`not smaller enough (${op.size} → ${candidate.size} bytes)`);
     }
-    await input.dispose();
+    // A temporary file that cannot be deleted must not throw away a valid candidate.
+    await input.dispose().catch(() => undefined);
     return { result: { ...base, status: 'applied', after: candidate.size, engine: engineInfo.engine, checks }, candidate };
   } catch (error) {
     await input?.dispose().catch(() => undefined);
@@ -453,7 +466,7 @@ async function runAudio(
       checks.push(after === 'unsupported' ? `playback: ${mime} not supported by this browser` : `playback in this browser: ${after} (original: ${before})`);
     }
     if (!isWorthReplacing(op.size, candidate.size, step.thresholds)) return await reject(`not smaller enough (${op.size} → ${candidate.size} bytes)`);
-    await input.dispose();
+    await input.dispose().catch(() => undefined);
     const detail = op.to !== undefined ? `converted to ${op.job.target.toUpperCase()} and renamed to ${op.to}` : undefined;
     return { result: { ...base, status: 'applied', after: candidate.size, engine: engineInfo.engine, checks, ...(detail ? { detail } : {}) }, candidate };
   } catch (error) {

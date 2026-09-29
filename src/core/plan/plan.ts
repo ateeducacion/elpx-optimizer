@@ -72,6 +72,14 @@ export type PlanOperation =
     }
   | {
       readonly id: string;
+      readonly op: 'rename-resource';
+      readonly path: string;
+      readonly to: string;
+      readonly size: number;
+      readonly references: number;
+    }
+  | {
+      readonly id: string;
       readonly op: 'remove-missing-reference';
       /** The missing path (or the reference itself when it is not a package path). */
       readonly path: string;
@@ -84,7 +92,7 @@ export type PlanOperation =
 
 export interface SkippedResource {
   readonly path: string;
-  readonly kind: 'video' | 'image' | 'audio' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference';
+  readonly kind: 'video' | 'image' | 'audio' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference' | 'rename';
   readonly reason: VideoSkipReason | ImageSkipReason | AudioSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
   readonly detail: string;
 }
@@ -180,6 +188,9 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
     for (const m of restructure.moves) {
       operations.push({ id: `move:${m.from}`, op: 'move-resource', path: m.from, to: m.to, size: sizeOf.get(m.from) ?? 0, references: m.references });
     }
+    for (const m of restructure.renamed) {
+      operations.push({ id: `rename:${m.from}`, op: 'rename-resource', path: m.from, to: m.to, size: sizeOf.get(m.from) ?? 0, references: m.references });
+    }
     for (const u of restructure.unlinks) {
       operations.push({ id: `unlink:${u.key}`, op: 'remove-missing-reference', path: u.key, references: u.references, actions: u.actions, entries: u.entries });
     }
@@ -212,7 +223,12 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
       else planImage(analysis, e, options, engine, limits, operations, skipped, isScreenshot);
     }
     const removals = operations.some(
-      (o) => o.op === 'remove-unused' || o.op === 'deduplicate' || o.op === 'move-resource' || (o.op === 'transcode-audio' && o.to !== undefined),
+      (o) =>
+        o.op === 'remove-unused' ||
+        o.op === 'deduplicate' ||
+        o.op === 'move-resource' ||
+        o.op === 'rename-resource' ||
+        (o.op === 'transcode-audio' && o.to !== undefined),
     );
     if (removals && analysis.manifest) {
       operations.push({ id: `manifest:${MANIFEST_PATH}`, op: 'update-manifest', path: MANIFEST_PATH, reason: 'list the final set of entries' });
@@ -236,6 +252,9 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
     if (operations.some((o) => o.op === 'deduplicate')) risks.push('Duplicate files will be merged and their references rewritten.');
     if (operations.some((o) => o.op === 'move-resource')) {
       risks.push('Files in eXeLearning 3 folders will be moved to content/resources/ and their references rewritten.');
+    }
+    if (operations.some((o) => o.op === 'rename-resource')) {
+      risks.push('Files get clean names (lower case, no spaces, accents or copy markers) and their references are rewritten.');
     }
     if (operations.some((o) => o.op === 'remove-missing-reference')) {
       risks.push('References to missing files will be taken out: images and media players are deleted, links keep their text.');
@@ -279,6 +298,7 @@ export function restructurePlan(
     deduplicate: options.deduplicate === 'exact',
     flatten: options.flatten === 'legacy',
     removeMissing: options.missingReferences === 'remove',
+    normalizeNames: options.normalizeNames === 'slug',
     excluded: new Set(options.exclude),
     removed,
     convert,
@@ -304,7 +324,7 @@ function planAudio(
     if (!caps.available) skipped.push({ path: e.path, kind: 'audio', reason: 'engine-unavailable', detail: caps.reason ?? 'No audio engine' });
     else if (e.size > limits.maxVideoBytes)
       skipped.push({ path: e.path, kind: 'audio', reason: 'exceeds-size-limit', detail: `File is larger than ${limits.maxVideoBytes} bytes` });
-    else skipped.push({ path: e.path, kind: 'audio', reason: 'unsupported-format', detail: `${e.format.toUpperCase()} audio is left unchanged` });
+    else skipped.push({ path: e.path, kind: 'audio', reason: 'not-probed', detail: 'The audio file could not be inspected' });
     return undefined;
   }
   const decision = decideAudio({ format: e.format, size: e.size, probe }, options.audio, caps, limits);
@@ -323,6 +343,7 @@ function rewriteReason(entry: string, restructure: RestructurePlan, analysis: An
     const target = r.status === 'resolved' ? r.target : undefined;
     if (target && restructure.merged.has(target)) reasons.add('references to removed duplicates');
     else if (target && restructure.conversions.some((c) => c.from === target)) reasons.add('references to converted audio');
+    else if (target && restructure.renamed.some((c) => c.from === target)) reasons.add('references to renamed files');
     else if (target && restructure.renames.has(target)) reasons.add('references to moved files');
   }
   if (restructure.unlinks.some((u) => u.entries.includes(entry))) reasons.add('references to missing files taken out');

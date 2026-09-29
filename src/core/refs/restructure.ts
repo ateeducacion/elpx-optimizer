@@ -4,6 +4,7 @@ import { entryRole } from '../analyze/analyze.js';
 import { legacyFolderOf } from '../format/legacy-folders.js';
 import { EntryIndex, resolveReference, type Resolution, type ResolveContext } from './resolve.js';
 import { retargetValue } from './rewrite.js';
+import { cleanFileName } from './slug.js';
 
 /**
  * Package restructuring that rewrites references: exact deduplication,
@@ -28,6 +29,8 @@ export interface RestructureOptions {
   readonly removed: ReadonlySet<string>;
   /** Files re-encoded into another format (e.g. WAV → MP3): path → new extension. */
   readonly convert?: ReadonlyMap<string, string>;
+  /** Give user files clean names (lower case, no spaces, accents or copy markers; see slug.ts). */
+  readonly normalizeNames?: boolean;
 }
 
 export interface MergeDecision {
@@ -55,7 +58,7 @@ export interface UnlinkDecision {
 
 export interface RestructureSkip {
   readonly path: string;
-  readonly kind: 'duplicate' | 'flatten' | 'missing-reference' | 'convert';
+  readonly kind: 'duplicate' | 'flatten' | 'missing-reference' | 'convert' | 'rename';
   readonly reason: string;
 }
 
@@ -64,6 +67,8 @@ export interface RestructurePlan {
   readonly moves: readonly MoveDecision[];
   /** Files renamed because their format changes (they may also have been moved out of an editor folder). */
   readonly conversions: readonly MoveDecision[];
+  /** Files that only got a clean name (moved and converted files are reported as such). */
+  readonly renamed: readonly MoveDecision[];
   readonly unlinks: readonly UnlinkDecision[];
   readonly skipped: readonly RestructureSkip[];
   /** Edits per text entry (raw offsets in the entry text). */
@@ -105,6 +110,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
   const skipped: RestructureSkip[] = [];
   const mergeInto = new Map<string, { keep: string; kind: 'duplicate' | 'flatten' }>();
   const moveTo = new Map<string, string>();
+  const flattened = new Set<string>();
   const staticReason = (path: string, contentMatters: boolean): string | undefined =>
     cannotRetarget(path, options.excluded, inventory, byTarget, contentMatters);
 
@@ -147,6 +153,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
       }
       const to = freeName(target, occupied);
       moveTo.set(path, to);
+      flattened.add(path);
       occupy(occupied, to, path);
     }
   }
@@ -172,6 +179,34 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
     }
   }
 
+  // 3b. Clean names, after any move or conversion; a taken name gets -2, -3… (as WordPress does).
+  const normalized = new Set<string>();
+  if (options.normalizeNames) {
+    const occupied = new Map<string, string>();
+    const candidates: string[] = [];
+    for (const p of alive) {
+      if (mergeInto.has(p)) continue;
+      const current = moveTo.get(p) ?? p;
+      const name = current.slice(current.lastIndexOf('/') + 1);
+      if (entryRole(p) === 'user-asset' && !p.startsWith('custom/') && cleanFileName(name) !== name) candidates.push(p);
+      else occupy(occupied, current, p);
+    }
+    for (const path of candidates.sort(compare)) {
+      const current = moveTo.get(path) ?? path;
+      const reason = staticReason(path, false) ?? (sources.has(path) ? 'contains references to other files' : undefined);
+      if (reason) {
+        skipped.push({ path, kind: 'rename', reason });
+        occupy(occupied, current, path);
+        continue;
+      }
+      const dir = current.slice(0, current.lastIndexOf('/') + 1);
+      const to = freeName(dir + cleanFileName(current.slice(dir.length)), occupied, '-');
+      moveTo.set(path, to);
+      normalized.add(path);
+      occupy(occupied, to, path);
+    }
+  }
+
   // 4. Verify merges and moves together; cancel what does not hold.
   // Each failing round cancels at least one change, so this ends (at the latest with no changes left).
   let outcome = verify(analysis, alive, mergeInto, moveTo);
@@ -183,7 +218,11 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
         skipped.push({ path, kind: merge.kind, reason });
       }
       if (moveTo.delete(path)) {
-        skipped.push({ path, kind: converting.delete(path) ? 'convert' : 'flatten', reason });
+        const kind = converting.has(path) ? 'convert' : flattened.has(path) ? 'flatten' : 'rename';
+        converting.delete(path);
+        flattened.delete(path);
+        normalized.delete(path);
+        skipped.push({ path, kind, reason });
         // Identical copies only merged because this file was moving stay where they are.
         for (const [other, m] of [...mergeInto]) {
           if (m.keep === path && m.kind === 'flatten') {
@@ -210,8 +249,9 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
     merges.push({ keep, remove: sorted, rewritten: Object.fromEntries(sorted.map((p) => [p, rewrittenCount.get(p) ?? 0])) });
   }
   const decisions = [...moveTo].sort(([a], [b]) => compare(a, b)).map(([from, to]) => ({ from, to, references: rewrittenCount.get(from) ?? 0 }));
-  const moves = decisions.filter((d) => !converting.has(d.from));
+  const moves = decisions.filter((d) => !converting.has(d.from) && flattened.has(d.from));
   const conversions = decisions.filter((d) => converting.has(d.from));
+  const renamed = decisions.filter((d) => !converting.has(d.from) && !flattened.has(d.from));
   const merged = new Set(mergeInto.keys());
   const finalFiles = alive.filter((p) => !merged.has(p)).map((p) => moveTo.get(p) ?? p);
   const changed = [...merged, ...moveTo.keys()];
@@ -224,6 +264,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
     merges,
     moves,
     conversions,
+    renamed,
     unlinks,
     skipped: dedupeSkips(skipped),
     edits: normalizeEdits(edits),
@@ -280,13 +321,13 @@ function occupy(occupied: Map<string, string>, path: string, owner: string): voi
 }
 
 /** First free name: name.ext, name_2.ext, name_3.ext… (a folder with the same name also counts as taken). */
-function freeName(target: string, occupied: ReadonlyMap<string, string>): string {
+function freeName(target: string, occupied: ReadonlyMap<string, string>, separator = '_'): string {
   const dot = target.lastIndexOf('.');
   const slash = target.lastIndexOf('/');
   const [base, ext] = dot > slash + 1 ? [target.slice(0, dot), target.slice(dot)] : [target, ''];
   const taken = (p: string): boolean => occupied.has(slot(p)) || occupied.has(`${slot(p)}/`);
   let candidate = target;
-  for (let n = 2; taken(candidate); n++) candidate = `${base}_${n}${ext}`;
+  for (let n = 2; taken(candidate); n++) candidate = `${base}${separator}${n}${ext}`;
   return candidate;
 }
 

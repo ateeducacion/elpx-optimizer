@@ -17,9 +17,10 @@ export interface ImageProfile {
 }
 
 export const IMAGE_PROFILES: Readonly<Record<Preset, ImageProfile>> = Object.freeze({
-  conservative: { jpegQuality: 90, webpQuality: 90, maxDimension: undefined },
-  balanced: { jpegQuality: 82, webpQuality: 82, maxDimension: undefined },
-  aggressive: { jpegQuality: 72, webpQuality: 75, maxDimension: 1920 },
+  // Larger images make no sense in a page: eXeLearning's content column is far narrower, even on 2x screens.
+  conservative: { jpegQuality: 90, webpQuality: 90, maxDimension: 2560 },
+  balanced: { jpegQuality: 82, webpQuality: 82, maxDimension: 1920 },
+  aggressive: { jpegQuality: 72, webpQuality: 75, maxDimension: 1600 },
 });
 
 export interface ImageOptions {

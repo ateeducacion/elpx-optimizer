@@ -44,6 +44,8 @@ export interface OptionsInput {
   flatten?: 'off' | 'legacy';
   /** Take out references to files that do not exist (off by default: missing files are reported, not hidden). */
   missingReferences?: 'keep' | 'remove';
+  /** Give user files clean names: lower case, no spaces, accents or copy markers ("Copia de", "(2)"). */
+  normalizeNames?: 'off' | 'slug';
   minSavingsPercent?: number;
   minSavingsBytes?: number;
   /** ZIP paths that must be left untouched. */
@@ -59,6 +61,7 @@ export interface NormalizedOptions {
   readonly deduplicate: 'off' | 'exact';
   readonly flatten: 'off' | 'legacy';
   readonly missingReferences: 'keep' | 'remove';
+  readonly normalizeNames: 'off' | 'slug';
   readonly exclude: readonly string[];
 }
 
@@ -95,7 +98,20 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (typeof input !== 'object' || input === null) invalid('Options must be an object');
   checkKeys(
     input,
-    ['preset', 'video', 'images', 'audio', 'removeUnused', 'deduplicate', 'flatten', 'missingReferences', 'minSavingsPercent', 'minSavingsBytes', 'exclude'],
+    [
+      'preset',
+      'video',
+      'images',
+      'audio',
+      'removeUnused',
+      'deduplicate',
+      'flatten',
+      'missingReferences',
+      'normalizeNames',
+      'minSavingsPercent',
+      'minSavingsBytes',
+      'exclude',
+    ],
     '',
   );
   const preset = input.preset ?? 'balanced';
@@ -159,9 +175,11 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (flatten !== 'off' && flatten !== 'legacy') invalid('flatten must be "off" or "legacy"');
   const missingReferences = input.missingReferences ?? 'keep';
   if (missingReferences !== 'keep' && missingReferences !== 'remove') invalid('missingReferences must be "keep" or "remove"');
+  const normalizeNames = input.normalizeNames ?? 'off';
+  if (normalizeNames !== 'off' && normalizeNames !== 'slug') invalid('normalizeNames must be "off" or "slug"');
   const exclude = input.exclude ?? [];
   if (!Array.isArray(exclude) || !exclude.every((p) => typeof p === 'string')) invalid('exclude must be a list of paths');
-  return { preset, video, images, audio, removeUnused, deduplicate, flatten, missingReferences, exclude: [...new Set(exclude)].sort() };
+  return { preset, video, images, audio, removeUnused, deduplicate, flatten, missingReferences, normalizeNames, exclude: [...new Set(exclude)].sort() };
 }
 
 /** Canonical JSON (sorted keys) used for hashing plans and options. */

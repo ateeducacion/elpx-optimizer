@@ -25,7 +25,8 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   const images: NonNullable<OptionsInput['images']> = { ...(base.images ?? {}) };
   const audio: NonNullable<OptionsInput['audio']> = { ...(base.audio ?? {}) };
   const opts: OptionsInput = { ...base };
-  if (typeof values['preset'] === 'string') opts.preset = values['preset'] as OptionsInput['preset'];
+  // "maximum" is the name the web app shows for the aggressive preset.
+  if (typeof values['preset'] === 'string') opts.preset = (values['preset'] === 'maximum' ? 'aggressive' : values['preset']) as OptionsInput['preset'];
   if (values['no-video']) video.enabled = false;
   if (values['no-images']) images.enabled = false;
   if (values['no-audio']) audio.enabled = false;
@@ -36,6 +37,7 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   if (typeof values['deduplicate'] === 'string') opts.deduplicate = values['deduplicate'] as 'off' | 'exact';
   if (typeof values['flatten'] === 'string') opts.flatten = values['flatten'] as 'off' | 'legacy';
   if (typeof values['missing-references'] === 'string') opts.missingReferences = values['missing-references'] as 'keep' | 'remove';
+  if (typeof values['normalize-names'] === 'string') opts.normalizeNames = values['normalize-names'] as 'off' | 'slug';
   if (Array.isArray(values['exclude'])) opts.exclude = [...(base.exclude ?? []), ...(values['exclude'] as string[])];
   const crf = intFlag(values, 'video-crf', 0, 63);
   if (crf !== undefined) video.crf = crf;
@@ -210,6 +212,9 @@ export function renderPlan(plan: ReturnType<typeof buildOptimizationPlan>): stri
         break;
       case 'move-resource':
         lines.push(`  • move ${op.path} → ${op.to} (${op.references} references rewritten)`);
+        break;
+      case 'rename-resource':
+        lines.push(`  • rename ${op.path} → ${op.to} (${op.references} references rewritten)`);
         break;
       case 'remove-missing-reference':
         lines.push(`  • take out ${op.references} ${op.references === 1 ? 'reference' : 'references'} to missing ${op.path} (in ${op.entries.join(', ')})`);

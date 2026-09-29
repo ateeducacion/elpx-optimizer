@@ -72,7 +72,7 @@ Output:
   --json                     Print the report (or plan) as JSON
 
 Selection:
-  --preset NAME              conservative | balanced (default) | aggressive
+  --preset NAME              conservative | balanced (default) | maximum (alias: aggressive)
   --no-video                 Do not touch videos
   --no-images                Do not touch images
   --no-audio                 Do not touch audio files
@@ -82,6 +82,8 @@ Selection:
                              folders (content/resources/<ODE-ID>/) into content/resources/
   --missing-references MODE  keep (default) | remove: take out references to files
                              that do not exist (images deleted, links keep their text)
+  --normalize-names MODE     off (default) | slug: clean file names (lower case, no
+                             spaces, accents or copy markers); references are rewritten
   --exclude PATH             Keep this ZIP path untouched (repeatable)
   --config FILE              JSON file with options (same keys as the web app)
 
@@ -96,7 +98,7 @@ Video:
 Images:
   --image-quality N          JPEG quality (30-100)
   --webp-quality N           WebP quality (30-100)
-  --image-max-dimension N    Downscale larger images (N px), or "none"
+  --image-max-dimension N    Downscale larger images (N px; default 2560/1920/1600), or "none"
   --no-png                   Do not recompress PNG
   --strip-metadata           Remove EXIF/XMP/IPTC/text (ICC always kept)
   --image-force              Re-encode images that already look efficient
@@ -163,6 +165,7 @@ const COMMANDS: Record<string, { options: NonNullable<ParseArgsConfig['options']
       'audio-bitrate': { type: 'string' },
       'audio-force': { type: 'boolean' },
       'missing-references': { type: 'string' },
+      'normalize-names': { type: 'string' },
       exclude: { type: 'string', multiple: true },
       'video-crf': { type: 'string' },
       'video-max-resolution': { type: 'string' },
