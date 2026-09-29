@@ -170,7 +170,9 @@ export async function optimizeArchive(
     }
     // Converted files keep the names the plan showed (a name freed by a failed conversion is not reused).
     const plannedNames = new Map(audioOps.filter((op) => op.to !== undefined && converted.has(op.path)).map((op) => [op.path, op.to!]));
-    const restructure = restructurePlan(analysis, plan.options, new Set(removed), converted, plannedNames);
+    // A file whose planned conversion did not happen stays exactly as it was: the plan showed no other move or rename for it.
+    const frozen = new Set(audioOps.filter((op) => op.to !== undefined && !converted.has(op.path)).map((op) => op.path));
+    const restructure = restructurePlan(analysis, plan.options, new Set(removed), converted, plannedNames, frozen);
     for (const [path, target] of converted) {
       const i = results.findIndex((r) => r.op === 'transcode-audio' && r.path === path);
       const to = restructure.renames.get(path);

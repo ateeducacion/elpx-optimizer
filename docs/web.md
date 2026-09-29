@@ -64,10 +64,11 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
   recordings become MP3 in the browser too (renamed to `.mp3`, references rewritten, as in the CLI)
   and Opus recordings can be re-encoded.
 - ffmpeg.wasm does not give all its memory back between runs, so the engine loads a fresh FFmpeg
-  instance every 60 jobs (the core is cached, so a reload is quick), and a job that fails with a
-  memory abort is retried once on a fresh instance before the original is kept. Before this, 28 of
-  the 255 recordings of the 128 MB course in [Measured cases](#measured-cases) failed in the browser
-  from memory exhaustion.
+  instance every 60 jobs (`JOBS_PER_INSTANCE` in `browser-media-engine.ts`; the core is cached, so a
+  reload is quick), and a job that fails with a memory abort is retried once on a fresh instance
+  before the original is kept. Before this change (commit `dee8738`), 28 of the 255 recordings of
+  the 128 MB course in [Measured cases](#measured-cases) failed in the browser from memory
+  exhaustion; with it, none do.
 - Cancelling terminates the FFmpeg worker (the codec really stops); if the pipeline worker does not
   confirm within 3 s it is terminated too and recreated. A new job can start without reloading.
 - Images use WebAssembly codecs (jSquash: MozJPEG, OxiPNG, libwebp, resize) in a pool of dedicated
@@ -157,10 +158,10 @@ course from 210.7 MiB to 65.5 MiB (−68.9 %) in 59 s and the 128 MB course from
 same machine, headless Chromium through Playwright, the single-thread core, `dist/web` served
 statically. Peak memory was not measured in these runs.
 
-| Input                  | Analysis | Optimization | Result                  | Operations                                                                                                 |
-| ---------------------- | -------- | ------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Real course, 210.7 MiB | 5.9 s    | 95.9 s       | −69.3 % (146 MiB less)  | 122 audio files re-encoded (106 WAV → MP3), 212 images applied / 7 reverted, 202 files renamed, 0 failures |
-| Real course, 128.2 MiB | 11.0 s   | 141.2 s      | −31.7 % (40.6 MiB less) | 255 Opus recordings re-encoded, 110 images applied / 8 reverted, 94 files renamed, 0 failures              |
+| Input                           | Analysis | Optimization | Result                  | Operations                                                                                                 |
+| ------------------------------- | -------- | ------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Real course, 211 MB (210.7 MiB) | 5.9 s    | 95.9 s       | −69.3 % (146 MiB less)  | 122 audio files re-encoded (106 WAV → MP3), 212 images applied / 7 reverted, 202 files renamed, 0 failures |
+| Real course, 128 MB (128.2 MiB) | 11.0 s   | 141.2 s      | −31.7 % (40.6 MiB less) | 255 Opus recordings re-encoded, 110 images applied / 8 reverted, 94 files renamed, 0 failures              |
 
 Reverted images did not save the configured minimum, so their originals were kept.
 

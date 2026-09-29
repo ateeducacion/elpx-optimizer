@@ -31,6 +31,8 @@ export interface RestructureOptions {
   readonly convert?: ReadonlyMap<string, string>;
   /** Names chosen by the plan for converted files: execution keeps them (a name freed by a failed conversion is not reused). */
   readonly convertNames?: ReadonlyMap<string, string>;
+  /** Files left exactly where and as they are (e.g. a planned conversion that failed): never moved nor renamed. */
+  readonly frozen?: ReadonlySet<string>;
   /** Give user files clean names (lower case, no spaces, accents or copy markers; see slug.ts). */
   readonly normalizeNames?: boolean;
 }
@@ -133,7 +135,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
 
   // 2. eXeLearning 3 editor folders.
   if (options.flatten) {
-    const candidates = alive.filter((p) => legacyFolderOf(p) && !mergeInto.has(p)).sort();
+    const candidates = alive.filter((p) => legacyFolderOf(p) && !mergeInto.has(p) && !options.frozen?.has(p)).sort();
     const candidateSet = new Set(candidates);
     const occupied = new Map<string, string>();
     for (const p of alive) {
@@ -190,7 +192,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
       if (mergeInto.has(p)) continue;
       const current = moveTo.get(p) ?? p;
       const name = current.slice(current.lastIndexOf('/') + 1);
-      if (entryRole(p) === 'user-asset' && !p.startsWith('custom/') && cleanFileName(name) !== name) candidates.push(p);
+      if (entryRole(p) === 'user-asset' && !p.startsWith('custom/') && !options.frozen?.has(p) && cleanFileName(name) !== name) candidates.push(p);
       else occupy(occupied, current, p);
     }
     // Folders with HTML or scripts are opaque: their code may name any of their files, referenced or not.
