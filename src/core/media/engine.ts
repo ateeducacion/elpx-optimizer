@@ -4,6 +4,7 @@ import type { ZipArchive, ZipEntry } from '../zip/reader.js';
 import type { ProbeResult } from './probe.js';
 import type { VideoCapabilities, VideoJob } from './video-policy.js';
 import type { ImageCapabilities, ImageJob } from './image-policy.js';
+import type { AudioCapabilities, AudioJob } from './audio-policy.js';
 
 /**
  * Contract implemented by NativeMediaEngine (ffmpeg/ffprobe + sharp) and
@@ -65,6 +66,8 @@ export interface EngineInfo {
   readonly versions: Readonly<Record<string, string>>;
   readonly video: VideoCapabilities;
   readonly image: ImageCapabilities;
+  /** Absent for engines without audio support (treated as unavailable). */
+  readonly audio?: AudioCapabilities;
   readonly notes: readonly string[];
 }
 
@@ -85,8 +88,10 @@ export interface MediaEngine {
   probe(resource: StoredResource, ctx: JobContext): Promise<ProbeResult>;
   /** Re-encodes a video according to a job built by the shared policy. */
   transcodeVideo(resource: StoredResource, job: VideoJob, ctx: JobContext): Promise<StoredResource>;
-  /** Fully decodes a candidate; rejects on decoding errors. */
-  decodeCheck(resource: StoredResource, job: VideoJob, ctx: JobContext): Promise<void>;
+  /** Re-encodes an audio file according to a job built by the shared policy. */
+  transcodeAudio?(resource: StoredResource, job: AudioJob, ctx: JobContext): Promise<StoredResource>;
+  /** Fully decodes a candidate with the given demuxer; rejects on decoding errors. */
+  decodeCheck(resource: StoredResource, job: Pick<VideoJob, 'demuxer'>, ctx: JobContext): Promise<void>;
   /** Optional browser playback check of a candidate (and whether the original played). */
   playbackCheck?(resource: StoredResource, mime: string, ctx: JobContext): Promise<'playable' | 'not-playable' | 'unsupported'>;
   /** Encodes image pixels (metadata stripped; the core re-injects preserved metadata). */

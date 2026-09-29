@@ -7,6 +7,7 @@ import type { EngineInfo, ImageVerification, JobContext, MediaEngine, StoredReso
 import type { ImageCapabilities, ImageJob } from '../../core/media/image-policy.js';
 import { FFPROBE_ARGS, parseProbeJson, type ProbeResult } from '../../core/media/probe.js';
 import { buildDecodeCheckArgs, buildVideoArgs, type VideoCapabilities, type VideoJob } from '../../core/media/video-policy.js';
+import { buildAudioArgs, type AudioCapabilities, type AudioJob } from '../../core/media/audio-policy.js';
 import { runProcess } from './process.js';
 import { FileResource, type NodeResourceStore } from './resource-store.js';
 import { listEncoders, resolveTools, toolVersion, type ToolOverrides } from './tools.js';
@@ -57,6 +58,7 @@ export class NativeMediaEngine implements MediaEngine {
     const versions: Record<string, string> = {};
     const tools = await resolveTools(this.options.tools);
     let video: VideoCapabilities = { available: false, encoders: [], engineClass: 'native', slowEncoders: [], reason: 'ffmpeg/ffprobe not found' };
+    let audio: AudioCapabilities = { available: false, encoders: [], reason: 'ffmpeg/ffprobe not found' };
     if (tools.ffmpeg && tools.ffprobe) {
       const [fv, pv, encoders] = await Promise.all([toolVersion(tools.ffmpeg), toolVersion(tools.ffprobe), listEncoders(tools.ffmpeg)]);
       if (fv && pv) {
@@ -68,8 +70,14 @@ export class NativeMediaEngine implements MediaEngine {
         video = wanted.includes('libx264')
           ? { available: true, encoders: wanted, engineClass: 'native', slowEncoders: [] }
           : { available: false, encoders: wanted, engineClass: 'native', slowEncoders: [], reason: 'ffmpeg lacks the libx264 encoder' };
+        const audioEncoders = ['libmp3lame', 'aac'].filter((e) => encoders.includes(e));
+        audio =
+          audioEncoders.length > 0
+            ? { available: true, encoders: audioEncoders }
+            : { available: false, encoders: [], reason: 'ffmpeg lacks the libmp3lame and aac encoders' };
       } else {
         video = { ...video, reason: 'ffmpeg or ffprobe could not be executed' };
+        audio = { ...audio, reason: 'ffmpeg or ffprobe could not be executed' };
       }
     } else {
       notes.push(`Missing: ${[!tools.ffmpeg && 'ffmpeg', !tools.ffprobe && 'ffprobe'].filter(Boolean).join(', ')}`);
@@ -94,7 +102,7 @@ export class NativeMediaEngine implements MediaEngine {
     } catch (error) {
       notes.push(`sharp unavailable: ${(error as Error).message.split('\n')[0]}`);
     }
-    return { engine: 'native', versions, video, image, notes };
+    return { engine: 'native', versions, video, image, audio, notes };
   }
 
   /** Resolved ffmpeg path (after info()), for diagnostics and the doctor smoke test. */
@@ -170,7 +178,42 @@ export class NativeMediaEngine implements MediaEngine {
     return this.store.adopt(out.path, out.name, size);
   }
 
-  async decodeCheck(resource: StoredResource, job: VideoJob, ctx: JobContext): Promise<void> {
+  async transcodeAudio(resource: StoredResource, job: AudioJob, ctx: JobContext): Promise<StoredResource> {
+    await this.info();
+    const { ffmpeg } = this.requireVideo();
+    const input = this.file(resource);
+    await this.store.ensureSpace(input.size);
+    const out = this.store.newPath(job.target);
+    const total = job.expected.duration;
+    const result = await runProcess(ffmpeg, buildAudioArgs(job, input.path, out.path, { progressPipe: true }), {
+      cwd: this.store.dir,
+      timeoutMs: ctx.timeoutMs,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+      onStdoutLine: (line) => {
+        const m = /^out_time_(?:us|ms)=(\d+)/.exec(line);
+        if (!m || !ctx.onProgress) return;
+        const seconds = Number(m[1]) / 1e6;
+        ctx.onProgress({
+          stage: 'transcode',
+          resource: ctx.resourcePath,
+          processedSeconds: seconds,
+          totalSeconds: total,
+          fraction: Math.min(0.99, seconds / total),
+        });
+      },
+    }).catch(async (error: unknown) => {
+      await this.store.adopt(out.path, out.name, 0).dispose();
+      throw error;
+    });
+    if (result.code !== 0) {
+      await this.store.adopt(out.path, out.name, 0).dispose();
+      throw new ElpxError('media-failed', `ffmpeg failed: ${firstLine(result.stderr)}`);
+    }
+    const size = (await stat(out.path)).size;
+    return this.store.adopt(out.path, out.name, size);
+  }
+
+  async decodeCheck(resource: StoredResource, job: Pick<VideoJob, 'demuxer'>, ctx: JobContext): Promise<void> {
     await this.info();
     const { ffmpeg } = this.requireVideo();
     const file = this.file(resource);

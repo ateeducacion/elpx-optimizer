@@ -5,10 +5,12 @@ import type { EngineInfo, ImageVerification, JobContext, MediaEngine, ProgressLi
 import type { ImageJob } from '../../core/media/image-policy.js';
 import { FFPROBE_ARGS, parseProbeJson, type ProbeResult } from '../../core/media/probe.js';
 import { buildDecodeCheckArgs, buildVideoArgs, type VideoJob } from '../../core/media/video-policy.js';
+import { buildAudioArgs, type AudioJob } from '../../core/media/audio-policy.js';
 import { BlobResource, type BlobStore } from './blob-io.js';
 import {
   chooseThreading,
   currentEnvironment,
+  PINNED_AUDIO_ENCODERS,
   PINNED_CORE_ENCODERS,
   parseEncoderList,
   type FfmpegAssets,
@@ -99,6 +101,9 @@ export class BrowserMediaEngine implements MediaEngine {
         canResize: true,
         ...(wasm ? {} : { reason: 'WebAssembly is not available' }),
       },
+      audio: wasm
+        ? { available: true, encoders: [...PINNED_AUDIO_ENCODERS] }
+        : { available: false, encoders: [], reason: 'WebAssembly or Web Workers are not available' },
       notes: [`FFmpeg core: ${this.threading.mode}-thread (${this.threading.reason})`],
     });
   }
@@ -269,7 +274,37 @@ export class BrowserMediaEngine implements MediaEngine {
     });
   }
 
-  decodeCheck(resource: StoredResource, job: VideoJob, ctx: JobContext): Promise<void> {
+  transcodeAudio(resource: StoredResource, job: AudioJob, ctx: JobContext): Promise<StoredResource> {
+    const blob = this.blobOf(resource);
+    return this.run(ctx, async (ff, id) => {
+      const input = await this.mount(ff, id, blob, resource.name);
+      const out = `/out${id}.${job.target}`;
+      const total = job.expected.duration;
+      this.progressHandler = (e) => {
+        const seconds = e.time / 1e6;
+        if (!ctx.onProgress || !(seconds >= 0)) return;
+        ctx.onProgress({
+          stage: 'transcode',
+          resource: ctx.resourcePath,
+          processedSeconds: seconds,
+          totalSeconds: total,
+          fraction: Math.min(0.99, seconds / total),
+        });
+      };
+      try {
+        const code = await ff.exec(buildAudioArgs(job, input.path, out));
+        if (code !== 0) throw new ElpxError('media-failed', `ffmpeg.wasm failed (code ${code}): ${this.lastError()}`);
+        const data = await ff.readFile(out);
+        if (!(data instanceof Uint8Array) || data.length === 0) throw new ElpxError('media-failed', 'ffmpeg.wasm produced no output');
+        return this.options.store.adopt(new Blob([data as Uint8Array<ArrayBuffer>], { type: job.target === 'mp3' ? 'audio/mpeg' : 'audio/mp4' }), job.target);
+      } finally {
+        await ff.deleteFile(out).catch(() => undefined);
+        await input.release();
+      }
+    });
+  }
+
+  decodeCheck(resource: StoredResource, job: Pick<VideoJob, 'demuxer'>, ctx: JobContext): Promise<void> {
     const blob = this.blobOf(resource);
     return this.run(ctx, async (ff, id) => {
       const input = await this.mount(ff, id, blob, resource.name);

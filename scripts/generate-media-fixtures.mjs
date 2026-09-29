@@ -292,6 +292,30 @@ ff(
 );
 // Audio only.
 ff(...lavfiAudio, '-t', '2', '-c:a', 'aac', '-b:a', '128k', join(out, 'audio-only.m4a'));
+// Uncompressed and lossless recordings (converted to MP3) and a high-bitrate MP3 (re-encoded).
+const speech = [
+  '-f',
+  'lavfi',
+  '-i',
+  'sine=frequency=330:sample_rate=44100:duration=3',
+  '-f',
+  'lavfi',
+  '-i',
+  'anoisesrc=color=pink:amplitude=0.05:sample_rate=44100:duration=3:seed=7',
+];
+ff(
+  ...speech,
+  '-filter_complex',
+  '[0:a][1:a]amix=inputs=2,aformat=channel_layouts=stereo',
+  '-metadata',
+  'title=Tono de prueba',
+  '-c:a',
+  'pcm_s16le',
+  join(out, 'tone.wav'),
+);
+ff(...speech, '-filter_complex', '[0:a][1:a]amix=inputs=2', '-ac', '1', '-c:a', 'flac', join(out, 'tone.flac'));
+ff('-f', 'lavfi', '-i', 'sine=frequency=500:sample_rate=22050:duration=1', '-c:a', 'pcm_s16be', '-f', 'aiff', join(out, 'tone.aiff'));
+ff(...speech, '-filter_complex', '[0:a][1:a]amix=inputs=2,aformat=channel_layouts=stereo', '-c:a', 'libmp3lame', '-b:a', '320k', join(out, 'tone-320.mp3'));
 // Truncated (corrupt) MP4.
 writeFileSync(join(out, 'truncated.mp4'), readFileSync(join(out, 'inefficient.mp4')).subarray(0, 4000));
 // WebVTT track.

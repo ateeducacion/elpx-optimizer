@@ -118,7 +118,7 @@ const PARAM_URL_NAMES = new Set(['movie', 'src', 'url', 'filename', 'file', 'vid
 const CONTEXT_PATH_RE = /\{\{context_path\}\}\/[^"'<>\s\\]+/g;
 const PATH_LIKE = /^(?:\.\.?\/)*(?:content\/resources|resources|custom|files\/tmp|content)\/[^\s<>"]+$/;
 const MEDIA_EXT =
-  /\.(?:jpe?g|png|gif|webp|svg|bmp|ico|avif|mp4|m4v|mov|webm|ogv|ogg|oga|mp3|m4a|wav|flac|opus|vtt|srt|pdf|zip|elpx?|docx?|xlsx?|pptx?|odt|ods|odp|txt|html?|swf|woff2?|ttf|otf|css|js|json|xml|gif)$/i;
+  /\.(?:jpe?g|png|gif|webp|svg|bmp|ico|avif|mp4|m4v|mov|webm|ogv|ogg|oga|mp3|m4a|wav|flac|aiff?|opus|vtt|srt|pdf|zip|elpx?|docx?|xlsx?|pptx?|odt|ods|odp|txt|html?|swf|woff2?|ttf|otf|css|js|json|xml|gif)$/i;
 
 /** Composes a child lift through a decoding layer. */
 export function childLift(parent: Lift | undefined, layer: DecodedText, rawOffset: number, encode: (t: string) => string): Lift | undefined {

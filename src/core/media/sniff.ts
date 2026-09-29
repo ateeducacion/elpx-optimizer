@@ -67,6 +67,7 @@ export function sniff(head: Uint8Array, path: string): SniffResult {
     return { kind: 'audio', format: 'mp3', mime: 'audio/mpeg' };
   }
   if (ascii(b, 0, 4) === 'fLaC') return { kind: 'audio', format: 'flac', mime: 'audio/flac' };
+  if (ascii(b, 0, 4) === 'FORM' && (ascii(b, 8, 4) === 'AIFF' || ascii(b, 8, 4) === 'AIFC')) return { kind: 'audio', format: 'aiff', mime: 'audio/aiff' };
   if (ascii(b, 0, 2) === 'BM') return { kind: 'image', format: 'bmp', mime: 'image/bmp' };
   if (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0) return { kind: 'image', format: 'ico', mime: 'image/x-icon' };
   if (ascii(b, 0, 4) === 'II*\x00' || ascii(b, 0, 4) === 'MM\x00*') return { kind: 'image', format: 'tiff', mime: 'image/tiff' };
@@ -157,6 +158,8 @@ const EXTENSION_FORMATS: Record<string, readonly string[]> = {
   aac: ['aac', 'mp3'],
   wav: ['wav'],
   flac: ['flac'],
+  aif: ['aiff'],
+  aiff: ['aiff'],
   pdf: ['pdf'],
   woff: ['woff'],
   woff2: ['woff2'],
