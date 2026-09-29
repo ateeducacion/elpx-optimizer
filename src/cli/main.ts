@@ -77,6 +77,10 @@ Selection:
   --no-images                Do not touch images
   --remove-unused MODE       off (default) | safe
   --deduplicate MODE         off (default) | exact
+  --flatten MODE             off (default) | legacy: move files out of eXeLearning 3
+                             folders (content/resources/<ODE-ID>/) into content/resources/
+  --missing-references MODE  keep (default) | remove: take out references to files
+                             that do not exist (images deleted, links keep their text)
   --exclude PATH             Keep this ZIP path untouched (repeatable)
   --config FILE              JSON file with options (same keys as the web app)
 
@@ -149,6 +153,8 @@ const COMMANDS: Record<string, { options: NonNullable<ParseArgsConfig['options']
       'no-images': { type: 'boolean' },
       'remove-unused': { type: 'string' },
       deduplicate: { type: 'string' },
+      flatten: { type: 'string' },
+      'missing-references': { type: 'string' },
       exclude: { type: 'string', multiple: true },
       'video-crf': { type: 'string' },
       'video-max-resolution': { type: 'string' },

@@ -8,7 +8,7 @@ import type { ByteSink } from '../io/byte-sink.js';
 import { Sha256 } from '../io/hash.js';
 import { utf8Encode } from '../io/text.js';
 import { readEntryBytes, type ZipEntry } from '../zip/reader.js';
-import { ZipWriter, metaFromEntry } from '../zip/writer.js';
+import { ZipWriter, metaFromEntry, type EntryMeta } from '../zip/writer.js';
 import { extname } from '../zip/names.js';
 import { analyzeArchive } from '../analyze/analyze.js';
 import type { Analysis } from '../analyze/model.js';
@@ -18,8 +18,8 @@ import type { EngineInfo, MediaEngine, ProgressListener, ResourceStore, StoredRe
 import { inspectImage } from '../media/image-inspect.js';
 import { extractMetadata, injectMetadata } from '../media/image-metadata.js';
 import { isWorthReplacing, validateVideoCandidate } from '../media/video-policy.js';
-import { applyTextEdits, planDeduplication } from '../refs/rewrite.js';
-import { buildOptimizationPlan, type OptimizationPlan, type PlanOperation } from '../plan/plan.js';
+import { applyTextEdits } from '../refs/rewrite.js';
+import { buildOptimizationPlan, restructurePlan, type OptimizationPlan, type PlanOperation } from '../plan/plan.js';
 import { canonicalJson } from '../plan/options.js';
 import { sha256Hex } from '../io/hash.js';
 import { buildReport, type OperationResult, type OptimizationReport, type Validation } from '../report/report.js';
@@ -141,45 +141,61 @@ export async function optimizeArchive(
         results.push({ id: op.id, op: op.op, path: op.path, status: 'applied', before: op.size, after: 0, detail: op.reason });
       }
     }
-    if (plan.options.deduplicate === 'exact') {
-      const dedup = planDeduplication(analysis, new Set(plan.options.exclude), new Set(removed));
-      for (const d of dedup.decisions) {
-        for (const p of d.remove) {
-          removed.add(p);
-          replacements.get(p)?.dispose();
-          replacements.delete(p);
-        }
-        if (d.remove.length > 0) {
-          const size = analysis.result.entries.find((e) => e.path === d.keep)?.size ?? 0;
-          results.push({
-            id: `dedup:${d.keep}`,
-            op: 'deduplicate',
-            path: d.keep,
-            status: 'applied',
-            before: size * (d.remove.length + 1),
-            after: size,
-            detail: `removed ${d.remove.join(', ')}`,
-          });
-        }
+    const restructure = restructurePlan(analysis, plan.options, new Set(removed));
+    for (const d of restructure.merges) {
+      for (const p of d.remove) {
+        removed.add(p);
+        replacements.get(p)?.dispose();
+        replacements.delete(p);
       }
-      for (const [entry, text] of applyTextEdits(analysis.texts, dedup.edits)) {
-        newTexts.set(entry, text);
-        results.push({
-          id: `rewrite:${entry}`,
-          op: 'rewrite-references',
-          path: entry,
-          status: 'applied',
-          detail: `${dedup.edits.get(entry)!.length} references rewritten`,
-        });
-      }
-      const xml = newTexts.get('content.xml');
-      if (xml !== undefined) {
-        parseContentXml(xml, platform.limits.maxXmlDepth);
-        validations.push({ name: 'content-xml-well-formed-after-rewrite', ok: true });
-      }
+      const size = analysis.result.entries.find((e) => e.path === d.keep)?.size ?? 0;
+      results.push({
+        id: `dedup:${d.keep}`,
+        op: 'deduplicate',
+        path: d.keep,
+        status: 'applied',
+        before: size * (d.remove.length + 1),
+        after: size,
+        detail: `removed ${d.remove.join(', ')}`,
+      });
     }
-    const finalNames = archive.entries.filter((e) => !e.isDirectory && !removed.has(e.name)).map((e) => e.name);
-    if (removed.size > 0 && analysis.manifest) {
+    for (const m of restructure.moves) {
+      results.push({
+        id: `move:${m.from}`,
+        op: 'move-resource',
+        path: m.from,
+        status: 'applied',
+        detail: `moved to ${m.to}; ${m.references} ${m.references === 1 ? 'reference' : 'references'} rewritten`,
+      });
+    }
+    for (const u of restructure.unlinks) {
+      results.push({
+        id: `unlink:${u.key}`,
+        op: 'remove-missing-reference',
+        path: u.key,
+        status: 'applied',
+        detail: `${u.references} ${u.references === 1 ? 'reference' : 'references'} taken out of ${u.entries.join(', ')}`,
+      });
+    }
+    for (const d of restructure.emptiedDirectories) removed.add(d);
+    const renames = restructure.renames;
+    for (const [entry, text] of applyTextEdits(analysis.texts, restructure.edits)) {
+      newTexts.set(entry, text);
+      results.push({
+        id: `rewrite:${entry}`,
+        op: 'rewrite-references',
+        path: entry,
+        status: 'applied',
+        detail: `${restructure.edits.get(entry)!.length} references rewritten or taken out`,
+      });
+    }
+    const xml = newTexts.get('content.xml');
+    if (xml !== undefined) {
+      parseContentXml(xml, platform.limits.maxXmlDepth);
+      validations.push({ name: 'content-xml-well-formed-after-rewrite', ok: true });
+    }
+    const finalNames = archive.entries.filter((e) => !e.isDirectory && !removed.has(e.name)).map((e) => renames.get(e.name) ?? e.name);
+    if ((removed.size > 0 || renames.size > 0) && analysis.manifest) {
       newTexts.set(MANIFEST_PATH, renderManifest(analysis.manifest, finalNames));
       results.push({
         id: `manifest:${MANIFEST_PATH}`,
@@ -200,17 +216,19 @@ export async function optimizeArchive(
       if (removed.has(entry.name)) continue;
       const replacement = replacements.get(entry.name);
       const text = newTexts.get(entry.name);
+      const newName = renames.get(entry.name);
+      const meta = newName === undefined ? metaFromEntry(entry) : renamedMeta(entry, newName);
       if (replacement) {
         const data = await replacement.open();
         try {
-          await writer.addStoredSource(metaFromEntry(entry), data);
+          await writer.addStoredSource(meta, data);
         } finally {
           await data.close?.();
         }
       } else if (text !== undefined) {
-        await writer.addBytes(metaFromEntry(entry), utf8Encode(text), entry.method === 0 ? 0 : 8);
+        await writer.addBytes(meta, utf8Encode(text), entry.method === 0 ? 0 : 8);
       } else {
-        await writer.copyEntry(archive, entry);
+        await writer.copyEntry(archive, entry, newName === undefined ? undefined : meta);
       }
       written++;
       progress({
@@ -228,7 +246,7 @@ export async function optimizeArchive(
     // 5. Verify the packaged result from scratch.
     progress({ stage: 'verify', message: 'Re-opening and validating the result' });
     const check = await analyzeArchive(outSource, { limits: platform.limits, inputName: run.outputName, ...(signal ? { signal } : {}) });
-    const verification = compareWithBaseline(analysis, check, removed, replacements, newTexts);
+    const verification = compareWithBaseline(analysis, check, removed, renames, replacements, newTexts);
     validations.push(...verification);
     const failed = verification.filter((v) => !v.ok);
     if (failed.length > 0) {
@@ -237,10 +255,12 @@ export async function optimizeArchive(
       return { report: buildReport({ ...base, status: 'failed', error: `The optimized package failed validation (${detail}); nothing was delivered` }) };
     }
 
-    // 6. Net benefit.
+    // 6. Net benefit. Moving files and taking out broken references are wanted changes even when
+    // the package does not get smaller.
     const applied = results.filter((r) => r.status === 'applied');
     const sizeAfter = outSource.size;
-    if (applied.length === 0 || sizeAfter >= source.size) {
+    const structural = applied.some((r) => r.op === 'move-resource' || r.op === 'remove-missing-reference');
+    if (applied.length === 0 || (sizeAfter >= source.size && !structural)) {
       const copy = await target.useOriginal(source);
       const outSha = await hashSource(copy, signal);
       validations.push({ name: 'no-improvement-copy', ok: outSha === analysis.result.input.sha256, detail: 'Delivered a byte-for-byte copy of the input' });
@@ -398,11 +418,23 @@ const REGRESSION_CODES = new Set([
   'manifest-invalid',
 ]);
 
+/** Writer metadata for an entry stored under a new name (UTF-8 flagged when the name needs it). */
+function renamedMeta(entry: ZipEntry, name: string): EntryMeta {
+  const meta = metaFromEntry(entry);
+  return { ...meta, rawName: utf8Encode(name), utf8: meta.utf8 || [...name].some((c) => c.charCodeAt(0) > 0x7f) };
+}
+
+/** Counts explicit references that resolve, ignoring those inside removed entries. */
+function resolvedCount(analysis: Analysis, removed: ReadonlySet<string>): number {
+  return analysis.result.references.filter((r) => r.kind === 'explicit' && r.status === 'resolved' && !removed.has(r.location.entry ?? '')).length;
+}
+
 /** Compares the re-analysis of the output with the input analysis. */
 function compareWithBaseline(
   before: Analysis,
   after: Analysis,
   removed: ReadonlySet<string>,
+  renames: ReadonlyMap<string, string>,
   replaced: ReadonlyMap<string, StoredResource>,
   texts: ReadonlyMap<string, string>,
 ): Validation[] {
@@ -415,21 +447,23 @@ function compareWithBaseline(
       : (after.result.diagnostics.find((d) => d.severity === 'fatal')?.message ?? 'fatal'),
   });
   if (!after.result.ok) return out;
-  const expected = before.result.entries.filter((e) => !removed.has(e.path)).map((e) => e.path);
+  const expected = before.result.entries.filter((e) => !removed.has(e.path)).map((e) => renames.get(e.path) ?? e.path);
   const actual = after.result.entries.map((e) => e.path);
   out.push({
     name: 'entry-set',
     ok: expected.length === actual.length && expected.every((p, i) => p === actual[i]),
-    detail: `${actual.length} entries (${removed.size} removed)`,
+    detail: `${actual.length} entries (${removed.size} removed, ${renames.size} moved)`,
   });
+  const originalName = new Map([...renames].map(([from, to]) => [to, from]));
   const beforeEntries = new Map(before.archive!.entries.map((e) => [e.name, e]));
   let changed = 0;
   let unexpected = 0;
   for (const e of after.archive!.entries) {
-    const b = beforeEntries.get(e.name);
+    const name = originalName.get(e.name) ?? e.name;
+    const b = beforeEntries.get(name);
     if (!b) continue;
     const same = b.crc32 === e.crc32 && b.uncompressedSize === e.uncompressedSize;
-    const shouldChange = replaced.has(e.name) || texts.has(e.name);
+    const shouldChange = replaced.has(name) || texts.has(name);
     if (!same) changed++;
     if (!same && !shouldChange) unexpected++;
   }
@@ -451,10 +485,15 @@ function compareWithBaseline(
   });
   const beforeResolved = new Set(before.result.references.filter((r) => r.status === 'resolved').map((r) => `${r.location.entry}|${r.value}`));
   const lost = after.result.references.filter((r) => r.status !== 'resolved' && beforeResolved.has(`${r.location.entry}|${r.value}`));
+  const resolvedBefore = resolvedCount(before, removed);
+  const resolvedAfter = resolvedCount(after, new Set());
+  const kept = lost.length === 0 && resolvedAfter >= resolvedBefore;
   out.push({
     name: 'references-still-resolve',
-    ok: lost.length === 0,
-    detail: lost.length === 0 ? `${after.result.references.length} references checked` : `${lost.length} references no longer resolve`,
+    ok: kept,
+    detail: kept
+      ? `${after.result.references.length} references checked, ${resolvedAfter} resolve (${resolvedBefore} before)`
+      : `${lost.length} references no longer resolve; ${resolvedAfter} resolve (${resolvedBefore} before)`,
   });
   const pagesBefore = before.ode!.pages.length;
   const pagesAfter = after.ode!.pages.length;

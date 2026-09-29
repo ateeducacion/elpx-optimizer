@@ -334,10 +334,16 @@ describe('html scanning', () => {
   it('parses srcset candidates', () => {
     expect(parseSrcset('a.png 1x, b.png 2x,c.png,  d(1).png 100w').map((c) => c.url)).toEqual(['a.png', 'b.png', 'c.png', 'd(1).png']);
     // Per the HTML spec a comma without whitespace does not split URLs.
-    expect(parseSrcset('a.png,b.png')).toEqual([{ start: 0, end: 11, url: 'a.png,b.png' }]);
+    expect(parseSrcset('a.png,b.png')).toEqual([{ start: 0, end: 11, url: 'a.png,b.png', candidateEnd: 11 }]);
     expect(parseSrcset('a.png, b.png')).toEqual([
-      { start: 0, end: 5, url: 'a.png' },
-      { start: 7, end: 12, url: 'b.png' },
+      { start: 0, end: 5, url: 'a.png', candidateEnd: 5 },
+      { start: 7, end: 12, url: 'b.png', candidateEnd: 12 },
+    ]);
+    // candidateEnd covers the descriptors, without the separator or trailing spaces.
+    expect(parseSrcset('a.png 1x , b.png, c.png 2x ').map((c) => [c.url, c.candidateEnd])).toEqual([
+      ['a.png', 8],
+      ['b.png', 16],
+      ['c.png', 26],
     ]);
     expect(parseSrcset('')).toEqual([]);
     expect(parseSrcset('img.png 1x (foo, bar), c.png').map((c) => c.url)).toEqual(['img.png', 'c.png']);

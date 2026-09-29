@@ -80,11 +80,11 @@ export class ZipWriter {
   ) {}
 
   /** Copies an entry from an opened archive without recompressing it. */
-  async copyEntry(archive: ZipArchive, entry: ZipEntry): Promise<void> {
+  async copyEntry(archive: ZipArchive, entry: ZipEntry, rename?: EntryMeta): Promise<void> {
     this.assertOpen();
     const offset = this.sink.bytesWritten;
-    const flags = entry.flags & ~FLAG_DATA_DESCRIPTOR;
-    const meta = metaFromEntry(entry);
+    const meta = rename ?? metaFromEntry(entry);
+    const flags = (entry.flags & ~FLAG_DATA_DESCRIPTOR & ~FLAG_UTF8) | (meta.utf8 ? FLAG_UTF8 : 0);
     await this.sink.write(this.localHeader(meta, entry.method, flags, entry.crc32, entry.compressedSize, entry.uncompressedSize));
     const end = entry.dataOffset + entry.compressedSize;
     if (this.sink.writeRange) {

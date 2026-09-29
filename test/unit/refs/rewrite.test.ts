@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryByteSource } from '../../../src/core/io/byte-source.js';
 import { openZip, readEntryBytes } from '../../../src/core/zip/reader.js';
-import { applyTextEdits, planDeduplication, retargetValue } from '../../../src/core/refs/rewrite.js';
+import { applyTextEdits, retargetValue } from '../../../src/core/refs/rewrite.js';
+import { planRestructure } from '../../../src/core/refs/restructure.js';
 import type { Analysis, ReferenceInternal } from '../../../src/core/analyze/model.js';
 import { buildOptimizationPlan } from '../../../src/core/plan/plan.js';
 import { normalizeOptions } from '../../../src/core/plan/options.js';
@@ -28,6 +29,11 @@ function ref(patch: Partial<ReferenceInternal>): ReferenceInternal {
     rewritable: true,
     ...patch,
   };
+}
+
+/** Plans deduplication alone. */
+function dedupOnly(analysis: Analysis, excluded: ReadonlySet<string>, removed: ReadonlySet<string>) {
+  return planRestructure(analysis, { deduplicate: true, flatten: false, removeMissing: false, excluded, removed });
 }
 
 /** Runs analyze → plan (dedup only) → optimize with the fake platform and returns the output texts. */
@@ -227,8 +233,8 @@ describe('deduplication with reference rewriting', () => {
     });
     const analysis = await analyzeBytes(bytes);
     expect(analysis.result.ok).toBe(true);
-    const plan = planDeduplication(analysis, new Set(['content/resources/g2.png']), new Set());
-    const reasons = Object.fromEntries(plan.decisions.flatMap((d) => d.skipped.map((s) => [s.path, s.reason])));
+    const plan = dedupOnly(analysis, new Set(['content/resources/g2.png']), new Set());
+    const reasons = Object.fromEntries(plan.skipped.map((s) => [s.path, s.reason]));
     expect(reasons).toEqual({
       'content/resources/a2.png': 'uncertain references: possible reference in script or obfuscated data',
       'content/resources/b2.png': 'uncertain references: lenient match (case)',
@@ -241,7 +247,8 @@ describe('deduplication with reference rewriting', () => {
       'content/resources/k2.png': 'rewritten reference would not resolve exactly to content/resources/k#1.png',
       'content/resources/l2.png': 'reference in content.xml cannot be rewritten in its encoding',
     });
-    expect(plan.decisions.every((d) => d.remove.length === 0)).toBe(true);
+    expect(plan.skipped.every((s) => s.kind === 'duplicate')).toBe(true);
+    expect(plan.merges).toEqual([]);
     expect(plan.edits.size).toBe(0);
   });
 
@@ -251,26 +258,25 @@ describe('deduplication with reference rewriting', () => {
       files: { 'content/resources/a.png': PNG, 'content/resources/b.png': PNG, 'content/resources/c.png': PNG },
     });
     const base = await analyzeBytes(bytes);
-    const clean = planDeduplication(base, new Set(), new Set());
-    expect(clean.decisions).toEqual([
+    const clean = dedupOnly(base, new Set(), new Set());
+    expect(clean.merges).toEqual([
       {
         keep: 'content/resources/a.png',
         remove: ['content/resources/b.png', 'content/resources/c.png'],
-        skipped: [],
         rewritten: { 'content/resources/b.png': 1, 'content/resources/c.png': 0 },
       },
     ]);
+    expect(clean.skipped).toEqual([]);
     expect(clean.edits.get('content.xml')).toHaveLength(1);
     // Already removed files leave too few members.
-    expect(planDeduplication(base, new Set(), new Set(['content/resources/a.png', 'content/resources/b.png'])).decisions).toEqual([]);
+    expect(dedupOnly(base, new Set(), new Set(['content/resources/a.png', 'content/resources/b.png'])).merges).toEqual([]);
     const bRef = base.references.find((r) => r.target === 'content/resources/b.png')!;
     const variant = (patch: Partial<ReferenceInternal>, entries = base.result.entries): Analysis => ({
       ...base,
       result: { ...base.result, entries },
       references: base.references.map((r) => (r === bRef ? { ...r, ...patch } : r)),
     });
-    const reasonFor = (a: Analysis) =>
-      planDeduplication(a, new Set(), new Set()).decisions[0]!.skipped.find((s) => s.path === 'content/resources/b.png')?.reason;
+    const reasonFor = (a: Analysis) => dedupOnly(a, new Set(), new Set()).skipped.find((s) => s.path === 'content/resources/b.png')?.reason;
     expect(reasonFor(variant({ kind: 'dynamic' }))).toBe('referenced from code or obfuscated data');
     expect(reasonFor(variant({ lenient: 'case' }))).toBe('reference matches only by case');
     expect(reasonFor(variant({ status: 'ambiguous' }))).toBe('referenced ambiguously');
@@ -292,7 +298,7 @@ describe('deduplication with reference rewriting', () => {
     const tie = await analyzeBytes(
       buildElpx({ components: [], files: { 'content/resources/zz.png': PNG, 'content/resources/yy.png': PNG, 'content/resources/long.png': PNG } }),
     );
-    expect(planDeduplication(tie, new Set(), new Set()).decisions[0]!.keep).toBe('content/resources/yy.png');
+    expect(dedupOnly(tie, new Set(), new Set()).merges[0]!.keep).toBe('content/resources/yy.png');
   });
 });
 

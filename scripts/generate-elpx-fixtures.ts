@@ -7,7 +7,8 @@
  * "&" and non-ASCII characters, srcset, posters, subtitle tracks, plain and
  * obfuscated DataGame payloads with link anchors, a local interactive video,
  * the download-source-file manifest, duplicates, unused files and a video
- * that is deliberately inefficient.
+ * that is deliberately inefficient, and an eXeLearning 3 style project with
+ * files in editor folders (content/resources/<ODE-ID>/) and broken references.
  *
  * Usage: bun scripts/generate-elpx-fixtures.ts
  * The ZIPs are written with fflate (not with this project's writer), using a
@@ -161,6 +162,64 @@ function buildPackage(...args: Parameters<typeof build> extends [unknown, ...inf
         'content/resources/antiguo.jpg': read('efficient.jpg'),
       },
       { screenshot: false },
+    ),
+  );
+}
+
+// ---------------------------------------------------------------- legacy-folders.elpx (eXeLearning 3 editor folders)
+{
+  const A = '20240101120000AAAAAA';
+  const B = '20240101120000BBBBBB';
+  const C = '20240101120000CCCCCC';
+  const D = '20240101120000DDDDDD';
+  const E = '20240101120000EEEEEE';
+  const textHtml =
+    `<p><img src="{{context_path}}/${A}/foto.jpg" alt="Foto A"> <img src="{{context_path}}/content/resources/${B}/foto.jpg" alt="Foto B"></p>` +
+    `<p><a href="{{context_path}}/${A}/ficha.pdf">Ficha</a> <img src="{{context_path}}/${B}/logo.png" alt="Logo"></p>` +
+    `<p><img src="{{context_path}}/content/resources/${D}/portada.png" alt="Portada"> <img src="{{context_path}}/${E}/nota.png" alt="Nota"></p>` +
+    '<p><img src="{{context_path}}/content/resources/mis fotos/playa.jpg" alt="Playa"></p>' +
+    // Broken references, as old projects often have.
+    '<p><img src="{{context_path}}/20240101120000ZZZZZZ/borrada.jpg" alt="Borrada"> <a href="{{context_path}}/content/resources/apuntes.pdf">Apuntes</a></p>';
+  const mapHtml =
+    '<div class="mapa-IDevice"><div class="mapa-DataGame js-hidden">' +
+    JSON.stringify({ url: `{{context_path}}/content/resources/${C}/logo.png`, back: '{{context_path}}/content/resources/fondo-perdido.png', points: [] }) +
+    '</div><p>Mapa</p></div>';
+  const pages: Page[] = [
+    {
+      id: 'page-1',
+      name: 'Tema 1',
+      file: 'index.html',
+      blocks: [
+        {
+          id: 'block-1',
+          name: 'Contenidos',
+          components: [
+            { id: 'idevice-1', type: 'text', html: textHtml, json: { textTextarea: textHtml } },
+            { id: 'idevice-2', type: 'map', html: mapHtml },
+          ],
+        },
+      ],
+    },
+  ];
+  writeFileSync(
+    join(out, 'legacy-folders.elpx'),
+    buildPackage(
+      'Proyecto de eXeLearning 3',
+      pages,
+      {
+        [`content/resources/${A}/foto.jpg`]: read('photo-exif-icc.jpg'),
+        [`content/resources/${A}/ficha.pdf`]: enc.encode('%PDF-1.4\n% ficha\n'),
+        [`content/resources/${B}/foto.jpg`]: read('efficient.jpg'),
+        [`content/resources/${B}/logo.png`]: read('palette-efficient.png'),
+        [`content/resources/${C}/logo.png`]: read('palette-efficient.png'),
+        'content/resources/portada.png': read('optimal.png'),
+        [`content/resources/${D}/portada.png`]: read('optimal.png'),
+        'content/resources/nota.png': read('alpha-text.png'),
+        [`content/resources/${E}/nota.png`]: read('deep-16bit.png'),
+        'content/resources/mis fotos/playa.jpg': read('progressive.jpg'),
+        'content/resources/20240101120000FFFFFF/': new Uint8Array(0),
+      },
+      { download: true },
     ),
   );
 }

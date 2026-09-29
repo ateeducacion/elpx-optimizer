@@ -9,6 +9,7 @@ import {
   scanHtmlDocument,
   scanHtmlFragment,
   type HtmlField,
+  type HtmlSpan,
 } from '../parse/html.js';
 import { escapeCssUrl, scanCss } from '../parse/css.js';
 import { decodePercent, encodeComponent, looksPercentEncoded } from '../parse/uri.js';
@@ -32,6 +33,37 @@ export type ReferenceKind = 'explicit' | 'dynamic';
 /** Which representation of the project a reference belongs to. */
 export type Representation = 'editable' | 'published' | 'search-index' | 'resource' | 'runtime';
 
+/** The HTML element an attribute reference belongs to, with the lift of its HTML layer. */
+export interface ElementAnchor {
+  readonly lift: Lift;
+  readonly tag: string;
+  /** Start tag span; identifies the element within its entry. */
+  readonly key: HtmlSpan;
+  /** Span of the whole element when it can be deleted on its own (see HtmlElementInfo.removableSpan). */
+  readonly span?: HtmlSpan;
+}
+
+/**
+ * How a reference could be taken out of its document when its target does
+ * not exist. `attribute` and `srcset` edits are expressed in the HTML layer
+ * (through the anchor's lift); `json-string` empties the whole string value.
+ */
+export type RemovalSite =
+  | { readonly kind: 'attribute'; readonly attribute: string; readonly span: HtmlSpan }
+  | {
+      readonly kind: 'srcset';
+      readonly attribute: string;
+      readonly span: HtmlSpan;
+      /** Lift of the attribute value layer, and the decoded value. */
+      readonly valueLift: Lift;
+      readonly value: string;
+      readonly valueLength: number;
+      /** Candidate spans (URL plus descriptors) in the attribute value, and this reference's index. */
+      readonly candidates: readonly HtmlSpan[];
+      readonly index: number;
+    }
+  | { readonly kind: 'json-string'; readonly lift: Lift; readonly length: number };
+
 export interface ScanContext {
   readonly entry: string;
   readonly representation: Representation;
@@ -46,6 +78,10 @@ export interface ScanContext {
   readonly emit: (found: FoundReference) => void;
   /** Receives malformed-JSON notes (location only). */
   readonly onMalformedJson?: (location: SourceLocation, via: readonly string[]) => void;
+  /** Element whose attribute is being scanned (kept through deeper layers of that attribute). */
+  readonly element?: ElementAnchor;
+  /** Removal site for a reference that is exactly the current layer's whole value (reset by derive). */
+  readonly removal?: RemovalSite;
 }
 
 export interface FoundReference {
@@ -59,6 +95,8 @@ export interface FoundReference {
   readonly location: SourceLocation;
   readonly via: readonly string[];
   readonly lift: Lift | undefined;
+  readonly element?: ElementAnchor;
+  readonly removal?: RemovalSite;
 }
 
 const URL_ATTRIBUTES = new Set([
@@ -99,8 +137,10 @@ export function childLift(parent: Lift | undefined, layer: DecodedText, rawOffse
 /** Creates a derived context. */
 export function derive(ctx: ScanContext, patch: Partial<Omit<ScanContext, 'location'>> & { location?: Partial<SourceLocation>; layer?: string }): ScanContext {
   const { layer, location, ...rest } = patch;
+  const { removal, ...base } = ctx;
+  void removal;
   return {
-    ...ctx,
+    ...base,
     ...rest,
     location: location ? { ...ctx.location, ...location } : ctx.location,
     via: layer ? [...ctx.via, layer] : ctx.via,
@@ -108,11 +148,14 @@ export function derive(ctx: ScanContext, patch: Partial<Omit<ScanContext, 'locat
   };
 }
 
-function emit(ctx: ScanContext, text: string, start: number, end: number, kind: ReferenceKind = ctx.kind): void {
+function emit(ctx: ScanContext, text: string, start: number, end: number, kind: ReferenceKind = ctx.kind, removal?: RemovalSite): void {
   // Trim whitespace around the reference, as browsers do for URL attributes.
   while (start < end && /\s/.test(text[start]!)) start++;
   while (end > start && /\s/.test(text[end - 1]!)) end--;
   if (end <= start) return;
+  const explicit = kind === 'explicit' && ctx.lift !== undefined;
+  // A context removal site applies only to a reference that is the whole (trimmed) value.
+  const site = removal ?? (ctx.removal && text.trim() === text.slice(start, end) ? ctx.removal : undefined);
   ctx.emit({
     value: text.slice(start, end),
     start,
@@ -122,6 +165,8 @@ function emit(ctx: ScanContext, text: string, start: number, end: number, kind: 
     location: ctx.location,
     via: ctx.via,
     lift: kind === 'explicit' ? ctx.lift : undefined,
+    ...(ctx.element ? { element: ctx.element } : {}),
+    ...(explicit && site ? { removal: site } : {}),
   });
 }
 
@@ -207,7 +252,8 @@ export function scanJson(text: string, ctx: ScanContext, quiet = false): boolean
   visitJsonStrings(doc.root, (s, path) => {
     const lift = childLift(ctx.lift, s.decoded, s.rawStart, (t) => escapeJsonString(t, style));
     const jsonPath = ctx.location.jsonPath ? ctx.location.jsonPath + formatJsonPath(path).slice(1) : formatJsonPath(path);
-    scanValue(s.value, derive(ctx, { lift, layer: 'json-string', location: { jsonPath } }));
+    const removal: RemovalSite | undefined = lift ? { kind: 'json-string', lift, length: s.value.length } : undefined;
+    scanValue(s.value, derive(ctx, { lift, layer: 'json-string', location: { jsonPath }, ...(removal ? { removal } : {}) }));
   });
   return true;
 }
@@ -223,6 +269,11 @@ export function scanCssText(text: string, ctx: ScanContext): void {
 
 /** Scans HTML (document or fragment). */
 export function scanHtml(html: string, ctx: ScanContext, fragment: boolean): void {
+  if (ctx.element) {
+    const { element, ...rest } = ctx;
+    void element;
+    ctx = rest;
+  }
   let fields: HtmlField[];
   try {
     fields = fragment ? scanHtmlFragment(html) : scanHtmlDocument(html);
@@ -240,10 +291,33 @@ function scanHtmlField(field: HtmlField, ctx: ScanContext): void {
   if (field.kind === 'attribute') {
     const name = field.name;
     const lift = field.rewritable ? childLift(ctx.lift, field.decoded, field.rawStart, (t) => encodeHtmlAttributeMinimal(t, field.quote)) : undefined;
-    const child = derive(ctx, { lift, layer: 'html-attribute', location: { element: tag, attribute: name } });
+    const element: ElementAnchor | undefined = ctx.lift
+      ? {
+          lift: ctx.lift,
+          tag,
+          key: { start: field.element.startOffset, end: field.element.startOffset },
+          ...(field.element.removableSpan ? { span: field.element.removableSpan } : {}),
+        }
+      : undefined;
+    const child = derive(ctx, { lift, layer: 'html-attribute', location: { element: tag, attribute: name }, ...(element ? { element } : {}) });
     const value = field.decoded.text;
     if (name === 'srcset' || name === 'imagesrcset') {
-      for (const c of parseSrcset(value)) emit(child, value, c.start, c.end);
+      const candidates = parseSrcset(value);
+      candidates.forEach((c, index) => {
+        const removal: RemovalSite | undefined = lift
+          ? {
+              kind: 'srcset',
+              attribute: name,
+              span: field.span,
+              valueLift: lift,
+              value,
+              valueLength: value.length,
+              candidates: candidates.map((x) => ({ start: x.start, end: x.candidateEnd })),
+              index,
+            }
+          : undefined;
+        emit(child, value, c.start, c.end, child.kind, removal);
+      });
     } else if (name === 'style') {
       scanCssText(value, derive(child, { layer: 'css' }));
     } else if (
@@ -251,7 +325,7 @@ function scanHtmlField(field: HtmlField, ctx: ScanContext): void {
       (tag === 'param' && name === 'value' && PARAM_URL_NAMES.has((field.element.attributes['name'] ?? '').toLowerCase()))
     ) {
       if (name === 'href' && tag === 'base') return;
-      emit(child, value, 0, value.length);
+      emit(child, value, 0, value.length, child.kind, { kind: 'attribute', attribute: name, span: field.span });
     } else if (name.startsWith('on')) {
       scanCode(value, child);
     } else if (value.includes(CONTEXT_PATH) || name.startsWith('data-')) {

@@ -49,6 +49,8 @@ describe('normalizeOptions', () => {
       },
       removeUnused: 'off',
       deduplicate: 'off',
+      flatten: 'off',
+      missingReferences: 'keep',
       exclude: [],
     });
     expect(normalizeOptions({})).toEqual(o);

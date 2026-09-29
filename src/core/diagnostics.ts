@@ -134,6 +134,12 @@ export const DIAGNOSTIC_CODES = {
   },
   'manifest-stale': { severity: 'warning', category: 'packaging', description: 'libs/elpx-manifest.js lists files that are absent or omits existing ones.' },
   'duplicate-content': { severity: 'info', category: 'information', description: 'Byte-identical resources exist under different names.' },
+  'legacy-resource-folders': {
+    severity: 'info',
+    category: 'information',
+    description:
+      'Files are stored in eXeLearning 3 editor folders (content/resources/<ODE-ID>/); they can be moved to content/resources/ with the flatten option.',
+  },
   'opaque-bundle': {
     severity: 'info',
     category: 'information',

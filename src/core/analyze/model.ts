@@ -3,7 +3,7 @@ import type { ImageInfo } from '../media/image-inspect.js';
 import type { ProbeResult } from '../media/probe.js';
 import type { ResourceKind } from '../media/sniff.js';
 import type { LenientRule, ReferenceForm, ResolutionStatus } from '../refs/resolve.js';
-import type { Lift, ReferenceKind, Representation } from '../refs/scan.js';
+import type { ElementAnchor, Lift, ReferenceKind, Representation, RemovalSite } from '../refs/scan.js';
 import type { PackageVariant } from '../format/detect.js';
 import type { OdeDocument } from '../format/content-xml.js';
 import type { ElpxManifest } from '../format/manifest.js';
@@ -108,6 +108,8 @@ export interface PackageSummary {
   readonly hasManifest: boolean;
   readonly hasSearchIndex: boolean;
   readonly hasPublishedHtml: boolean;
+  /** User files stored in eXeLearning 3 editor folders (content/resources/<ODE-ID>/<file>). */
+  readonly legacyFolders: { readonly folders: number; readonly files: number };
 }
 
 export interface AnalysisResult {
@@ -134,9 +136,13 @@ export interface AnalysisResult {
   readonly media: { readonly probed: boolean; readonly engine?: string; readonly note?: string };
 }
 
-/** A reference plus the non-serializable data needed to rewrite it. */
+/** A reference plus the non-serializable data needed to rewrite or remove it. */
 export interface ReferenceInternal extends ReferenceRecord {
   readonly site?: { readonly entry: string; readonly start: number; readonly end: number; readonly lift: Lift };
+  /** The HTML element holding the reference in one of its attributes. */
+  readonly element?: ElementAnchor;
+  /** How the reference can be removed (explicit, rewritable references only). */
+  readonly removal?: RemovalSite;
 }
 
 /** Text source kept in memory for rewriting. */

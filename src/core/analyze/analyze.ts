@@ -17,6 +17,7 @@ import { effectiveDuration } from '../media/probe.js';
 import type { MediaEngine, ProgressListener, ResourceStore } from '../media/engine.js';
 import { EntryIndex, resolveReference, type ResolveContext } from '../refs/resolve.js';
 import type { FoundReference } from '../refs/scan.js';
+import { legacyFolderOf } from '../format/legacy-folders.js';
 import { ANALYSIS_SCHEMA_VERSION, TOOL_NAME, TOOL_VERSION, UPSTREAM_VERSION } from '../version.js';
 import type {
   Analysis,
@@ -277,6 +278,16 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
     }
   }
   const pkg = packageSummary(ode, archive, texts);
+  if (pkg.legacyFolders.files > 0) {
+    const { files: n, folders } = pkg.legacyFolders;
+    diagnostics.push(
+      diagnostic(
+        'legacy-resource-folders',
+        `${n} ${n === 1 ? 'file is' : 'files are'} stored in ${folders} eXeLearning 3 editor ${folders === 1 ? 'folder' : 'folders'} (content/resources/<ODE-ID>/)`,
+        { details: { files: n, folders } },
+      ),
+    );
+  }
   const totals = {
     entries: archive.entries.length,
     files: files.length,
@@ -452,14 +463,18 @@ function resolveAll(found: readonly FoundReference[], index: EntryIndex): Refere
       via: f.via,
       rewritable,
       ...(rewritable && f.lift ? { site: { entry, start: f.start, end: f.end, lift: f.lift } } : {}),
+      ...(f.element ? { element: f.element } : {}),
+      ...(rewritable && f.removal ? { removal: f.removal } : {}),
     });
   }
   return out;
 }
 
 function toRecord(r: ReferenceInternal): AnalysisResult['references'][number] {
-  const { site, ...record } = r;
+  const { site, element, removal, ...record } = r;
   void site;
+  void element;
+  void removal;
   return record;
 }
 
@@ -822,5 +837,19 @@ function packageSummary(ode: OdeDocument, archive: ZipArchive, texts: ReadonlyMa
     hasManifest: archive.byName.has(MANIFEST_PATH),
     hasSearchIndex: texts.has('search_index.js'),
     hasPublishedHtml: archive.byName.has('index.html'),
+    legacyFolders: countLegacyFolders(archive),
   };
+}
+
+/** Counts user files in eXeLearning 3 editor folders. */
+function countLegacyFolders(archive: ZipArchive): { folders: number; files: number } {
+  const folders = new Set<string>();
+  let files = 0;
+  for (const e of archive.entries) {
+    const legacy = e.isDirectory ? undefined : legacyFolderOf(e.name);
+    if (!legacy) continue;
+    folders.add(legacy.folder);
+    files++;
+  }
+  return { folders: folders.size, files };
 }

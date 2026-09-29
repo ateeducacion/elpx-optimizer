@@ -29,6 +29,8 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   if (values['no-images']) images.enabled = false;
   if (typeof values['remove-unused'] === 'string') opts.removeUnused = values['remove-unused'] as 'off' | 'safe';
   if (typeof values['deduplicate'] === 'string') opts.deduplicate = values['deduplicate'] as 'off' | 'exact';
+  if (typeof values['flatten'] === 'string') opts.flatten = values['flatten'] as 'off' | 'legacy';
+  if (typeof values['missing-references'] === 'string') opts.missingReferences = values['missing-references'] as 'keep' | 'remove';
   if (Array.isArray(values['exclude'])) opts.exclude = [...(base.exclude ?? []), ...(values['exclude'] as string[])];
   const crf = intFlag(values, 'video-crf', 0, 63);
   if (crf !== undefined) video.crf = crf;
@@ -196,6 +198,12 @@ export function renderPlan(plan: ReturnType<typeof buildOptimizationPlan>): stri
         break;
       case 'deduplicate':
         lines.push(`  • deduplicate: keep ${op.keep}, remove ${op.remove.join(', ')} (${op.references} references rewritten)`);
+        break;
+      case 'move-resource':
+        lines.push(`  • move ${op.path} → ${op.to} (${op.references} references rewritten)`);
+        break;
+      case 'remove-missing-reference':
+        lines.push(`  • take out ${op.references} ${op.references === 1 ? 'reference' : 'references'} to missing ${op.path} (in ${op.entries.join(', ')})`);
         break;
       default:
         lines.push(`  • ${op.op} ${op.path}: ${op.reason ?? ''}`);

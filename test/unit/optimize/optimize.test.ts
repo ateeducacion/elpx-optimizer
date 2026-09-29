@@ -438,7 +438,7 @@ describe('optimizeArchive: final verification of the written package', () => {
     [
       'a new broken reference',
       (f: Record<string, Uint8Array | string>) => (f['index.html'] = page('<img src="content/resources/nada.png">')),
-      ['unchanged-entries-preserved', 'no-new-problems'],
+      ['unchanged-entries-preserved', 'no-new-problems', 'references-still-resolve'],
     ],
     [
       'a reference that stopped resolving',
@@ -448,7 +448,7 @@ describe('optimizeArchive: final verification of the written package', () => {
     [
       'components removed from content.xml',
       (f: Record<string, Uint8Array | string>) => (f['content.xml'] = odeXml({ components: [] })),
-      ['unchanged-entries-preserved', 'structure-and-ids-preserved'],
+      ['unchanged-entries-preserved', 'references-still-resolve', 'structure-and-ids-preserved'],
     ],
   ])('refuses an output where %s', async (_name, edit, expected) => {
     const outcome = await tampered(edit);

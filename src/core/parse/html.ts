@@ -13,6 +13,12 @@ type TextNode = DefaultTreeAdapterMap['textNode'];
  * Nothing is rendered or executed.
  */
 
+/** A [start, end) range in the scanned HTML source. */
+export interface HtmlSpan {
+  readonly start: number;
+  readonly end: number;
+}
+
 /** Element context for a field. */
 export interface HtmlElementInfo {
   readonly tagName: string;
@@ -21,6 +27,12 @@ export interface HtmlElementInfo {
   /** Tag names of ancestors, outermost first. */
   readonly ancestors: readonly string[];
   readonly startOffset: number;
+  /**
+   * Source span of the whole element when it can be deleted without touching
+   * other content: a void element (its start tag), or an element with an
+   * explicit end tag and nothing but whitespace or comments inside.
+   */
+  readonly removableSpan?: HtmlSpan;
 }
 
 export interface HtmlAttributeField {
@@ -30,6 +42,8 @@ export interface HtmlAttributeField {
   readonly value: string;
   readonly rawStart: number;
   readonly rawEnd: number;
+  /** Source span of the whole attribute (name and value) plus the whitespace before it. */
+  readonly span: HtmlSpan;
   readonly quote: '"' | "'" | null;
   readonly decoded: DecodedText;
   /** False when our decoding does not reproduce parse5's value exactly. */
@@ -58,6 +72,7 @@ export interface HtmlTextField {
 export type HtmlField = HtmlAttributeField | HtmlTextField;
 
 const RAW_TEXT = new Set(['script', 'style', 'xmp', 'iframe', 'noembed', 'noframes', 'plaintext']);
+const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'keygen', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 const RCDATA = new Set(['textarea', 'title']);
 
 /** Scans a full HTML document. */
@@ -95,11 +110,13 @@ export function looksLikeHtml(text: string): boolean {
 function walk(nodes: readonly Node[], html: string, ancestors: string[], out: HtmlField[]): void {
   for (const node of nodes) {
     if (isElement(node)) {
+      const removableSpan = elementSpan(node);
       const info: HtmlElementInfo = {
         tagName: node.tagName,
         attributes: Object.fromEntries(node.attrs.map((a) => [a.name, a.value])),
         ancestors: [...ancestors],
         startOffset: node.sourceCodeLocation?.startOffset ?? -1,
+        ...(removableSpan ? { removableSpan } : {}),
       };
       const locs = node.sourceCodeLocation?.attrs;
       for (const attr of node.attrs) {
@@ -151,6 +168,18 @@ function dataContainerSource(html: string, node: Element, element: HtmlElementIn
   return { kind: 'text', element, value: raw, rawStart: start, rawEnd: end, rawText: true, rawSource: true, decoded: normalizeNewlines(raw), rewritable: true };
 }
 
+/** See HtmlElementInfo.removableSpan. */
+function elementSpan(node: Element): HtmlSpan | undefined {
+  const loc = node.sourceCodeLocation;
+  if (!loc?.startTag) return undefined;
+  if (VOID.has(node.tagName)) return { start: loc.startTag.startOffset, end: loc.startTag.endOffset };
+  if (!loc.endTag) return undefined;
+  const content = (node as Element & { content?: { childNodes: Node[] } }).content;
+  const children = [...node.childNodes, ...(content?.childNodes ?? [])];
+  const empty = children.every((c) => c.nodeName === '#comment' || (isText(c) && c.value.trim() === ''));
+  return empty ? { start: loc.startTag.startOffset, end: loc.endTag.endOffset } : undefined;
+}
+
 function isElement(node: Node): node is Element {
   return 'tagName' in node;
 }
@@ -175,6 +204,8 @@ function attributeField(html: string, element: HtmlElementInfo, name: string, va
     valueEnd = end - 1;
   }
   const decoded = decodeHtmlRefs(html.slice(valueStart, valueEnd), DecodingMode.Attribute);
+  let spanStart = start;
+  while (spanStart > 0 && /\s/.test(html[spanStart - 1]!)) spanStart--;
   return {
     kind: 'attribute',
     element,
@@ -182,6 +213,7 @@ function attributeField(html: string, element: HtmlElementInfo, name: string, va
     value,
     rawStart: valueStart,
     rawEnd: valueEnd,
+    span: { start: spanStart, end },
     quote,
     decoded,
     rewritable: decoded.text === value,
@@ -291,9 +323,17 @@ export function escapeHtmlText(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** A srcset candidate: the URL span and where the candidate (URL plus descriptors) ends. */
+export interface SrcsetCandidate {
+  readonly start: number;
+  readonly end: number;
+  readonly url: string;
+  readonly candidateEnd: number;
+}
+
 /** Parses a srcset attribute into candidate URL spans (decoded coordinates). */
-export function parseSrcset(value: string): { start: number; end: number; url: string }[] {
-  const out: { start: number; end: number; url: string }[] = [];
+export function parseSrcset(value: string): SrcsetCandidate[] {
+  const out: SrcsetCandidate[] = [];
   let i = 0;
   while (i < value.length) {
     while (i < value.length && /[\s,]/.test(value[i]!)) i++;
@@ -303,8 +343,10 @@ export function parseSrcset(value: string): { start: number; end: number; url: s
     let end = i;
     // A trailing comma belongs to the separator, not the URL.
     while (end > start && value[end - 1] === ',') end--;
-    out.push({ start, end, url: value.slice(start, end) });
-    if (end < i) continue;
+    if (end < i) {
+      out.push({ start, end, url: value.slice(start, end), candidateEnd: end });
+      continue;
+    }
     // skip descriptors up to the next comma
     let depth = 0;
     while (i < value.length) {
@@ -314,6 +356,9 @@ export function parseSrcset(value: string): { start: number; end: number; url: s
       else if (c === ',' && depth === 0) break;
       i++;
     }
+    let candidateEnd = i;
+    while (candidateEnd > end && /\s/.test(value[candidateEnd - 1]!)) candidateEnd--;
+    out.push({ start, end, url: value.slice(start, end), candidateEnd });
   }
   return out;
 }

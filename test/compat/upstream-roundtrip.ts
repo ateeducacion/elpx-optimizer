@@ -13,7 +13,13 @@
  * difference. It then re-exports the optimized project with upstream's ELPX
  * and HTML5 exporters and re-imports the ELPX.
  *
- * Usage: bun roundtrip.ts <original.elpx> <optimized.elpx> --report=FILE
+ * `--renames=FILE` (JSON: new path → original path) maps moved files back to
+ * their original content hash. `--content-changes` is for runs that take
+ * out references to missing files: component content may then differ, but
+ * pages, blocks and components (ids, types, order) must not, and no asset
+ * may become missing or unresolved.
+ *
+ * Usage: bun roundtrip.ts <original.elpx> <optimized.elpx> --report=FILE [--renames=FILE] [--content-changes]
  * Exit code 0 when compatible, 1 otherwise.
  */
 import * as fs from 'node:fs/promises';
@@ -32,6 +38,9 @@ const fflate = await import('fflate');
 
 const args = process.argv.slice(2);
 const reportArg = args.find((a) => a.startsWith('--report='));
+const renamesArg = args.find((a) => a.startsWith('--renames='));
+const contentChanges = args.includes('--content-changes');
+const renames: Record<string, string> = renamesArg ? JSON.parse(await fs.readFile(renamesArg.slice('--renames='.length), 'utf8')) : {};
 const [originalPath, optimizedPath] = args.filter((a) => !a.startsWith('--'));
 if (!originalPath || !optimizedPath || !reportArg) {
   console.error('usage: bun roundtrip.ts <original.elpx> <optimized.elpx> --report=FILE');
@@ -108,7 +117,8 @@ function normalize(text: string, l: Loaded, originalFiles: Record<string, string
       return 'asset:unresolved';
     }
     const suffix = m.endsWith(')') && !m.includes('(') ? ')' : '';
-    return `asset:${originalFiles[target] ?? `new:${target}`}${suffix}`;
+    const original = originalFiles[target] ?? (renames[target] !== undefined ? originalFiles[renames[target]] : undefined);
+    return `asset:${original ?? `new:${target}`}${suffix}`;
   });
 }
 
@@ -170,7 +180,15 @@ const unresolvedBefore = new Set<string>();
 const unresolvedAfter = new Set<string>();
 const modelBefore = model(original, original.extracted, unresolvedBefore);
 const modelAfter = model(optimized, original.extracted, unresolvedAfter);
-const structureDiffs = diff(modelBefore, modelAfter);
+// Structure and ids only (upstream's own export rewrites asset paths and has known escaping bugs).
+const shape = (m: ReturnType<typeof model>) =>
+  m.map((p) => ({
+    id: p.id,
+    title: p.title,
+    blocks: p.blocks.map((b: any) => ({ id: b.id, components: b.components.map((c: any) => ({ id: c.id, type: c.type })) })),
+  }));
+const structureDiffs = contentChanges ? diff(shape(modelBefore), shape(modelAfter)) : diff(modelBefore, modelAfter);
+const contentDiffs = contentChanges ? diff(modelBefore, modelAfter).length : 0;
 const metaDiffs = diff(stableMeta(original.meta), stableMeta(optimized.meta), '$meta');
 const missingBefore = missingKey(original.result.missingAssets ?? []);
 const missingAfter = missingKey(optimized.result.missingAssets ?? []);
@@ -200,13 +218,6 @@ for (const format of ['elpx', 'html5']) {
       const again = await load(tmp);
       const u1 = new Set<string>();
       const u2 = new Set<string>();
-      // Structure and ids only (upstream's own export rewrites asset paths and has known escaping bugs).
-      const shape = (m: ReturnType<typeof model>) =>
-        m.map((p) => ({
-          id: p.id,
-          title: p.title,
-          blocks: p.blocks.map((b: any) => ({ id: b.id, components: b.components.map((c: any) => ({ id: c.id, type: c.type })) })),
-        }));
       reimportDiffs = diff(shape(model(optimized, optimized.extracted, u1)), shape(model(again, again.extracted, u2)));
       again.wrapper.destroy();
       await fs.rm(again.extractDir, { recursive: true, force: true });
@@ -236,6 +247,7 @@ const report = {
     malformed: malformedAfter,
   },
   structureDiffs,
+  contentDiffs,
   metaDiffs,
   newMissing,
   newUnresolved,

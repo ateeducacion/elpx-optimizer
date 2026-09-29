@@ -32,6 +32,10 @@ export interface OptionsInput {
   };
   removeUnused?: 'off' | 'safe';
   deduplicate?: 'off' | 'exact';
+  /** Move files out of eXeLearning 3 editor folders (content/resources/<ODE-ID>/) into content/resources/. */
+  flatten?: 'off' | 'legacy';
+  /** Take out references to files that do not exist (off by default: missing files are reported, not hidden). */
+  missingReferences?: 'keep' | 'remove';
   minSavingsPercent?: number;
   minSavingsBytes?: number;
   /** ZIP paths that must be left untouched. */
@@ -44,6 +48,8 @@ export interface NormalizedOptions {
   readonly images: ImageOptions & { readonly includeScreenshot: boolean };
   readonly removeUnused: 'off' | 'safe';
   readonly deduplicate: 'off' | 'exact';
+  readonly flatten: 'off' | 'legacy';
+  readonly missingReferences: 'keep' | 'remove';
   readonly exclude: readonly string[];
 }
 
@@ -78,7 +84,11 @@ export function parseResolution(v: unknown): ResolutionCap {
 /** Validates and completes options with the profile defaults. */
 export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (typeof input !== 'object' || input === null) invalid('Options must be an object');
-  checkKeys(input, ['preset', 'video', 'images', 'removeUnused', 'deduplicate', 'minSavingsPercent', 'minSavingsBytes', 'exclude'], '');
+  checkKeys(
+    input,
+    ['preset', 'video', 'images', 'removeUnused', 'deduplicate', 'flatten', 'missingReferences', 'minSavingsPercent', 'minSavingsBytes', 'exclude'],
+    '',
+  );
   const preset = input.preset ?? 'balanced';
   if (!PRESETS.includes(preset)) invalid(`preset must be one of ${PRESETS.join(', ')}`);
   const minPercent = input.minSavingsPercent === undefined ? 5 : intIn(input.minSavingsPercent, 0, 90, 'minSavingsPercent');
@@ -125,9 +135,13 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (removeUnused !== 'off' && removeUnused !== 'safe') invalid('removeUnused must be "off" or "safe"');
   const deduplicate = input.deduplicate ?? 'off';
   if (deduplicate !== 'off' && deduplicate !== 'exact') invalid('deduplicate must be "off" or "exact"');
+  const flatten = input.flatten ?? 'off';
+  if (flatten !== 'off' && flatten !== 'legacy') invalid('flatten must be "off" or "legacy"');
+  const missingReferences = input.missingReferences ?? 'keep';
+  if (missingReferences !== 'keep' && missingReferences !== 'remove') invalid('missingReferences must be "keep" or "remove"');
   const exclude = input.exclude ?? [];
   if (!Array.isArray(exclude) || !exclude.every((p) => typeof p === 'string')) invalid('exclude must be a list of paths');
-  return { preset, video, images, removeUnused, deduplicate, exclude: [...new Set(exclude)].sort() };
+  return { preset, video, images, removeUnused, deduplicate, flatten, missingReferences, exclude: [...new Set(exclude)].sort() };
 }
 
 /** Canonical JSON (sorted keys) used for hashing plans and options. */

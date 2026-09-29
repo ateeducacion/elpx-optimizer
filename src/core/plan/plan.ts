@@ -8,7 +8,7 @@ import { sha256Hex } from '../io/hash.js';
 import { MANIFEST_PATH } from '../format/manifest.js';
 import { IMAGE_EXTENSIONS } from '../analyze/analyze.js';
 import { extname } from '../zip/names.js';
-import { planDeduplication } from '../refs/rewrite.js';
+import { planRestructure, type RestructurePlan } from '../refs/restructure.js';
 import { PLAN_SCHEMA_VERSION, TOOL_NAME, TOOL_VERSION } from '../version.js';
 import { canonicalJson, type NormalizedOptions } from './options.js';
 
@@ -49,12 +49,29 @@ export type PlanOperation =
       readonly size: number;
       readonly references: number;
     }
+  | {
+      readonly id: string;
+      readonly op: 'move-resource';
+      readonly path: string;
+      readonly to: string;
+      readonly size: number;
+      readonly references: number;
+    }
+  | {
+      readonly id: string;
+      readonly op: 'remove-missing-reference';
+      /** The missing path (or the reference itself when it is not a package path). */
+      readonly path: string;
+      readonly references: number;
+      readonly actions: { readonly element: number; readonly attribute: number; readonly value: number };
+      readonly entries: readonly string[];
+    }
   | { readonly id: string; readonly op: 'rewrite-references'; readonly path: string; readonly edits: number; readonly reason: string }
   | { readonly id: string; readonly op: 'update-manifest'; readonly path: string; readonly reason: string };
 
 export interface SkippedResource {
   readonly path: string;
-  readonly kind: 'video' | 'image' | 'unused' | 'duplicate';
+  readonly kind: 'video' | 'image' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference';
   readonly reason: VideoSkipReason | ImageSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
   readonly detail: string;
 }
@@ -105,28 +122,35 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
         }
       }
     }
-    if (options.deduplicate === 'exact') {
-      const dedup = planDeduplication(analysis, excluded, removedByCleanup);
-      for (const d of dedup.decisions) {
-        if (d.remove.length > 0) {
-          const size = result.entries.find((x) => x.path === d.keep)?.size ?? 0;
-          operations.push({
-            id: `dedup:${d.keep}`,
-            op: 'deduplicate',
-            keep: d.keep,
-            remove: d.remove,
-            size: size * d.remove.length,
-            references: Object.values(d.rewritten).reduce((a, b) => a + b, 0),
-          });
-        }
-        for (const s of d.skipped) skipped.push({ path: s.path, kind: 'duplicate', reason: 'kept', detail: s.reason });
-      }
-      for (const [entry, list] of dedup.edits) {
-        operations.push({ id: `rewrite:${entry}`, op: 'rewrite-references', path: entry, edits: list.length, reason: 'references to removed duplicates' });
-      }
+    const restructure = restructurePlan(analysis, options, removedByCleanup);
+    const sizeOf = new Map(result.entries.map((x) => [x.path, x.size]));
+    for (const m of restructure.merges) {
+      operations.push({
+        id: `dedup:${m.keep}`,
+        op: 'deduplicate',
+        keep: m.keep,
+        remove: m.remove,
+        size: (sizeOf.get(m.keep) ?? 0) * m.remove.length,
+        references: Object.values(m.rewritten).reduce((a, b) => a + b, 0),
+      });
     }
-    const removedPaths = new Set<string>(removedByCleanup);
-    for (const op of operations) if (op.op === 'deduplicate') for (const p of op.remove) removedPaths.add(p);
+    for (const m of restructure.moves) {
+      operations.push({ id: `move:${m.from}`, op: 'move-resource', path: m.from, to: m.to, size: sizeOf.get(m.from) ?? 0, references: m.references });
+    }
+    for (const u of restructure.unlinks) {
+      operations.push({ id: `unlink:${u.key}`, op: 'remove-missing-reference', path: u.key, references: u.references, actions: u.actions, entries: u.entries });
+    }
+    for (const s of restructure.skipped) skipped.push({ path: s.path, kind: s.kind, reason: 'kept', detail: s.reason });
+    for (const [entry, list] of restructure.edits) {
+      operations.push({
+        id: `rewrite:${entry}`,
+        op: 'rewrite-references',
+        path: entry,
+        edits: list.length,
+        reason: rewriteReason(entry, restructure, analysis),
+      });
+    }
+    const removedPaths = new Set<string>([...removedByCleanup, ...restructure.merged]);
     for (const e of result.entries) {
       if (e.isDirectory) continue;
       const isScreenshot = e.path === 'screenshot.png';
@@ -140,7 +164,7 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
       if (e.kind === 'video') planVideo(analysis, e, options, engine, limits, operations, skipped);
       else planImage(analysis, e, options, engine, limits, operations, skipped, isScreenshot);
     }
-    const removals = operations.some((o) => o.op === 'remove-unused' || o.op === 'deduplicate');
+    const removals = operations.some((o) => o.op === 'remove-unused' || o.op === 'deduplicate' || o.op === 'move-resource');
     if (removals && analysis.manifest) {
       operations.push({ id: `manifest:${MANIFEST_PATH}`, op: 'update-manifest', path: MANIFEST_PATH, reason: 'list the final set of entries' });
     }
@@ -157,6 +181,12 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
     if (operations.some((o) => o.op === 'remove-unused'))
       risks.push('Unreferenced files will be removed; only files with no reference of any kind are selected.');
     if (operations.some((o) => o.op === 'deduplicate')) risks.push('Duplicate files will be merged and their references rewritten.');
+    if (operations.some((o) => o.op === 'move-resource')) {
+      risks.push('Files in eXeLearning 3 folders will be moved to content/resources/ and their references rewritten.');
+    }
+    if (operations.some((o) => o.op === 'remove-missing-reference')) {
+      risks.push('References to missing files will be taken out: images and media players are deleted, links keep their text.');
+    }
   }
   operations.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   skipped.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -180,6 +210,30 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
     blocking,
   };
   return { ...plan, planHash: sha256Hex(canonicalJson({ ...plan, estimate: undefined })) };
+}
+
+/** Replays the restructuring decisions for these options (also used by execution). */
+export function restructurePlan(analysis: Analysis, options: NormalizedOptions, removed: ReadonlySet<string>): RestructurePlan {
+  return planRestructure(analysis, {
+    deduplicate: options.deduplicate === 'exact',
+    flatten: options.flatten === 'legacy',
+    removeMissing: options.missingReferences === 'remove',
+    excluded: new Set(options.exclude),
+    removed,
+  });
+}
+
+/** Explains why an entry's references are rewritten. */
+function rewriteReason(entry: string, restructure: RestructurePlan, analysis: Analysis): string {
+  const reasons = new Set<string>();
+  for (const r of analysis.references) {
+    if (r.site?.entry !== entry) continue;
+    const target = r.status === 'resolved' ? r.target : undefined;
+    if (target && restructure.merged.has(target)) reasons.add('references to removed duplicates');
+    else if (target && restructure.renames.has(target)) reasons.add('references to moved files');
+  }
+  if (restructure.unlinks.some((u) => u.entries.includes(entry))) reasons.add('references to missing files taken out');
+  return [...reasons].join('; ');
 }
 
 function planVideo(

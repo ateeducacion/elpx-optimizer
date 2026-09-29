@@ -92,6 +92,8 @@ export function pageHtml(page: Page, title: string, pages: Page[], withDownload:
     .flatMap((b) => b.components)
     .map((c) => {
       let html = c.html.replace(/\{\{context_path\}\}\/content\/resources\//g, `${base}content/resources/`);
+      // eXeLearning 3 short form: {{context_path}}/<ODE-ID>/file lives in content/resources/<ODE-ID>/.
+      html = html.replace(/\{\{context_path\}\}\/(\d{14}[A-Z0-9]{6})\//g, `${base}content/resources/$1/`);
       html = html.replace('href="exe-package:elp"', 'href="#" onclick="if(typeof downloadElpx===\'function\')downloadElpx();return false;"');
       html = html.replace('download="exe-package:elp-name"', `download="${title}.elpx"`);
       return `<article class="idevice_node ${c.type}" id="${c.id}"><div class="idevice_body">${html}</div></article>`;

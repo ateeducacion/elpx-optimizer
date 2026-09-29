@@ -100,7 +100,8 @@ describe('content.xml variants', () => {
       ['xml-text', 'content/resources/20251009090601SQPBIF/00.jpg', true, undefined],
     ]);
     expect(a.result.package?.exeVersion).toBe('v3.0.2');
-    expect(codes(a)).toEqual([]);
+    expect(a.result.package?.legacyFolders).toEqual({ folders: 1, files: 1 });
+    expect(codes(a)).toEqual(['legacy-resource-folders']);
   });
 
   it('scans HTML and text in ODE properties but never the base64 screenshot copy', async () => {
