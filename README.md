@@ -1,61 +1,55 @@
 # elpx-optimizer
 
+[![npm](https://img.shields.io/npm/v/elpx-optimizer?logo=npm)](https://www.npmjs.com/package/elpx-optimizer)
+[![Docker Hub](https://img.shields.io/docker/pulls/ateeducacion/elpx-optimizer?label=Docker%20Hub%20pulls&logo=docker&logoColor=white)](https://hub.docker.com/r/ateeducacion/elpx-optimizer)
+[![GitHub Pages](https://img.shields.io/github/deployments/ateeducacion/elpx-optimizer/github-pages?label=web%20app&logo=github)](https://ateeducacion.github.io/elpx-optimizer/)
 [![Coverage](https://codecov.io/gh/ateeducacion/elpx-optimizer/graph/badge.svg)](https://codecov.io/gh/ateeducacion/elpx-optimizer)
-[![GitHub Pages](https://img.shields.io/github/deployments/ateeducacion/elpx-optimizer/github-pages?label=GitHub%20Pages&logo=github)](https://ateeducacion.github.io/elpx-optimizer/)
-[![ghcr.io](https://img.shields.io/github/v/release/ateeducacion/elpx-optimizer?label=ghcr.io&logo=docker&logoColor=white)](https://github.com/orgs/ateeducacion/packages?repo_name=elpx-optimizer)
 
-Shrinks [eXeLearning](https://github.com/exelearning/exelearning) projects (`.elpx`): it recompresses
-videos, images, audio and PDFs, finds missing, unused and duplicate resources, and writes a new
-`name_optimized.elpx` that stays editable in eXeLearning. The original file is never modified.
+[![elpx-optimizer](src/web/public/social-card.png)](https://ateeducacion.github.io/elpx-optimizer/)
+
+Makes [eXeLearning](https://github.com/exelearning/exelearning) projects (`.elpx`) lighter: smaller
+videos, images, audio and PDFs, in a project that is still editable in eXeLearning. The original is
+never touched.
 
 [Leer en español](README.es.md)
 
-## Use it
+## Web app
 
-- **Web app**: <https://ateeducacion.github.io/elpx-optimizer/>. Everything runs in your browser;
-  the project is never uploaded.
-- **CLI** with Docker (FFmpeg, sharp and qpdf included; also on Docker Hub as `ateeducacion/elpx-optimizer`):
+**[ateeducacion.github.io/elpx-optimizer](https://ateeducacion.github.io/elpx-optimizer/)**: drop
+your `.elpx` and download the result. Everything runs in your browser; nothing is uploaded.
 
-  ```bash
-  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/course.elpx --dry-run
-  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/course.elpx
-  ```
+## Command line
 
-- **Web app on your own server**: the static build from a
-  [release](https://github.com/ateeducacion/elpx-optimizer/releases) on any static host.
-- **Agent Skill**: `elpx-optimizer-skill.zip` from a release lets AI agents inspect and optimize
-  projects through the CLI.
+```bash
+npx elpx-optimizer optimize course.elpx
+```
 
-Installing the CLI without Docker (npm package, Node or Bun), every option and the JSON output:
-[docs/cli.md](docs/cli.md).
+```bash
+docker run --rm -u $(id -u) -v "$PWD:/work" ateeducacion/elpx-optimizer optimize course.elpx
+```
+
+Both write `course_optimized.elpx` next to the original. Add `--dry-run` to see the plan first.
+`npx` needs Node.js 22 and FFmpeg for video and audio; the Docker image includes everything.
+[All options →](docs/cli.md)
 
 ## What it does
 
-- **Recompresses** videos (H.264/AAC), images (JPEG, PNG, WebP, with a maximum size), audio (WAV,
-  AIFF and FLAC become MP3) and PDFs (rewritten with qpdf; signed and encrypted ones are left alone).
-- **Finds** missing, unused and duplicate resources. On request it removes unused files, merges
-  duplicates, moves eXeLearning 3 folders, cleans file names and takes out references to missing
-  files.
-- **Verifies** every result and keeps the original when a result is not valid or not smaller; the
-  new package is analyzed again.
+- **Recompresses** videos, images, audio and PDFs, and keeps a new version only when it is valid
+  and smaller.
+- **Finds** missing, unused and duplicate files; on request it removes, merges and renames them.
+- **Refreshes** the project thumbnail from its first page, or from an image of your choice.
+- **Verifies** the whole package again before handing it over.
 
-Three presets: conservative, balanced (default) and maximum. What each one changes:
-[docs/profiles.md](docs/profiles.md).
+Also as an [Agent Skill](docs/skill.md) for AI assistants.
 
-## Documentation
+## More
 
-[Web app](docs/web.md) · [CLI](docs/cli.md) · [Agent Skill](docs/skill.md) ·
-[Presets and quality](docs/profiles.md) · [Architecture](docs/architecture.md) ·
-[Diagnostics](docs/diagnostics.md) · [Design decisions](docs/decisions.md) ·
-[Testing](docs/testing.md) · [Publishing on npm](docs/npm.md) ·
-[eXeLearning format review](docs/upstream-review.md)
+[Presets and quality](docs/profiles.md) · [Web app](docs/web.md) · [CLI](docs/cli.md) ·
+[Architecture](docs/architecture.md) · [Diagnostics](docs/diagnostics.md) ·
+[Design decisions](docs/decisions.md) · [Testing](docs/testing.md) · [npm](docs/npm.md) ·
+[eXeLearning format](docs/upstream-review.md) · [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md)
 
-Development: `bun install` and `make help`; see [CONTRIBUTING.md](CONTRIBUTING.md) and
-[AGENTS.md](AGENTS.md). Security: [SECURITY.md](SECURITY.md).
-
-## License
-
-AGPL-3.0-or-later. Third-party components keep their licenses; the web build ships FFmpeg
-(GPL-2.0-or-later) and qpdf (Apache-2.0): see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The
-ATE logo belongs to the Área de Tecnología Educativa of the Government of the Canary Islands and is
-not covered by the project's license.
+AGPL-3.0-or-later. Third-party components keep their licenses; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Made by the Área de Tecnología Educativa of the
+Government of the Canary Islands, whose logo is not covered by the project's license.
