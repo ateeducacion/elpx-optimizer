@@ -163,7 +163,7 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
         conversions: job.conversions,
         job,
         ...(to !== undefined ? { to } : {}),
-        estimatedBytes: Math.min(size, Math.round((job.bitrateKbps * 1000 * job.expected.duration) / 8)),
+        ...(job.expected.duration !== undefined ? { estimatedBytes: Math.min(size, Math.round((job.bitrateKbps * 1000 * job.expected.duration) / 8)) } : {}),
       });
     }
     const sizeOf = new Map(result.entries.map((x) => [x.path, x.size]));

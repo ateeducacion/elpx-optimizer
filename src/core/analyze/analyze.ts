@@ -51,7 +51,7 @@ const PACKAGE_FILES = new Set(['content.xml', 'content.dtd', 'screenshot.png', '
 const RESOLUTION_SENSITIVE_TYPES = new Set(['magnifier', 'hidden-image', 'puzzle', 'map', 'beforeafter', 'identify', 'image-gallery']);
 const DEDUP_KINDS = new Set(['image', 'video', 'audio', 'document', 'font']);
 /** Audio formats inspected with ffprobe (those the audio policy can act on). */
-const PROBED_AUDIO = new Set(['wav', 'aiff', 'flac', 'mp3', 'm4a']);
+const PROBED_AUDIO = new Set(['wav', 'aiff', 'flac', 'mp3', 'm4a', 'ogg', 'opus']);
 /** Extensions of images whose headers are inspected (other names are never decoded). */
 export const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['jpg', 'jpeg', 'jpe', 'png', 'webp', 'gif', 'apng']);
 /** eXeLearning hosted import limits (importPolicy.ts). */

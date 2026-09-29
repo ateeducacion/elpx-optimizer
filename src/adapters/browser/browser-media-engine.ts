@@ -5,7 +5,7 @@ import type { EngineInfo, ImageVerification, JobContext, MediaEngine, ProgressLi
 import type { ImageJob } from '../../core/media/image-policy.js';
 import { FFPROBE_ARGS, parseProbeJson, type ProbeResult } from '../../core/media/probe.js';
 import { buildDecodeCheckArgs, buildVideoArgs, type VideoJob } from '../../core/media/video-policy.js';
-import { buildAudioArgs, type AudioJob } from '../../core/media/audio-policy.js';
+import { AUDIO_MIME, buildAudioArgs, type AudioJob } from '../../core/media/audio-policy.js';
 import { BlobResource, type BlobStore } from './blob-io.js';
 import {
   chooseThreading,
@@ -287,8 +287,7 @@ export class BrowserMediaEngine implements MediaEngine {
           stage: 'transcode',
           resource: ctx.resourcePath,
           processedSeconds: seconds,
-          totalSeconds: total,
-          fraction: Math.min(0.99, seconds / total),
+          ...(total ? { totalSeconds: total, fraction: Math.min(0.99, seconds / total) } : {}),
         });
       };
       try {
@@ -296,7 +295,7 @@ export class BrowserMediaEngine implements MediaEngine {
         if (code !== 0) throw new ElpxError('media-failed', `ffmpeg.wasm failed (code ${code}): ${this.lastError()}`);
         const data = await ff.readFile(out);
         if (!(data instanceof Uint8Array) || data.length === 0) throw new ElpxError('media-failed', 'ffmpeg.wasm produced no output');
-        return this.options.store.adopt(new Blob([data as Uint8Array<ArrayBuffer>], { type: job.target === 'mp3' ? 'audio/mpeg' : 'audio/mp4' }), job.target);
+        return this.options.store.adopt(new Blob([data as Uint8Array<ArrayBuffer>], { type: AUDIO_MIME[job.target] }), job.target);
       } finally {
         await ff.deleteFile(out).catch(() => undefined);
         await input.release();

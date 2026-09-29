@@ -70,7 +70,7 @@ export class NativeMediaEngine implements MediaEngine {
         video = wanted.includes('libx264')
           ? { available: true, encoders: wanted, engineClass: 'native', slowEncoders: [] }
           : { available: false, encoders: wanted, engineClass: 'native', slowEncoders: [], reason: 'ffmpeg lacks the libx264 encoder' };
-        const audioEncoders = ['libmp3lame', 'aac'].filter((e) => encoders.includes(e));
+        const audioEncoders = ['libmp3lame', 'aac', 'libopus'].filter((e) => encoders.includes(e));
         audio =
           audioEncoders.length > 0
             ? { available: true, encoders: audioEncoders }
@@ -197,8 +197,7 @@ export class NativeMediaEngine implements MediaEngine {
           stage: 'transcode',
           resource: ctx.resourcePath,
           processedSeconds: seconds,
-          totalSeconds: total,
-          fraction: Math.min(0.99, seconds / total),
+          ...(total ? { totalSeconds: total, fraction: Math.min(0.99, seconds / total) } : {}),
         });
       },
     }).catch(async (error: unknown) => {

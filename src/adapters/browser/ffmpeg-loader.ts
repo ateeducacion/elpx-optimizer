@@ -53,7 +53,7 @@ export function chooseThreading(pref: ThreadingPreference, env: ThreadingEnviron
 export const PINNED_CORE_ENCODERS = ['libx264', 'aac', 'libvpx-vp9', 'libopus'] as const;
 
 /** Audio encoders of the same core used for audio files (verified by test/browser). */
-export const PINNED_AUDIO_ENCODERS = ['libmp3lame', 'aac'] as const;
+export const PINNED_AUDIO_ENCODERS = ['libmp3lame', 'aac', 'libopus'] as const;
 
 /** Parses `ffmpeg -encoders` output lines into encoder names (skipping the " V..... = Video" legend). */
 export function parseEncoderList(lines: readonly string[]): string[] {

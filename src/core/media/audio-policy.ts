@@ -6,10 +6,10 @@ import { effectiveDuration, type ProbeResult } from './probe.js';
  * Audio policy shared by both engines. Uncompressed or lossless recordings
  * (WAV, AIFF, FLAC) become MP3, which every browser and eXeLearning's audio
  * players accept; the file gets the .mp3 extension and its references are
- * rewritten by the restructuring planner. MP3 and M4A (AAC) files are only
- * re-encoded, keeping their format and name, when their bitrate is far above
- * the target. Other formats (Ogg Vorbis, Opus, WebM) are already efficient
- * and are left alone.
+ * rewritten by the restructuring planner. MP3, M4A (AAC) and Opus (in WebM
+ * or Ogg, as eXeLearning's recorder writes) are only re-encoded, keeping
+ * their codec, container and name, when their bitrate is far above the
+ * target. Vorbis and other formats are left alone.
  */
 
 export interface AudioProfile {
@@ -61,17 +61,18 @@ export interface AudioJob {
   readonly demuxer: string;
   readonly audioIndex: number;
   readonly sourceFormat: string;
-  /** Output format and extension. */
-  readonly target: 'mp3' | 'm4a';
-  readonly encoder: 'libmp3lame' | 'aac';
+  /** Output format (and extension, when it changes). */
+  readonly target: AudioTarget;
+  readonly encoder: 'libmp3lame' | 'aac' | 'libopus';
   /** Codec name the candidate must report. */
-  readonly codec: 'mp3' | 'aac';
+  readonly codec: 'mp3' | 'aac' | 'opus';
   readonly bitrateKbps: number;
   readonly channels: number;
   readonly sampleRate: number;
   /** True when the extension changes (the file is renamed and its references rewritten). */
   readonly rename: boolean;
-  readonly expected: { readonly duration: number };
+  /** Undefined for browser recordings (MediaRecorder WebM) whose header has no duration. */
+  readonly expected: { readonly duration?: number };
   /** Human-readable description of every lossy conversion. */
   readonly conversions: readonly string[];
 }
@@ -85,21 +86,36 @@ export interface AudioInput {
   readonly probe: ProbeResult;
 }
 
+export type AudioTarget = 'mp3' | 'm4a' | 'webm' | 'ogg';
+
 /** Sources that become MP3, with the demuxer forced for each. */
 const LOSSLESS: Readonly<Record<string, string>> = { wav: 'wav', aiff: 'aiff', flac: 'flac' };
-/** Lossy sources re-encoded in their own format, with their demuxer and encoder. */
-const LOSSY: Readonly<Record<string, { demuxer: string; target: 'mp3' | 'm4a'; encoder: 'libmp3lame' | 'aac'; codec: 'mp3' | 'aac' }>> = {
+
+interface LossySource {
+  readonly demuxer: string;
+  readonly target: AudioTarget;
+  readonly encoder: AudioJob['encoder'];
+  readonly codec: AudioJob['codec'];
+}
+/** Lossy sources re-encoded in their own codec and container (only when the stream uses `codec`). */
+const LOSSY: Readonly<Record<string, LossySource>> = {
   mp3: { demuxer: 'mp3', target: 'mp3', encoder: 'libmp3lame', codec: 'mp3' },
   m4a: { demuxer: 'mov,mp4,m4a,3gp,3g2,mj2', target: 'm4a', encoder: 'aac', codec: 'aac' },
+  webm: { demuxer: 'matroska,webm', target: 'webm', encoder: 'libopus', codec: 'opus' },
+  ogg: { demuxer: 'ogg', target: 'ogg', encoder: 'libopus', codec: 'opus' },
+  opus: { demuxer: 'ogg', target: 'ogg', encoder: 'libopus', codec: 'opus' },
 };
+const DEMUXERS: Readonly<Record<AudioTarget, string>> = { mp3: 'mp3', m4a: LOSSY['m4a']!.demuxer, webm: LOSSY['webm']!.demuxer, ogg: 'ogg' };
+/** MIME type of each output format. */
+export const AUDIO_MIME: Readonly<Record<AudioTarget, string>> = { mp3: 'audio/mpeg', m4a: 'audio/mp4', webm: 'audio/webm', ogg: 'audio/ogg' };
 /** Sample rates MPEG audio (and AAC) can carry. */
 const MP3_RATES = [48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000];
 /** A lossy source is re-encoded only above this multiple of the target bitrate. */
 const LOSSY_HEADROOM = 1.4;
 
 /** Demuxer to read a candidate of the given target format. */
-export function audioDemuxer(target: AudioJob['target']): string {
-  return target === 'mp3' ? 'mp3' : LOSSY['m4a']!.demuxer;
+export function audioDemuxer(target: AudioTarget): string {
+  return DEMUXERS[target];
 }
 
 /** Decides whether and how an audio file is re-encoded. */
@@ -118,27 +134,49 @@ export function decideAudio(input: AudioInput, options: AudioOptions, caps: Audi
   const audio = p.streams.filter((s) => s.type === 'audio');
   if (audio.length === 0) return skip('no-audio-stream', 'No audio stream');
   if (audio.length > 1) return skip('multiple-audio-streams', `${audio.length} audio streams`);
-  const duration = effectiveDuration(p);
-  if (duration === undefined || duration <= 0) return skip('unknown-duration', 'The duration is unknown');
-  if (duration > limits.maxVideoDurationSeconds) return skip('exceeds-duration-limit', `Longer than ${limits.maxVideoDurationSeconds} s`);
+  const known = effectiveDuration(p);
+  const duration = known !== undefined && known > 0 ? known : undefined;
   const s = audio[0]!;
+  // Browser recordings (MediaRecorder) have no duration in their header: they are still re-encoded,
+  // with FFmpeg stopping at the first read error and the result fully decoded (see buildAudioArgs).
+  const recording = duration === undefined && lossy?.codec === 'opus' && s.codec === 'opus';
+  if (duration === undefined && !recording) return skip('unknown-duration', 'The duration is unknown');
+  if (duration !== undefined && duration > limits.maxVideoDurationSeconds)
+    return skip('exceeds-duration-limit', `Longer than ${limits.maxVideoDurationSeconds} s`);
+  if (lossy && s.codec !== lossy.codec) {
+    return skip('unsupported-format', `${s.codec} audio in ${input.format.toUpperCase()} is left unchanged`);
+  }
   const sourceChannels = s.channels ?? 2;
   const channels = Math.min(2, Math.max(1, sourceChannels));
-  const bitrateKbps = channels === 1 ? Math.max(64, Math.round(options.bitrateKbps / 2)) : options.bitrateKbps;
+  const opus = lossy?.codec === 'opus';
+  // Opus needs about half the bitrate of MP3/AAC for the same quality.
+  const bitrateKbps = opus
+    ? channels === 1
+      ? Math.max(32, Math.round(options.bitrateKbps / 4))
+      : Math.max(48, Math.round(options.bitrateKbps / 2))
+    : channels === 1
+      ? Math.max(64, Math.round(options.bitrateKbps / 2))
+      : options.bitrateKbps;
   const sourceRate = s.sampleRate ?? 44100;
-  const sampleRate = MP3_RATES.find((r) => r <= sourceRate) ?? 8000;
+  // Opus always works at 48 kHz internally (its streams report 48000).
+  const sampleRate = opus ? 48000 : (MP3_RATES.find((r) => r <= sourceRate) ?? 8000);
   const conversions: string[] = [];
   if (lossless) {
     conversions.push(`${input.format.toUpperCase()} (${s.codec}) converted to MP3 at ${bitrateKbps} kb/s (lossy); the file is renamed to .mp3`);
   } else {
-    const sourceKbps = (s.bitRate ?? p.bitRate ?? (input.size * 8) / duration) / 1000;
-    if (!options.force && sourceKbps < bitrateKbps * LOSSY_HEADROOM) {
-      return skip('already-efficient', `${Math.round(sourceKbps)} kb/s is close to the ${bitrateKbps} kb/s target`);
+    const bits = s.bitRate ?? p.bitRate ?? (duration !== undefined ? (input.size * 8) / duration : undefined);
+    if (bits === undefined) {
+      conversions.push(`${lossy!.codec.toUpperCase()} re-encoded to ${bitrateKbps} kb/s (lossy); the recording has no duration in its header`);
+    } else {
+      const sourceKbps = bits / 1000;
+      if (!options.force && sourceKbps < bitrateKbps * LOSSY_HEADROOM) {
+        return skip('already-efficient', `${Math.round(sourceKbps)} kb/s is close to the ${bitrateKbps} kb/s target`);
+      }
+      conversions.push(`${lossy!.codec.toUpperCase()} re-encoded from ${Math.round(sourceKbps)} to ${bitrateKbps} kb/s (lossy)`);
     }
-    conversions.push(`${lossy!.codec.toUpperCase()} re-encoded from ${Math.round(sourceKbps)} to ${bitrateKbps} kb/s (lossy)`);
   }
   if (channels !== sourceChannels) conversions.push(`${sourceChannels} channels mixed down to stereo`);
-  if (sampleRate !== sourceRate) conversions.push(`sample rate ${sourceRate} Hz changed to ${sampleRate} Hz`);
+  if (sampleRate !== sourceRate && !opus) conversions.push(`sample rate ${sourceRate} Hz changed to ${sampleRate} Hz`);
   return {
     action: 'transcode',
     job: {
@@ -152,7 +190,7 @@ export function decideAudio(input: AudioInput, options: AudioOptions, caps: Audi
       channels,
       sampleRate,
       rename: lossless !== undefined,
-      expected: { duration },
+      expected: duration !== undefined ? { duration } : {},
       conversions,
     },
   };
@@ -165,13 +203,16 @@ export function decideAudio(input: AudioInput, options: AudioOptions, caps: Audi
  */
 export function buildAudioArgs(job: AudioJob, input: string, output: string, extra: { progressPipe?: boolean } = {}): string[] {
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'error'];
+  // Without a known duration to compare with, any read error must fail the job.
+  if (job.expected.duration === undefined) args.push('-xerror');
   if (extra.progressPipe) args.push('-progress', 'pipe:1', '-nostats');
   args.push('-protocol_whitelist', 'file', '-f', job.demuxer.split(',')[0]!);
   if (job.demuxer.startsWith('mov')) args.push('-enable_drefs', '0');
   args.push('-i', input, '-map', `0:${job.audioIndex}`, '-map_metadata', '0', '-vn', '-sn', '-dn');
   args.push('-c:a', job.encoder, '-b:a', `${job.bitrateKbps}k`, '-ac', String(job.channels), '-ar', String(job.sampleRate));
   if (job.target === 'mp3') args.push('-id3v2_version', '3', '-f', 'mp3');
-  else args.push('-movflags', '+faststart', '-f', 'ipod');
+  else if (job.target === 'm4a') args.push('-movflags', '+faststart', '-f', 'ipod');
+  else args.push('-f', job.target);
   args.push('-y', output);
   return args;
 }
@@ -189,16 +230,21 @@ export function validateAudioCandidate(job: AudioJob, candidate: ProbeResult): {
     if (a.sampleRate !== undefined && a.sampleRate !== job.sampleRate) problems.push(`sample rate ${a.sampleRate} instead of ${job.sampleRate}`);
   }
   const duration = effectiveDuration(candidate);
-  // MP3 frames (1152 samples) and encoder padding shift the end slightly.
-  const tolerance = Math.max(0.2, job.expected.duration * 0.005);
-  if (duration === undefined || Math.abs(duration - job.expected.duration) > tolerance) {
-    problems.push(`duration ${duration?.toFixed(3) ?? 'unknown'} s differs from ${job.expected.duration.toFixed(3)} s by more than ${tolerance.toFixed(2)} s`);
+  const expected = job.expected.duration;
+  if (expected === undefined) {
+    if (duration === undefined || duration <= 0) problems.push('the new file has no duration');
+  } else {
+    // MP3 frames (1152 samples) and encoder padding shift the end slightly.
+    const tolerance = Math.max(0.2, expected * 0.005);
+    if (duration === undefined || Math.abs(duration - expected) > tolerance) {
+      problems.push(`duration ${duration?.toFixed(3) ?? 'unknown'} s differs from ${expected.toFixed(3)} s by more than ${tolerance.toFixed(2)} s`);
+    }
   }
   return { ok: problems.length === 0, problems };
 }
 
 /** The new name of a converted file: same folder and base name, target extension. */
-export function convertedName(path: string, target: AudioJob['target']): string {
+export function convertedName(path: string, target: AudioTarget): string {
   const slash = path.lastIndexOf('/');
   const dot = path.lastIndexOf('.');
   const base = dot > slash ? path.slice(0, dot) : path;

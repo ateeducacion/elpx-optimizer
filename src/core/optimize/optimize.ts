@@ -18,7 +18,7 @@ import type { EngineInfo, MediaEngine, ProgressListener, ResourceStore, StoredRe
 import { inspectImage } from '../media/image-inspect.js';
 import { extractMetadata, injectMetadata } from '../media/image-metadata.js';
 import { isWorthReplacing, validateVideoCandidate } from '../media/video-policy.js';
-import { audioDemuxer, validateAudioCandidate } from '../media/audio-policy.js';
+import { AUDIO_MIME, audioDemuxer, validateAudioCandidate } from '../media/audio-policy.js';
 import { applyTextEdits } from '../refs/rewrite.js';
 import { buildOptimizationPlan, restructurePlan, type OptimizationPlan, type PlanOperation } from '../plan/plan.js';
 import { canonicalJson } from '../plan/options.js';
@@ -435,7 +435,8 @@ async function runAudio(
     if (!platform.engine.transcodeAudio) throw new ElpxError('media-engine-unavailable', 'This engine does not process audio');
     step.progress({ stage: 'extract', resource: op.path, ...(step.item ? { item: step.item, items: step.items! } : {}) });
     input = await platform.store.fromEntry(analysis.archive!, entry, extname(op.path) || 'bin', step.signal);
-    step.progress({ stage: 'transcode', resource: op.path, processedSeconds: 0, totalSeconds: op.job.expected.duration });
+    const total = op.job.expected.duration;
+    step.progress({ stage: 'transcode', resource: op.path, processedSeconds: 0, ...(total !== undefined ? { totalSeconds: total } : {}) });
     candidate = await platform.engine.transcodeAudio(input, op.job, ctx);
     step.progress({ stage: 'validate', resource: op.path, message: 'Inspecting the new audio' });
     const check = validateAudioCandidate(op.job, await platform.engine.probe(candidate, ctx));
@@ -444,7 +445,7 @@ async function runAudio(
     await platform.engine.decodeCheck(candidate, { demuxer: audioDemuxer(op.job.target) }, ctx);
     checks.push('full decode without errors');
     if (platform.engine.playbackCheck) {
-      const mime = op.job.target === 'mp3' ? 'audio/mpeg' : 'audio/mp4';
+      const mime = AUDIO_MIME[op.job.target];
       const original = analysis.result.entries.find((e) => e.path === op.path)?.mime ?? mime;
       const before = await platform.engine.playbackCheck(input, original, ctx);
       const after = await platform.engine.playbackCheck(candidate, mime, ctx);
