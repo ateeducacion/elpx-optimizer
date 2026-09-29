@@ -111,6 +111,8 @@ export class App {
   private helpPanel: HTMLDialogElement | undefined;
   /** The audio being previewed from the resources table, if any. */
   private player: { readonly path: string; readonly audio: HTMLAudioElement; readonly url: string } | undefined;
+  /** Counter of preview requests: an answer that is no longer the latest one is dropped. */
+  private previewRequest = 0;
 
   constructor(
     private readonly root: HTMLElement,
@@ -860,11 +862,14 @@ export class App {
 
   /** Fetches a resource for preview, showing a spinner on the button meanwhile. */
   private async fetchPreview(e: InventoryEntry, button: HTMLButtonElement): Promise<string | undefined> {
+    const request = ++this.previewRequest;
     const content = [...button.childNodes];
     button.disabled = true;
     replace(button, h('span', { className: 'spinner-border spinner-border-sm', 'aria-hidden': 'true' }));
     try {
-      return this.urls.createObjectURL(await this.pipeline.preview!(e.path));
+      const blob = await this.pipeline.preview!(e.path);
+      // Another preview, or leaving the review (see stopAudio), replaced this one meanwhile.
+      return request === this.previewRequest ? this.urls.createObjectURL(blob) : undefined;
     } catch (error) {
       this.announce(this.t('previewFailed', { name: short(e.path), message: (error as Error).message }));
       return undefined;
@@ -892,11 +897,18 @@ export class App {
     audio.addEventListener('play', refresh);
     audio.addEventListener('pause', refresh);
     audio.addEventListener('ended', refresh);
-    await audio.play().catch(() => this.announce(this.t('previewFailed', { name: short(e.path), message: '' })));
+    await audio.play().catch((error: unknown) => {
+      // A pause (or another preview) before playback started interrupts play(): not a failure.
+      if ((error as Error).name === 'AbortError') return;
+      // An unplayable file stays "not paused": release it so the button offers to play again.
+      if (this.player?.audio === audio) this.stopAudio();
+      this.announce(this.t('previewFailed', { name: short(e.path), message: '' }));
+    });
   }
 
-  /** Stops and releases the audio preview. */
+  /** Stops and releases the audio preview, and drops any preview still being read. */
   private stopAudio(): void {
+    this.previewRequest++;
     if (!this.player) return;
     const { audio, url } = this.player;
     this.player = undefined;
@@ -912,7 +924,8 @@ export class App {
     if (!url) return;
     const media =
       e.kind === 'video'
-        ? h('video', { src: url, controls: true, autoplay: true, playsinline: true, className: 'preview-media' })
+        ? // The player's own download would save the blob: URL without a name; the header offers a named one.
+          h('video', { src: url, controls: true, autoplay: true, playsinline: true, controlslist: 'nodownload', className: 'preview-media' })
         : h('img', { src: url, alt: short(e.path), className: 'preview-media preview-image' });
     const size = e.image?.width ? `${e.image.width}×${e.image.height ?? '?'} · ` : e.video?.width ? `${e.video.width}×${e.video.height ?? '?'} · ` : '';
     const dialog = h(
@@ -927,7 +940,21 @@ export class App {
           h('h2', { id: 'preview-title', className: 'h6 mb-0 text-break', tabindex: -1, autofocus: true }, short(e.path)),
           h('p', { className: 'small text-body-secondary mb-0' }, `${size}${bytes(e.size, this.lang)}`),
         ),
-        h('button', { type: 'button', className: 'btn-close flex-none', 'aria-label': this.t('close'), onclick: () => dialog.close() }),
+        h(
+          'div',
+          { className: 'd-flex align-items-center gap-2 flex-none' },
+          h(
+            'a',
+            {
+              href: url,
+              download: e.path.slice(e.path.lastIndexOf('/') + 1),
+              className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1',
+            },
+            icon('download'),
+            this.t('downloadFile'),
+          ),
+          h('button', { type: 'button', className: 'btn-close', 'aria-label': this.t('close'), onclick: () => dialog.close() }),
+        ),
       ),
       h('div', { className: 'preview-body' }, media),
     );
@@ -1327,7 +1354,8 @@ export class App {
         );
       };
       children.push(h('div', { className: 'compare mb-4' }, bar(this.t('before'), s.before, 'fill-before'), bar(this.t('after'), s.after, 'fill-after')));
-      const url = this.urls.createObjectURL(output);
+      // A named File: browsers that ignore the download attribute for blob: URLs fall back to its name.
+      const url = this.urls.createObjectURL(new File([output], fileName, { type: output.type || 'application/zip' }));
       const reportUrl = this.urls.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
       this.objectUrls.push(url, reportUrl);
       children.push(
