@@ -100,7 +100,8 @@ What each option changes, and when files are left alone, is described in
 - **`--flatten legacy`**: only folders named like eXeLearning 3 ODE-IDs (14 digits and 6 upper-case
   letters or digits) are flattened; folders created by the user are never touched. `inspect` reports
   such folders with the `legacy-resource-folders` diagnostic.
-- **`--normalize-names slug`**: only file names change (folders and `custom/` are untouched); a
+- **`--normalize-names slug`**: only file names change (folders and `custom/` are untouched);
+  extensions are lower-cased and repeated known extensions dropped (`Foto.JPG.pdf` → `foto.pdf`); a
   taken name gets `-2`, `-3`…; files with dynamic or lenient references, inside HTML/script bundles
   or holding references themselves keep their names.
 - **`--missing-references remove`** is an explicit opt-in: by default a missing file is reported and
