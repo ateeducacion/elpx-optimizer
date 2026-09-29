@@ -48,5 +48,10 @@ make compat                # when touching format, reference or restructuring co
   `licenses/qpdf-wasm-NOTICES.txt` and `QPDF_VERSION` for qpdf). Keep the `Dockerfile` base images
   as literal `FROM` lines, without `ARG`s, so Dependabot can update them, and `bun.lock` at
   `"lockfileVersion": 1` (Dependabot cannot read 2; CI checks it).
+- Releases: bump the version (`package.json`, `src/core/version.ts`, the skill's `SKILL.md`), merge,
+  and publish a GitHub release whose title is only the tag (`vX.Y.Z`), not marked as a pre-release
+  (the docs link `releases/latest`). `.github/workflows/release.yml` pushes the images, deploys GitHub
+  Pages and attaches the assets. To publish an existing release again (for example after a failed
+  image job), run the workflow by hand with its tag.
 - Updating eXeLearning compatibility: bump the SHA in `scripts/fetch-upstream.sh`,
   `src/core/version.ts` and `docs/upstream-review.md`, then run `make compat`.
