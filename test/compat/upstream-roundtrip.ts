@@ -48,6 +48,7 @@ if (!originalPath || !optimizedPath || !reportArg) {
 }
 const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
 const ASSET_REF = /asset:\/\/[^"'\s<>\\]+/g;
+const PLACEHOLDER = /\{\{context_path\}\}\/([^"'\s<>\\]+)/g;
 const trimRef = (r: string): string => (r.endsWith(')') && !r.includes('(') ? r.slice(0, -1) : r);
 const warnings: string[] = [];
 const logger = {
@@ -108,25 +109,51 @@ function resolveRef(ref: string, files: Record<string, string>): string | undefi
   return Object.keys(files).find((k) => k === id || k === `content/${id}` || k.endsWith(`/${id}`));
 }
 
-/** Replaces asset references with the original content hash of their target. */
-function normalize(text: string, l: Loaded, originalFiles: Record<string, string>, unresolved: Set<string>): string {
-  return text.replace(ASSET_REF, (m) => {
-    const target = resolveRef(m, l.extracted);
-    if (!target) {
-      unresolved.add(trimRef(m));
-      return 'asset:unresolved';
-    }
-    const suffix = m.endsWith(')') && !m.includes('(') ? ')' : '';
-    const original = originalFiles[target] ?? (renames[target] !== undefined ? originalFiles[renames[target]] : undefined);
-    return `asset:${original ?? `new:${target}`}${suffix}`;
-  });
+/** Original content hash of an extracted file (moved files are mapped back through --renames). */
+function originalHash(target: string, originalFiles: Record<string, string>): string {
+  // A moved file may take the name of a file that was removed, so the rename map comes first.
+  const original = renames[target] !== undefined ? originalFiles[renames[target]] : originalFiles[target];
+  return original ?? `new:${target}`;
+}
+
+/**
+ * Replaces asset references with the original content hash of their target.
+ * A {{context_path}} placeholder that upstream's importer left unconverted
+ * (it does not resolve eXeLearning 3's short form {{context_path}}/<ODE-ID>/f)
+ * is resolved with the browser importer's prefix trials and recorded, so a
+ * package that only makes such a placeholder resolvable compares equal, and a
+ * package that introduces new unconverted placeholders is caught.
+ */
+function normalize(text: string, l: Loaded, originalFiles: Record<string, string>, unresolved: Set<string>, placeholders: Set<string>): string {
+  return text
+    .replace(ASSET_REF, (m) => {
+      const target = resolveRef(m, l.extracted);
+      if (!target) {
+        unresolved.add(trimRef(m));
+        return 'asset:unresolved';
+      }
+      const suffix = m.endsWith(')') && !m.includes('(') ? ')' : '';
+      return `asset:${originalHash(target, originalFiles)}${suffix}`;
+    })
+    .replace(PLACEHOLDER, (m, rest: string) => {
+      let p = rest;
+      try {
+        p = decodeURIComponent(rest);
+      } catch {
+        // keep the raw text
+      }
+      const target = [p, `content/${p}`, `content/resources/${p}`, `resources/${p}`].find((c) => l.extracted[c] !== undefined);
+      if (!target) return m;
+      placeholders.add(m);
+      return `asset:${originalHash(target, originalFiles)}`;
+    });
 }
 
 /** Semantic model with normalized asset references. */
-function model(l: Loaded, originalFiles: Record<string, string>, unresolved: Set<string>) {
+function model(l: Loaded, originalFiles: Record<string, string>, unresolved: Set<string>, placeholders: Set<string> = new Set()) {
   const norm = (v: unknown): unknown =>
     typeof v === 'string'
-      ? normalize(v, l, originalFiles, unresolved)
+      ? normalize(v, l, originalFiles, unresolved, placeholders)
       : Array.isArray(v)
         ? v.map(norm)
         : v && typeof v === 'object'
@@ -158,6 +185,14 @@ function model(l: Loaded, originalFiles: Record<string, string>, unresolved: Set
 /** Structural diff (first differences only). */
 function diff(a: unknown, b: unknown, p = '$', out: string[] = []): string[] {
   if (out.length >= 40 || a === b) return out;
+  if (typeof a === 'string' && typeof b === 'string') {
+    // Show the neighbourhood of the first difference.
+    let i = 0;
+    while (i < a.length && a[i] === b[i]) i++;
+    const at = (v: string): string => JSON.stringify(`${i > 80 ? '…' : ''}${v.slice(Math.max(0, i - 80), i + 120)}`);
+    out.push(`${p} @${i}: ${at(a)} -> ${at(b)}`);
+    return out;
+  }
   if (typeof a !== typeof b || a === null || b === null || typeof a !== 'object') {
     const s = (v: unknown): string => {
       const t = JSON.stringify(v) ?? 'undefined';
@@ -178,8 +213,11 @@ const original = await load(path.resolve(originalPath));
 const optimized = await load(path.resolve(optimizedPath));
 const unresolvedBefore = new Set<string>();
 const unresolvedAfter = new Set<string>();
-const modelBefore = model(original, original.extracted, unresolvedBefore);
-const modelAfter = model(optimized, original.extracted, unresolvedAfter);
+const placeholdersBefore = new Set<string>();
+const placeholdersAfter = new Set<string>();
+const modelBefore = model(original, original.extracted, unresolvedBefore, placeholdersBefore);
+const modelAfter = model(optimized, original.extracted, unresolvedAfter, placeholdersAfter);
+const newPlaceholders = [...placeholdersAfter].filter((p) => !placeholdersBefore.has(p));
 // Structure and ids only (upstream's own export rewrites asset paths and has known escaping bugs).
 const shape = (m: ReturnType<typeof model>) =>
   m.map((p) => ({
@@ -251,6 +289,8 @@ const report = {
   metaDiffs,
   newMissing,
   newUnresolved,
+  placeholdersLeftByUpstream: { before: placeholdersBefore.size, after: placeholdersAfter.size },
+  newPlaceholders,
   exports,
   reimportDiffs,
   warnings: warnings.slice(0, 20),
@@ -261,6 +301,7 @@ const ok =
   metaDiffs.length === 0 &&
   newMissing.length === 0 &&
   newUnresolved.length === 0 &&
+  newPlaceholders.length === 0 &&
   malformedAfter <= malformedBefore &&
   exports.every((e) => e['ok']) &&
   reimportDiffs.length === 0;

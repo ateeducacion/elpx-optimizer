@@ -11,3 +11,4 @@ playwright-report/
 /tmp/
 coverage-*/
 *.tgz
+.playwright-mcp/

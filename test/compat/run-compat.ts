@@ -16,7 +16,7 @@ if (!existsSync(harness)) {
   console.error('Upstream checkout missing: run scripts/fetch-upstream.sh first');
   process.exit(2);
 }
-const out = join(root, 'test-results', 'compat');
+const out = process.env['ELPX_COMPAT_OUT'] ?? join(root, 'test-results', 'compat');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 const cli = process.env['ELPX_OPTIMIZER_CLI'] ?? join(root, 'src', 'cli', 'bin.ts');
@@ -97,7 +97,11 @@ for (const { fixture: f, flags, label } of cases) {
   const unlinked = report.operations.filter((o) => o.op === 'remove-missing-reference' && o.status === 'applied').length;
   const detail = compat
     ? [
-        ...['structureDiffs', 'metaDiffs', 'newMissing', 'newUnresolved', 'reimportDiffs'].map((k) => `${k}:${(compat[k] as unknown[]).length}`),
+        ...['structureDiffs', 'metaDiffs', 'newMissing', 'newUnresolved', 'newPlaceholders', 'reimportDiffs'].map((k) => `${k}:${(compat[k] as unknown[]).length}`),
+        ...(() => {
+          const left = compat['placeholdersLeftByUpstream'] as { before: number; after: number };
+          return left.before + left.after > 0 ? [`upstreamUnconverted:${left.before}→${left.after}`] : [];
+        })(),
         ...(moved ? [`moved:${moved}`] : []),
         ...(unlinked ? [`unlinked:${unlinked}`, `contentDiffs:${String(compat['contentDiffs'])}`] : []),
       ].join(' ')
