@@ -42,6 +42,20 @@ describe('cleanFileName', () => {
     ['Año Nuevo.JPEG', 'ano-nuevo.jpeg'],
     ['archive.tar.gz', 'archive-tar.gz'],
     ['foto-clase.jpg', 'foto-clase.jpg'],
+    // Extensions of known formats repeated before the real one are dropped; other dotted words stay.
+    ['informe.pdf.pdf', 'informe.pdf'],
+    ['Foto.JPG.pdf', 'foto.pdf'],
+    ['Copia de mapa.png.PNG', 'mapa.png'],
+    ['audio.WAV.mp3.mp3', 'audio.mp3'],
+    ['foto.jpg .pdf', 'foto.pdf'],
+    ['tema.1.pdf', 'tema-1.pdf'],
+    ['informe.final.pdf', 'informe-final.pdf'],
+    ['pdf.pdf', 'pdf.pdf'],
+    ['.pdf.pdf', 'archivo.pdf'],
+    // Repeated dots or spaces before the extension, and spaces around the name.
+    ['foto..PDF', 'foto.pdf'],
+    ['foto .jpg', 'foto.jpg'],
+    ['  foto.jpg  ', 'foto.jpg'],
     // No extension: an extension has 1-8 letters or digits after the last dot.
     ['LEEME', 'leeme'],
     ['datos.extensionlarga', 'datos-extensionlarga'],
@@ -56,7 +70,7 @@ describe('cleanFileName', () => {
   });
 
   it('is idempotent', () => {
-    for (const name of ['Copia de Foto Clase (2).JPG', 'Año Nuevo.JPEG', '照片.jpg', 'archive.tar.gz', 'LEEME']) {
+    for (const name of ['Copia de Foto Clase (2).JPG', 'Año Nuevo.JPEG', '照片.jpg', 'archive.tar.gz', 'LEEME', 'Foto.JPG.pdf', 'foto..PDF', '.pdf.pdf']) {
       expect(cleanFileName(cleanFileName(name))).toBe(cleanFileName(name));
     }
   });

@@ -193,7 +193,10 @@ WordPress's `sanitize_title`: lower case, accents removed, only `a`–`z`, `0`�
 (spaces, underscores and other characters become single hyphens), and the extension in lower case.
 Markers left by copying files are removed first: "Copia de …", "Copy of …" (also German and
 French), "… - copia", "… copy 2", "… (2)", "… [3]". For example
-`Copia de Foto Clase (2).JPG` becomes `foto-clase.jpg`.
+`Copia de Foto Clase (2).JPG` becomes `foto-clase.jpg`. Extensions of known formats repeated before
+the real one are dropped too (`informe.pdf.pdf` → `informe.pdf`, `Foto.JPG.pdf` → `foto.pdf`), as
+are repeated dots before the extension (`foto..PDF` → `foto.pdf`); other dotted words stay
+(`tema.1.pdf` → `tema-1.pdf`).
 
 - Only the file name changes; folders are not renamed. Files under `custom/` keep their names.
 - A name already taken (compared ignoring case and Unicode normalization) gets `-2`, `-3`…

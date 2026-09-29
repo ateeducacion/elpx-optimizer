@@ -127,7 +127,7 @@ reference out, as one pure and deterministic decision that execution replays:
    cannot be edited blocks the conversion.
 4. **Clean names** (`--normalize-names slug`): user files outside `custom/` whose name is not
    already clean get the name from `core/refs/slug.ts` (lower case, no accents, `a-z0-9-`, copy
-   markers removed, extension lower-cased), after any move or conversion; a taken name gives
+   markers and repeated known extensions removed, extension lower-cased), after any move or conversion; a taken name gives
    `-2`, `-3`…; files that hold references, or whose references are not all explicit, exact and
    rewritable, keep their names.
 5. **Verification**: every reference of the package is resolved again against the final set of
