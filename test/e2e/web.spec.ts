@@ -34,9 +34,12 @@ async function isFromCache(r: Request): Promise<boolean> {
   return sizes !== undefined && sizes.responseHeadersSize <= 0;
 }
 
-/** Waits for the review step after selecting a file. */
+/** Waits for the review step after selecting a file, and unfolds the project's files (under the recompress card). */
 async function waitForReview(page: Page): Promise<void> {
-  await expect(page.locator('.inventory')).toBeVisible({ timeout: 180_000 });
+  await expect(page.locator('.action-list')).toBeVisible({ timeout: 180_000 });
+  const files = page.locator('.action-recompress .action-details');
+  if ((await files.getAttribute('open')) === null) await files.locator('> summary').click();
+  await expect(page.locator('.inventory')).toBeVisible();
 }
 
 /** Keeps the original file names (clean names are on by default), for checks that read entries by name. */
@@ -57,10 +60,9 @@ async function runDownload(page: Page, testInfo: OutputInfo, expectStatus = /opt
   return { path, name: download.suggestedFilename() };
 }
 
-/** Reviews the plan and runs it; returns the downloaded file path. */
+/** Waits for the options to be planned (the estimate is shown), runs the plan; returns the downloaded file path. */
 async function planRunDownload(page: Page, testInfo: OutputInfo, expectStatus?: RegExp): Promise<{ path: string; name: string }> {
-  await ui.reviewPlan(page).click();
-  await expect(ui.planHeading(page)).toBeVisible();
+  await expect(ui.optimize(page)).toBeEnabled({ timeout: 60_000 });
   return runDownload(page, testInfo, expectStatus);
 }
 
@@ -129,8 +131,9 @@ test('merges duplicates and removes unused files with rewritten references', asy
   await page.goto('/');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
-  await page.getByLabel(/Quitar archivos sin ninguna referencia|Remove files with no reference/).check();
-  await page.getByLabel(/Unificar archivos idénticos|Merge identical files/).check();
+  // Removing unused files is on by default in the web app; merging repeated files is not.
+  await expect(ui.removeUnused(page)).toBeChecked();
+  await ui.deduplicate(page).check();
   await keepFileNames(page);
   const { path } = await planRunDownload(page, testInfo);
   const analysis = await analyzeFile(path);
@@ -154,8 +157,16 @@ test('optimizes PDFs with qpdf in a worker, keeping signed ones as they are @cro
   await waitForReview(page);
   await expect(page.locator('.inventory')).toContainText(/2 páginas|2 pages/);
   await expect(page.locator('.inventory')).toContainText(/firmado|signed/);
-  await ui.reviewPlan(page).click();
-  await expect(page.locator('.plan-group')).toContainText(/PDF a optimizar|PDFs to optimize/);
+  // A PDF is previewed page by page, drawn by pdf.js (served by the site; nothing else is fetched).
+  await page.getByRole('button', { name: /^(Ver|View) ficha\.pdf$/ }).click();
+  const viewer = page.getByRole('dialog', { name: 'ficha.pdf' });
+  await expect(viewer.locator('.pdf-view')).toContainText(/Página 1 de 2|Page 1 of 2/, { timeout: 30_000 });
+  await expect.poll(() => viewer.locator('canvas').evaluate((c: HTMLCanvasElement) => c.width)).toBeGreaterThan(0);
+  await viewer.getByRole('button', { name: /^(Siguiente|Next)$/ }).click();
+  await expect(viewer.locator('.pdf-view')).toContainText(/Página 2 de 2|Page 2 of 2/);
+  await page.keyboard.press('Escape');
+  await expect(viewer).toHaveCount(0);
+  await expect(page.locator('.action-media')).toContainText(/1 PDF/);
   await expect(page.locator('.plan-skipped')).toContainText('firmado.pdf');
   const { path } = await runDownload(page, testInfo);
 
@@ -184,7 +195,6 @@ test('cancelling stops the codec and a second optimization works without reloadi
   await page.goto('/');
   await page.setInputFiles('#file-input', join(E2E_FIXTURES, 'long-video.elpx'));
   await waitForReview(page);
-  await ui.reviewPlan(page).click();
   await ui.optimize(page).click();
   await expect(page.locator('.progress-text')).toContainText(/Recodificando|Re-encoding/, { timeout: 120_000 });
   await expect(page.locator('.progress-text')).toContainText(/ de | of /);
@@ -223,7 +233,6 @@ test('a video above the memory/size limit is kept as original', async ({ page },
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
   await keepFileNames(page);
-  await ui.reviewPlan(page).click();
   await expect(page.locator('.plan-skipped')).toContainText('clase 1.mp4');
   await ui.optimize(page).click();
   await expect(page.locator('.result-status')).toBeVisible({ timeout: 120_000 });
@@ -303,38 +312,34 @@ test('is usable with the keyboard and fits a phone screen', async ({ page }) => 
   await expect(choose).toBeFocused();
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
   await chooser.setFiles(COURSE);
-  await waitForReview(page);
+  await expect(page.locator('.action-list')).toBeVisible({ timeout: 180_000 });
   await expect(page.locator('#h-step2')).toBeFocused();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  await ui.reviewPlan(page).focus();
+  // The level, the estimate and the button come right after the project; a bar repeats the button.
+  await expect(page.locator('.mobile-bar')).toBeVisible();
+  await expect(ui.optimize(page)).toBeEnabled({ timeout: 60_000 });
+  await ui.optimize(page).focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#h-step4')).toBeFocused();
+  await expect(page.locator('#h-step5')).toBeFocused();
 });
 
 test('flattens eXeLearning 3 folders and takes out broken references @cross-browser', async ({ page }, testInfo) => {
   await page.goto('/');
   await page.setInputFiles('#file-input', LEGACY);
   await waitForReview(page);
-  await expect(page.getByTestId('legacy-alert')).toContainText(/Carpetas de eXeLearning 3|eXeLearning 3 folders/);
-  await expect(page.getByTestId('broken-alert')).toContainText(/Referencias a archivos que no existen|References to files that do not exist/);
-  const flatten = page.getByRole('switch', { name: /^(Aplanar carpetas de eXeLearning 3|Flatten eXeLearning 3 folders)$/ });
-  const unlink = page.getByRole('switch', { name: /^(Quitar referencias rotas|Remove broken references)$/ });
+  const flatten = page.getByRole('switch', { name: /^(Ordenar \d+ archivos de carpetas de eXeLearning 3|Tidy \d+ files out of eXeLearning 3 folders)$/ });
+  const unlink = page.getByRole('switch', { name: /^(Quitar referencias a|Remove references to)/ });
+  await expect(page.locator('.action-missingReferences')).toContainText(/Se usan? en \d+ sitios?|Used in \d+ places?/);
   await expect(flatten).not.toBeChecked();
   await expect(unlink).not.toBeChecked();
   await flatten.check();
   await unlink.check();
   // With the default clean names, a second file with the same name becomes name-2 (not name_2).
   await expect(ui.cleanNames(page)).toBeChecked();
-  await ui.reviewPlan(page).click();
-  await expect(ui.planHeading(page)).toBeVisible();
-  await expect(page.locator('.stepper-item.is-current')).toContainText(/Plan/);
-  const plan = page.locator('.plan-ops');
-  await expect(plan).toContainText(/Archivos a mover|Files to move/);
-  await expect(plan).toContainText('content/resources/foto-2.jpg');
-  await expect(plan).toContainText(/Archivos ausentes cuyas referencias se quitan|Missing files whose references are removed/);
-  await expect(plan).toContainText('borrada.jpg');
-  const { path } = await runDownload(page, testInfo);
+  await expect(page.locator('.risks')).toContainText(/content\/resources\//);
+  const { path } = await planRunDownload(page, testInfo);
+  await expect(page.locator('.changes-list')).toContainText(/ordenados?|tidied/);
   await expect(page.locator('.op-results')).toContainText('foto-2.jpg');
 
   // The downloaded ZIP, read with fflate: no editor folders left, renamed files in place.
@@ -427,15 +432,11 @@ test('re-encodes audio: WAV, FLAC and AIFF become MP3 with their references and 
   await expect(page.locator('.inventory')).toContainText('pcm_s16le');
   await expect(page.locator('.inventory')).toContainText(/estéreo|stereo|mono/);
   await expect(page.getByRole('switch', { name: /^(Optimizar|Optimize) content\/resources\/audio\/lectura\.wav$/ })).toBeChecked();
-  await ui.reviewPlan(page).click();
-  await expect(ui.planHeading(page)).toBeVisible();
-  const plan = page.locator('.plan-ops');
-  await expect(plan).toContainText(/Audios a recomprimir|Audio to recompress/);
-  await expect(plan).toContainText('audio/lectura.wav → audio/lectura.mp3');
+  await expect(page.locator('.action-media')).toContainText(/\d+ audios|\d+ audio files/);
   await expect(page.locator('.risks')).toContainText(/pasan a MP3 con extensión \.mp3|become MP3 with the \.mp3 extension/);
   // A file a script names cannot be renamed safely: it is left as is.
   await expect(page.locator('.plan-skipped')).toContainText('audio/codigo.wav');
-  const { path } = await runDownload(page, testInfo);
+  const { path } = await planRunDownload(page, testInfo);
 
   const files = zipEntries(path);
   const names = Object.keys(files).filter((n) => n.startsWith(`${A}/`));
@@ -474,15 +475,13 @@ test('cleans file names by default and rewrites every reference @cross-browser',
   await waitForReview(page);
   // On by default, with how many names change and an example.
   await expect(ui.cleanNames(page)).toBeChecked();
-  await expect(page.locator('form.options')).toContainText(/4 archivos tendrán un nombre limpio|4 files will get a clean name/);
-  await page.getByLabel(/Quitar archivos sin ninguna referencia|Remove files with no reference/).check();
-  await page.getByLabel(/Unificar archivos idénticos|Merge identical files/).check();
-  await ui.reviewPlan(page).click();
-  const plan = page.locator('.plan-ops');
-  await expect(plan).toContainText(/Archivos con nombre limpio|Files with a clean name/);
-  await expect(plan).toContainText('media/clase 1.mp4 → media/clase-1.mp4');
+  await expect(page.locator('.action-normalizeNames')).toContainText(/4 archivos tendrán un nombre limpio|4 files will get a clean name/);
+  await expect(page.locator('.action-normalizeNames')).toContainText('clase 1.mp4 → clase-1.mp4');
+  await ui.removeUnused(page).check();
+  await ui.deduplicate(page).check();
   await expect(page.locator('.risks')).toContainText(/nombre limpio|clean name/);
-  const { path } = await runDownload(page, testInfo);
+  const { path } = await planRunDownload(page, testInfo);
+  await expect(page.locator('.changes-list')).toContainText(/4 archivos con nombre limpio|4 files with a clean name/);
 
   const files = zipEntries(path);
   const names = Object.keys(files).filter((n) => n.startsWith(`${R}/`) && !n.endsWith('/'));
@@ -509,9 +508,8 @@ test('regenerates the project thumbnail from the first page, without running it 
   await page.getByRole('button', { name: /Regenerar desde la primera página|Regenerate from the first page/ }).click();
   await expect(page.locator('.screenshot-status')).toHaveText(/Nueva miniatura lista|New thumbnail ready/, { timeout: 30_000 });
   await expect(page.locator('.screenshot-preview')).toBeVisible();
-  await ui.reviewPlan(page).click();
-  await expect(page.locator('.plan-ops')).toContainText(/Miniatura del proyecto|Project thumbnail/);
-  const { path } = await runDownload(page, testInfo);
+  const { path } = await planRunDownload(page, testInfo);
+  await expect(page.locator('.changes-list')).toContainText(/Miniatura nueva|New thumbnail/);
 
   const original = await readEntry(EFFICIENT, 'screenshot.png');
   const shot = await readEntry(path, 'screenshot.png');

@@ -19,12 +19,15 @@ import { screenshotProblem } from '../core/format/screenshot.js';
 import { sha256Hex } from '../core/io/hash.js';
 import { renderFirstPage, ScreenshotError, thumbnailFromImage } from './screenshot.js';
 import { chooseTheme } from './theme.js';
+import { VIDEO_PROFILES, type Preset } from '../core/media/video-policy.js';
+import { IMAGE_PROFILES } from '../core/media/image-policy.js';
+import { AUDIO_PROFILES } from '../core/media/audio-policy.js';
 
 /** What the UI needs from the pipeline (the real client or a test double). */
 export interface PipelineApi {
   analyze(file: File, onProgress?: (e: ProgressEvent) => void, threading?: ThreadingPreference): Promise<AnalysisResult>;
   plan(options: OptionsInput): Promise<OptimizationPlan>;
-  /** Returns an image, audio or video of the analyzed project for a local preview (optional). */
+  /** Returns an image, audio, video or PDF of the analyzed project for a local preview (optional). */
   preview?(path: string): Promise<Blob>;
   /** Returns any file of the analyzed project as untyped bytes, to draw a new thumbnail (optional). */
   read?(path: string): Promise<Blob | undefined>;
@@ -39,7 +42,7 @@ export interface UrlApi {
   revokeObjectURL(url: string): void;
 }
 
-type View = 'start' | 'analyzing' | 'review' | 'plan' | 'running' | 'result' | 'error';
+type View = 'start' | 'analyzing' | 'review' | 'running' | 'result' | 'error';
 type SortKey = 'path' | 'kind' | 'size' | 'usage';
 type StepKey = 'step1' | 'step2' | 'step3' | 'step4' | 'step5' | 'step6';
 type Child = Node | string | false | undefined;
@@ -52,24 +55,11 @@ const SKILL_DOCS_URL = `${REPO_URL}/blob/main/docs/skill.md`;
 
 const STAGES = ['engine-load', 'extract', 'transcode', 'encode-image', 'pdf', 'validate', 'package', 'verify'] as const;
 
-/** The stepper position of each view (1-based; 0 hides the current marker). */
-const VIEW_STEP: Record<View, number> = { start: 1, analyzing: 1, review: 2, plan: 3, running: 4, result: 4, error: 0 };
+/** The stepper position of each view (1-based; 0 hides the current marker): project, optimize, download. */
+const VIEW_STEP: Record<View, number> = { start: 1, analyzing: 1, review: 2, running: 2, result: 3, error: 0 };
 
-/** Order and icon of plan operations, as shown in the plan. */
-const OP_ORDER: readonly [PlanOperation['op'], IconName][] = [
-  ['transcode-video', 'camera-video'],
-  ['recompress-image', 'image'],
-  ['transcode-audio', 'music-note-beamed'],
-  ['optimize-pdf', 'file-earmark-pdf'],
-  ['remove-unused', 'trash3'],
-  ['deduplicate', 'files'],
-  ['move-resource', 'folder-symlink'],
-  ['rename-resource', 'pencil-square'],
-  ['remove-missing-reference', 'eraser'],
-  ['rewrite-references', 'pencil-square'],
-  ['update-manifest', 'file-earmark'],
-  ['replace-screenshot', 'image'],
-];
+/** A folder eXeLearning 3 named after an ODE ID (14 digits and 6 letters or digits). */
+const LEGACY_FOLDER = /(?:^|\/)(\d{14}[A-Z0-9]{6})\//;
 
 const USAGE_BADGE: Record<InventoryEntry['usage'], string> = {
   used: 'bg-success-subtle text-success-emphasis',
@@ -110,9 +100,20 @@ export class App {
   private engine: EngineStatus = { state: 'idle' };
   private progress: ProgressEvent | undefined;
   private readonly excluded = new Set<string>();
+  /** Whether the files and advanced sections are open (kept across re-renders). */
+  private advancedOpen = false;
+  /** Cards whose files are unfolded (kept across re-renders), and whether media are recompressed at all. */
+  private readonly openCards = new Set<string>();
+  private recompress = true;
+  /** The latest plan request, the one that produced this.plan, and the options it was made for. */
+  private planRequest = 0;
+  private planFor = -1;
+  private planKey = '';
+  private planError = '';
+  private planTimer: ReturnType<typeof setTimeout> | undefined;
   private sort: { key: SortKey; dir: 1 | -1 } = { key: 'size', dir: -1 };
-  // Clean file names are on by default in the web app (the CLI keeps names unless asked).
-  private options: OptionsInput = { preset: 'balanced', normalizeNames: 'slug' };
+  // Clean names and removing unused files are on by default in the web app (the CLI changes nothing unless asked).
+  private options: OptionsInput = { preset: 'balanced', normalizeNames: 'slug', removeUnused: 'safe' };
   private threading: ThreadingPreference;
   private cancelling = false;
   private objectUrls: string[] = [];
@@ -125,8 +126,6 @@ export class App {
   private readonly status: HTMLElement;
   private licensesPanel: HTMLDialogElement | undefined;
   private helpPanel: HTMLDialogElement | undefined;
-  /** The audio being previewed from the resources table, if any. */
-  private player: { readonly path: string; readonly audio: HTMLAudioElement; readonly url: string } | undefined;
   /** Counter of preview requests: an answer that is no longer the latest one is dropped. */
   private previewRequest = 0;
 
@@ -345,8 +344,8 @@ export class App {
   /** How to use the command-line version and the Agent Skill. */
   private renderHelp(): HTMLDialogElement {
     const external = { target: '_blank', rel: 'noopener noreferrer' };
-    const cli = 'npx elpx-optimizer';
-    const docker = 'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer';
+    const npx = 'npx elpx-optimizer';
+    const docker = 'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ateeducacion/elpx-optimizer';
     const step = (title: string, code?: string, note?: string): HTMLElement =>
       h(
         'li',
@@ -360,36 +359,39 @@ export class App {
       this.t('helpTitle'),
       h('h3', { className: 'h6 d-flex align-items-center gap-2' }, icon('terminal'), this.t('helpCliTitle')),
       h('p', { className: 'small' }, this.t('helpCliIntro')),
-      h('h4', { className: 'h6 mt-3' }, this.t('helpDockerTitle')),
-      h('p', { className: 'small' }, this.t('helpDocker')),
-      h(
-        'ol',
-        { className: 'help-steps ps-3' },
-        step(this.t('helpStep4'), `${docker} inspect /work/curso.elpx`),
-        step(this.t('helpStep5'), `${docker} optimize /work/curso.elpx --dry-run`),
-        step(this.t('helpStep6'), `${docker} optimize /work/curso.elpx \\\n  --remove-unused safe --deduplicate exact`, this.t('helpStep6Note')),
-      ),
-      h('p', { className: 'small text-body-secondary' }, this.t('helpDockerWindows')),
-      h('h4', { className: 'h6 mt-4' }, this.t('helpNpxTitle')),
+      h('h4', { className: 'h6 mt-3' }, this.t('helpNpxTitle')),
       h('p', { className: 'small' }, this.t('helpNpx')),
       h(
         'ol',
         { className: 'help-steps ps-3' },
         step(this.t('helpStep1'), 'sudo apt install ffmpeg      # Ubuntu\nbrew install ffmpeg          # macOS', this.t('helpStep1Note')),
-        step(this.t('helpStep3'), `${cli} doctor`),
-        step(this.t('helpStep4'), `${cli} inspect curso.elpx`),
-        step(this.t('helpStep5'), `${cli} optimize curso.elpx --dry-run`),
-        step(
-          this.t('helpStep6'),
-          `${cli} optimize curso.elpx --preset balanced \\\n  --remove-unused safe --deduplicate exact \\\n  --flatten legacy --missing-references remove`,
-          this.t('helpStep6Note'),
-        ),
+        step(this.t('helpStep3'), `${npx} doctor`),
+        step(this.t('helpStep4'), `${npx} inspect curso.elpx`),
+        step(this.t('helpStep5'), `${npx} optimize curso.elpx --dry-run`),
+        step(this.t('helpStep6'), `${npx} optimize curso.elpx`, this.t('helpStep6Note')),
+        step(this.t('helpStepMore'), `${npx} optimize curso.elpx \\\n  --remove-unused safe --deduplicate exact`),
+      ),
+      h('h4', { className: 'h6 mt-4' }, this.t('helpDockerTitle')),
+      h('p', { className: 'small' }, this.t('helpDocker')),
+      h(
+        'ol',
+        { className: 'help-steps ps-3' },
+        step(this.t('helpStep4'), `${docker} inspect curso.elpx`),
+        step(this.t('helpStep5'), `${docker} optimize curso.elpx --dry-run`),
+        step(this.t('helpStep6'), `${docker} optimize curso.elpx`, this.t('helpStep6Note')),
+      ),
+      h('p', { className: 'small text-body-secondary' }, this.t('helpDockerWindows')),
+      h('p', { className: 'small' }, this.t('helpDockerAlias')),
+      this.codeBlock(
+        'elpx() {\n  docker run --rm --user "$(id -u):$(id -g)" \\\n    -v "$PWD:/work" ateeducacion/elpx-optimizer "$@"\n}\nelpx optimize curso.elpx',
       ),
       h('p', {}, h('a', { ...external, href: CLI_DOCS_URL }, this.t('helpCliDocs'))),
       h('hr', { className: 'my-4' }),
       h('h3', { className: 'h6 d-flex align-items-center gap-2' }, icon('robot'), this.t('helpSkillTitle')),
       h('p', { className: 'small' }, this.t('helpSkillIntro')),
-      this.codeBlock('make build-skill\ncp -r dist/skill/elpx-optimizer ~/.claude/skills/'),
+      this.codeBlock(
+        `curl -LO ${REPO_URL}/releases/latest/download/elpx-optimizer-skill.zip\nunzip elpx-optimizer-skill.zip -d ~/.claude/skills/\ncd ~/.claude/skills/elpx-optimizer/vendor && npm install`,
+      ),
       h('p', { className: 'small text-body-secondary' }, this.t('helpSkillNote')),
       h(
         'div',
@@ -465,7 +467,7 @@ export class App {
   private renderStepper(): void {
     const current = VIEW_STEP[this.view];
     const list = h('ol', { className: 'stepper' });
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 3; i++) {
       const state = i < current ? 'is-done' : i === current ? 'is-current' : '';
       list.append(
         h(
@@ -492,7 +494,7 @@ export class App {
   }
 
   private render(): void {
-    if (this.view !== 'review') this.stopAudio();
+    if (this.view !== 'review') this.dropPreviews();
     this.renderStepper();
     switch (this.view) {
       case 'start':
@@ -511,9 +513,6 @@ export class App {
         break;
       case 'review':
         replace(this.main, this.renderReview());
-        break;
-      case 'plan':
-        replace(this.main, this.renderPlan());
         break;
       case 'running':
         replace(this.main, this.renderRunning());
@@ -561,7 +560,6 @@ export class App {
         this.t('choose'),
       ),
       input,
-      h('p', { className: 'hint small text-body-secondary mt-3 mb-0' }, this.t('accepts')),
     );
     zone.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -608,9 +606,12 @@ export class App {
   async start(file: File): Promise<void> {
     this.file = file;
     this.analysis = undefined;
-    this.plan = undefined;
+    this.clearPlan();
     this.result = undefined;
     this.excluded.clear();
+    // A new project starts with its cards and advanced options folded.
+    this.openCards.clear();
+    this.advancedOpen = false;
     this.revokeUrls();
     this.dropScreenshot();
     this.progress = undefined;
@@ -675,58 +676,347 @@ export class App {
     );
   }
 
-  // ------------------------------------------------------------------ step 2 + 3
+  // ------------------------------------------------------------------ step 2: review and optimize
+  /**
+   * One form: the project and what will be done on the left, the level, the estimated result and
+   * the button on the right. The plan is made again whenever an option changes (planning encodes
+   * nothing), so the estimate is the core's and the button runs the plan it shows.
+   */
   private renderReview(): HTMLElement {
     const a = this.analysis!;
-    const p = a.package!;
-    const broken = brokenReferences(a.references);
-    const summary = h(
-      'div',
-      { className: 'project-meta d-flex flex-wrap align-items-center gap-2 mb-3' },
-      h('b', { className: 'project-title me-1' }, p.title ?? a.input.name),
-      h('span', { className: 'badge rounded-pill text-bg-light border' }, this.t(p.variant === 'v4' ? 'variantV4' : 'variantV3')),
-      h('span', { className: 'badge rounded-pill text-bg-light border' }, this.t('pagesComponents', { pages: p.pages, components: p.components })),
-      h('span', { className: 'badge rounded-pill text-bg-light border' }, bytes(a.input.size, this.lang)),
-    );
-    const alerts: Child[] = [];
-    if (p.legacyFolders.files > 0) {
-      alerts.push(
-        this.alert(
-          'info',
-          'folder-symlink',
-          this.t('legacyDetectedTitle'),
-          this.t('legacyDetected', { files: p.legacyFolders.files, folders: p.legacyFolders.folders }),
-          'legacy-alert',
+    const form = h('form', { className: 'options review-form', 'aria-labelledby': 'h-step2', novalidate: true });
+    form.append(
+      h(
+        'div',
+        { className: 'row g-4 align-items-start' },
+        h(
+          'div',
+          { className: 'col-lg-8 review-main d-flex flex-column gap-4' },
+          this.renderProject(a),
+          this.renderActions(a),
+          this.renderScreenshot(),
+          this.renderAdvanced(),
+          this.renderDiagnosticsLink(a.diagnostics),
         ),
-      );
-    }
-    if (broken.length > 0) {
-      alerts.push(this.alert('warning', 'eraser', this.t('brokenDetectedTitle'), this.t('brokenDetected', { count: broken.length }), 'broken-alert'));
-    }
-    const review = this.section(
-      'step2',
-      this.t('step2'),
-      summary,
-      this.renderWeight(a),
-      ...alerts,
-      this.renderDiagnostics(a.diagnostics),
-      this.renderInventory(a.entries),
+        h('div', { className: 'col-lg-4 options-col' }, this.renderChoose()),
+      ),
+      this.renderMobileBar(),
     );
+    form.addEventListener('change', (e) => {
+      if ((e.target as HTMLInputElement).name === 'preset') this.updateLevelHints(form);
+      this.syncRemoved(form);
+      this.schedulePlan(form);
+    });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void this.optimizeNow(form);
+    });
+    this.updateLevelHints(form);
+    this.syncRemoved(form);
+    this.schedulePlan(form, 0);
+    return form;
+  }
+
+  /** The project: its name, what it holds and what takes up its space. */
+  private renderProject(a: AnalysisResult): HTMLElement {
+    const p = a.package!;
+    const files = a.entries.filter((e) => !e.isDirectory && (e.role === 'user-asset' || e.path === 'screenshot.png')).length;
     return h(
-      'div',
-      { className: 'row g-4 align-items-start' },
-      h('div', { className: 'col-lg-8' }, review),
-      h('div', { className: 'col-lg-4 options-col' }, this.renderOptions(broken.length)),
+      'section',
+      { className: 'project card', 'aria-labelledby': 'h-step2' },
+      h(
+        'div',
+        { className: 'card-body d-flex flex-column gap-3' },
+        h(
+          'div',
+          { className: 'd-flex align-items-start gap-3' },
+          h(
+            'div',
+            { className: 'flex-grow-1 min-w-0' },
+            h('h2', { id: 'h-step2', tabindex: -1, className: 'project-title h4 mb-1 text-break' }, p.title ?? a.input.name),
+            h(
+              'p',
+              { className: 'project-meta text-body-secondary mb-0' },
+              [
+                a.input.name,
+                bytes(a.input.size, this.lang),
+                this.t(p.pages === 1 ? 'pagesOne' : 'pagesMany', { count: p.pages }),
+                this.t(files === 1 ? 'filesOne' : 'filesCount', { count: files }),
+                this.t(p.variant === 'v4' ? 'variantV4' : 'variantV3'),
+              ].join(' · '),
+            ),
+          ),
+          h('button', { type: 'button', className: 'btn btn-sm btn-outline-secondary flex-none', onclick: () => this.reset() }, this.t('changeFile')),
+        ),
+        this.renderWeight(a),
+      ),
     );
   }
 
-  private alert(kind: 'info' | 'warning', name: IconName, title: string, text: string, testId: string): HTMLElement {
+  /** What will be done, in plain words: one card per finding, with its switch, what it saves and its files. */
+  private renderActions(a: AnalysisResult): HTMLElement {
+    const o = this.options;
+    const name = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
+    const list = (paths: readonly string[]): string => {
+      const names = [...new Set(paths.map(name))];
+      return names.length > 3 ? `${names.slice(0, 3).join(', ')}…` : names.join(', ');
+    };
+    const files = (items: readonly Child[]): HTMLElement => h('ul', { className: 'action-files list-unstyled mb-0' }, ...items);
+    const fileItem = (path: string, extra?: string): HTMLElement =>
+      h(
+        'li',
+        { className: 'd-flex gap-3 align-items-baseline' },
+        this.fileName(path),
+        extra ? h('span', { className: 'num text-body-secondary ms-auto flex-none' }, extra) : false,
+      );
+    const cards: Child[] = [this.renderMediaAction(a)];
+    const unused = a.entries.filter((e) => e.role === 'user-asset' && e.usage === 'unreferenced');
+    if (unused.length > 0) {
+      cards.push(
+        this.actionCard({
+          name: 'removeUnused',
+          checked: o.removeUnused === 'safe',
+          iconName: 'trash3',
+          title: this.t(unused.length === 1 ? 'actUnusedOne' : 'actUnused', { count: unused.length }),
+          desc: this.t('actUnusedDesc', { names: list(unused.map((e) => e.path)) }),
+          amount: `−${bytes(
+            unused.reduce((s, e) => s + e.size, 0),
+            this.lang,
+          )}`,
+          details: files(unused.map((e) => fileItem(e.path, bytes(e.size, this.lang)))),
+        }),
+      );
+    }
+    if (a.duplicates.length > 0) {
+      const copies = a.duplicates.reduce((s, d) => s + d.paths.length - 1, 0);
+      cards.push(
+        this.actionCard({
+          name: 'deduplicate',
+          checked: o.deduplicate === 'exact',
+          iconName: 'files',
+          title: this.t(copies === 1 ? 'actDupOne' : 'actDup', { count: copies }),
+          desc: this.t('actDupDesc', { names: list(a.duplicates.map((d) => d.paths[0]!)) }),
+          amount: `−${bytes(
+            a.duplicates.reduce((s, d) => s + d.size * (d.paths.length - 1), 0),
+            this.lang,
+          )}`,
+          details: files(
+            a.duplicates.map((d) =>
+              h(
+                'li',
+                {},
+                h('span', { className: 'd-block text-break' }, d.paths.map(short).join(' = ')),
+                h(
+                  'span',
+                  { className: 'file-where d-block small text-body-secondary' },
+                  this.t('dupGroup', { count: d.paths.length, size: bytes(d.size, this.lang) }),
+                ),
+              ),
+            ),
+          ),
+        }),
+      );
+    }
+    const renames = this.nameChanges();
+    cards.push(
+      this.actionCard({
+        name: 'normalizeNames',
+        checked: o.normalizeNames !== 'off',
+        iconName: 'pencil-square',
+        title: this.t('normalizeNames'),
+        desc: this.namesHelp(),
+        // Nothing to rename: the switch keeps the preference but cannot be changed here.
+        disabled: renames.length === 0,
+        details:
+          renames.length > 0
+            ? files(
+                renames.map(([from, to]) =>
+                  h('li', { className: 'text-break' }, short(from), h('span', { className: 'text-body-secondary' }, ' → '), h('strong', {}, to)),
+                ),
+              )
+            : undefined,
+      }),
+    );
+    const legacy = a.package!.legacyFolders;
+    if (legacy.files > 0) {
+      const moved = a.entries.filter((e) => !e.isDirectory && LEGACY_FOLDER.test(e.path));
+      cards.push(
+        this.actionCard({
+          name: 'flatten',
+          checked: o.flatten === 'legacy',
+          iconName: 'folder-symlink',
+          title: this.t(legacy.files === 1 ? 'actFlattenOne' : 'actFlatten', { count: legacy.files }),
+          desc: this.t('actFlattenDesc'),
+          details: files(
+            moved.map((e) =>
+              h(
+                'li',
+                { className: 'text-break' },
+                short(e.path),
+                h('span', { className: 'text-body-secondary' }, ' → '),
+                h('strong', {}, `content/resources/${name(e.path)}`),
+              ),
+            ),
+          ),
+        }),
+      );
+    }
+    const broken = brokenReferences(a.references);
+    if (broken.length > 0) {
+      // The same missing file is referenced in several forms (editable, published, search index): count it once.
+      const uses = new Map<string, number>();
+      for (const r of broken) {
+        const missing = name((r.target ?? r.value).split(/[?#]/)[0]!);
+        uses.set(missing, (uses.get(missing) ?? 0) + 1);
+      }
+      const missing = [...uses.keys()];
+      cards.push(
+        this.actionCard({
+          name: 'missingReferences',
+          checked: o.missingReferences === 'remove',
+          iconName: 'eraser',
+          title: this.t(missing.length === 1 ? 'actBrokenOne' : 'actBroken', { count: missing.length, name: missing[0]! }),
+          desc: this.t(broken.length === 1 ? 'actBrokenDescOne' : 'actBrokenDesc', { count: broken.length }),
+          warning: true,
+          details: files(
+            [...uses].map(([file, n]) =>
+              h(
+                'li',
+                { className: 'd-flex gap-3' },
+                h('span', { className: 'text-break' }, file),
+                h('span', { className: 'text-body-secondary ms-auto flex-none' }, this.t(n === 1 ? 'usesOne' : 'uses', { count: n })),
+              ),
+            ),
+          ),
+        }),
+      );
+    }
+    return h(
+      'section',
+      { className: 'actions-section', 'aria-labelledby': 'h-actions' },
+      h('h3', { id: 'h-actions', className: 'h5 mb-1' }, this.t('actionsTitle')),
+      h('p', { className: 'text-body-secondary mb-3' }, this.t('actionsLead')),
+      h('div', { className: 'action-list card' }, ...cards),
+    );
+  }
+
+  /** The files that would get a clean name, as [path, new name] (the plan settles names that collide). */
+  private nameChanges(): [string, string][] {
+    return this.analysis!.entries.filter((e) => !e.isDirectory && e.role === 'user-asset' && !e.path.startsWith('custom/'))
+      .map((e): [string, string] => [e.path, cleanFileName(e.path.slice(e.path.lastIndexOf('/') + 1))])
+      .filter(([path, to]) => path.slice(path.lastIndexOf('/') + 1) !== to);
+  }
+
+  /**
+   * One finding: its row (icon, what it does, what it saves, its switch, whose name is the option
+   * it sets) and, folded underneath, the files it concerns.
+   */
+  private actionCard(c: {
+    readonly name: string;
+    readonly checked: boolean;
+    readonly iconName: IconName;
+    readonly title: string;
+    readonly desc: string;
+    readonly amount?: string;
+    readonly warning?: boolean;
+    readonly details?: HTMLElement;
+    readonly detailsLabel?: string;
+    readonly role?: string;
+    readonly disabled?: boolean;
+  }): HTMLElement {
+    const id = `opt-${c.name}`;
+    const open = this.openCards.has(c.name);
+    const details = c.details
+      ? h(
+          'details',
+          { className: 'action-details', open },
+          h('summary', {}, c.detailsLabel ?? this.t('actShow', { count: c.details.children.length })),
+          h('div', { className: 'action-details-body' }, c.details),
+        )
+      : false;
+    if (details) details.addEventListener('toggle', () => (details.open ? this.openCards.add(c.name) : this.openCards.delete(c.name)));
     return h(
       'div',
-      { className: `alert alert-${kind} d-flex gap-3 align-items-start`, 'data-testid': testId },
-      h('span', { className: 'alert-icon' }, icon(name)),
-      h('div', {}, h('strong', { className: 'd-block' }, title), h('span', {}, text)),
+      { className: `action-item action-${c.name}${c.role ? ` action-${c.role}` : ''}${c.warning ? ' action-warning' : ''}`, 'data-role': c.role },
+      h(
+        'div',
+        { className: 'action' },
+        h('span', { className: 'action-icon', 'aria-hidden': 'true' }, icon(c.iconName)),
+        h(
+          'label',
+          { className: 'action-text flex-grow-1', for: id },
+          h('span', { className: 'action-title d-block' }, c.title),
+          h('span', { className: 'action-desc d-block' }, c.desc),
+        ),
+        c.amount ? h('span', { className: 'action-amount num' }, c.amount) : h('span', { className: 'action-amount num' }),
+        h(
+          'span',
+          { className: 'form-check form-switch m-0 flex-none' },
+          h('input', {
+            type: 'checkbox',
+            role: 'switch',
+            name: c.name,
+            id,
+            checked: c.checked,
+            disabled: c.disabled,
+            className: 'form-check-input',
+            'aria-label': c.title,
+          }),
+        ),
+      ),
+      details,
     );
+  }
+
+  /** Recompressing media: its switch, what the plan recompresses at this level, and every file with its own switch. */
+  private renderMediaAction(a: AnalysisResult): HTMLElement {
+    const card = this.actionCard({
+      name: 'recompress',
+      checked: this.recompress,
+      iconName: 'image',
+      title: '',
+      desc: '',
+      details: this.renderInventory(a.entries),
+      detailsLabel: this.t('actShowAll', { count: this.inventoryRows(a.entries).length }),
+      role: 'media',
+    });
+    this.fillMediaSummary(card);
+    return card;
+  }
+
+  /** Writes what the current plan recompresses into the media card (its switch and files stay). */
+  private fillMediaSummary(card: Element): void {
+    const plan = this.plan;
+    const kinds: [PlanOperation['op'], string][] = [
+      ['transcode-video', 'kindVideo'],
+      ['recompress-image', 'kindImage'],
+      ['transcode-audio', 'kindAudio'],
+      ['optimize-pdf', 'kindPdf'],
+    ];
+    const media = (plan?.operations ?? []).filter((o) => kinds.some(([k]) => k === o.op));
+    const parts = kinds
+      .map(([op, key]) => [media.filter((o) => o.op === op).length, key] as const)
+      .filter(([n]) => n > 0)
+      .map(([n, key]) => this.t(n === 1 ? `${key}One` : key, { count: n }));
+    const saving = media.reduce((s, o) => s + ('estimatedBytes' in o && o.estimatedBytes !== undefined ? Math.max(0, o.size - o.estimatedBytes) : 0), 0);
+    const title = !this.recompress
+      ? this.t('actMediaOff')
+      : !plan
+        ? this.t('actMediaPending')
+        : parts.length > 0
+          ? this.t('actMedia', { what: parts.join(', ') })
+          : this.t('actMediaNone');
+    const desc = !this.recompress ? this.t('actMediaOffDesc') : this.t(parts.length > 0 || !plan ? 'actMediaDesc' : 'actMediaNoneDesc');
+    card.querySelector('.action-title')!.textContent = title;
+    card.querySelector('.action-desc')!.textContent = desc;
+    card.querySelector('.action-amount')!.textContent = this.recompress && saving > 0 ? `≈ −${bytes(saving, this.lang)}` : '';
+    card.querySelector('input[name="recompress"]')!.setAttribute('aria-label', this.t('actMediaSwitch'));
+  }
+
+  /** Files removed by "remove unused files" leave the list of files to recompress while it is on. */
+  private syncRemoved(form: HTMLFormElement): void {
+    const removing = form.querySelector<HTMLInputElement>('input[name="removeUnused"]')?.checked === true;
+    for (const tr of form.querySelectorAll<HTMLElement>('.inventory tr[data-unused]')) tr.hidden = removing;
   }
 
   private renderWeight(a: AnalysisResult): HTMLElement {
@@ -758,7 +1048,7 @@ export class App {
         ),
       );
     }
-    return h('figure', { className: 'weight mb-4' }, h('figcaption', { className: 'small text-body-secondary mb-2' }, this.t('weight')), bar, legend);
+    return h('figure', { className: 'weight mb-0' }, h('figcaption', { className: 'small text-body-secondary mb-2' }, this.t('weight')), bar, legend);
   }
 
   private renderDiagnostics(list: readonly Diagnostic[]): HTMLElement {
@@ -783,21 +1073,43 @@ export class App {
         ),
       );
     }
+    return h('div', { className: 'problems' }, h('p', { className: 'problems-summary text-body-secondary' }, summary), items);
+  }
+
+  /** The technical findings stay one click away, in a side panel. */
+  private renderDiagnosticsLink(list: readonly Diagnostic[]): HTMLElement {
+    const count = (s: string): number => list.filter((d) => d.severity === s).length;
+    const label =
+      list.length === 0 ? this.t('problemsNone') : this.t('problemsLink', { errors: count('error'), warnings: count('warning'), info: count('info') });
     return h(
-      'details',
-      { className: 'problems card mb-4', open: count('error') > 0 },
+      'p',
+      { className: 'mb-0' },
       h(
-        'summary',
-        { className: 'card-header d-flex align-items-center gap-2' },
-        h('strong', {}, this.t('problems')),
-        h('span', { className: 'text-body-secondary' }, summary),
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-link p-0 problems-link',
+          'aria-haspopup': 'dialog',
+          disabled: list.length === 0,
+          onclick: () => {
+            const panel = this.sidePanel('problems', this.t('problems'), this.renderDiagnostics(list));
+            panel.addEventListener('close', () => panel.remove());
+            this.root.append(panel);
+            panel.showModal();
+          },
+        },
+        label,
       ),
-      items,
     );
   }
 
+  /** The files the table lists: the project's own, and its thumbnail. */
+  private inventoryRows(entries: readonly InventoryEntry[]): InventoryEntry[] {
+    return entries.filter((e) => e.role === 'user-asset' || e.path === 'screenshot.png');
+  }
+
   private renderInventory(entries: readonly InventoryEntry[]): HTMLElement {
-    const rows = entries.filter((e) => e.role === 'user-asset' || e.path === 'screenshot.png');
+    const rows = this.inventoryRows(entries);
     const dir = this.sort.dir;
     const key = this.sort.key;
     rows.sort((x, y) => {
@@ -854,19 +1166,19 @@ export class App {
               : pdf
                 ? 'file-earmark-pdf'
                 : 'file-earmark';
-      const lead = this.pipeline.preview && (e.kind === 'image' || e.kind === 'video' || e.kind === 'audio') ? this.previewButton(e) : undefined;
+      const lead = this.pipeline.preview && (e.kind === 'image' || e.kind === 'video' || e.kind === 'audio' || pdf) ? this.previewButton(e) : undefined;
       body.append(
         h(
           'tr',
-          {},
+          { 'data-path': e.path, 'data-unused': e.role === 'user-asset' && e.usage === 'unreferenced' ? 'true' : undefined },
           h(
             'th',
             { scope: 'row', className: 'path fw-normal' },
             h(
               'span',
               { className: 'd-flex gap-2 align-items-baseline' },
-              lead ?? h('span', { className: 'kind-icon text-body-secondary' }, icon(kindIcon)),
-              h('span', {}, short(e.path)),
+              lead ?? h('span', { className: 'kind-icon preview-button text-body-secondary', 'aria-hidden': 'true' }, icon(kindIcon)),
+              this.fileName(e.path),
             ),
           ),
           h('td', {}, e.format),
@@ -899,22 +1211,37 @@ export class App {
     );
     return h(
       'div',
-      { className: 'inventory-card card' },
-      h(
-        'div',
-        { className: 'card-header d-flex justify-content-between align-items-center' },
-        h('h3', { className: 'h6 mb-0' }, this.t('resources')),
-        h('span', { className: 'small text-body-secondary' }, this.t('filesCount', { count: rows.length })),
-      ),
+      { className: 'inventory-card' },
       h('div', { className: 'table-wrap table-responsive', tabindex: 0, role: 'region', 'aria-label': this.t('resources') }, table),
+      h('p', { className: 'small text-body-secondary mb-0 pt-2' }, this.t('filesHelp')),
     );
   }
 
-  /** Play/pause (audio) or open-in-a-window (image, video) button for a resource. */
+  /** A file's name, with where it is underneath (eXeLearning 3 folders named by their ID's end). */
+  private fileName(path: string): HTMLElement {
+    const slash = path.lastIndexOf('/');
+    const folder = path.slice(0, slash + 1);
+    const legacy = LEGACY_FOLDER.exec(folder);
+    const where =
+      path === 'screenshot.png'
+        ? this.t('thumbnailFile')
+        : legacy
+          ? this.t('legacyFolder', { id: legacy[1]!.slice(-6) })
+          : folder === 'content/resources/'
+            ? ''
+            : short(folder);
+    return h(
+      'span',
+      { className: 'file-name min-w-0' },
+      h('span', { className: 'd-block text-break' }, path.slice(slash + 1)),
+      where ? h('span', { className: 'file-where d-block small text-body-secondary text-break' }, where) : false,
+    );
+  }
+
+  /** Opens a file of the project in a window: image, video, audio (with its player) or PDF. */
   private previewButton(e: InventoryEntry): HTMLButtonElement {
-    const audio = e.kind === 'audio';
-    const playing = audio && this.player?.path === e.path && !this.player.audio.paused;
-    const label = this.t(audio ? (playing ? 'pauseAudio' : 'playAudio') : e.kind === 'video' ? 'playVideo' : 'viewImage', { name: short(e.path) });
+    const pdf = e.format === 'pdf';
+    const label = this.t(e.kind === 'audio' ? 'playAudio' : e.kind === 'video' ? 'playVideo' : pdf ? 'viewPdf' : 'viewImage', { name: short(e.path) });
     const button = h(
       'button',
       {
@@ -922,25 +1249,25 @@ export class App {
         className: 'preview-button btn btn-sm btn-light rounded-circle',
         'aria-label': label,
         title: label,
+        'aria-haspopup': 'dialog',
         'data-path': e.path,
-        'aria-pressed': audio ? String(playing) : undefined,
-        onclick: () => void (audio ? this.toggleAudio(e, button) : this.openPreview(e, button)),
+        onclick: () => void this.openPreview(e, button),
       },
-      icon(audio ? (playing ? 'pause-fill' : 'play-fill') : e.kind === 'video' ? 'play-circle' : 'eye'),
+      icon(e.kind === 'audio' ? 'music-note-beamed' : e.kind === 'video' ? 'camera-video' : pdf ? 'file-earmark-pdf' : 'image'),
     );
     return button;
   }
 
   /** Fetches a resource for preview, showing a spinner on the button meanwhile. */
-  private async fetchPreview(e: InventoryEntry, button: HTMLButtonElement): Promise<string | undefined> {
+  private async fetchBlob(e: InventoryEntry, button: HTMLButtonElement): Promise<Blob | undefined> {
     const request = ++this.previewRequest;
     const content = [...button.childNodes];
     button.disabled = true;
     replace(button, h('span', { className: 'spinner-border spinner-border-sm', 'aria-hidden': 'true' }));
     try {
       const blob = await this.pipeline.preview!(e.path);
-      // Another preview, or leaving the review (see stopAudio), replaced this one meanwhile.
-      return request === this.previewRequest ? this.urls.createObjectURL(blob) : undefined;
+      // Another preview, or leaving the review (see dropPreviews), replaced this one meanwhile.
+      return request === this.previewRequest ? blob : undefined;
     } catch (error) {
       this.announce(this.t('previewFailed', { name: short(e.path), message: (error as Error).message }));
       return undefined;
@@ -950,55 +1277,66 @@ export class App {
     }
   }
 
-  private async toggleAudio(e: InventoryEntry, button: HTMLButtonElement): Promise<void> {
-    if (this.player?.path === e.path) {
-      if (this.player.audio.paused) await this.player.audio.play().catch(() => undefined);
-      else this.player.audio.pause();
-      return;
-    }
-    this.stopAudio();
-    const url = await this.fetchPreview(e, button);
-    if (!url) return;
-    const audio = new Audio(url);
-    this.player = { path: e.path, audio, url };
-    const refresh = (): void => {
-      const current = this.main.querySelector<HTMLButtonElement>(`.preview-button[data-path="${CSS.escape(e.path)}"]`);
-      current?.replaceWith(this.previewButton(e));
-    };
-    audio.addEventListener('play', refresh);
-    audio.addEventListener('pause', refresh);
-    audio.addEventListener('ended', refresh);
-    await audio.play().catch((error: unknown) => {
-      // A pause (or another preview) before playback started interrupts play(): not a failure.
-      if ((error as Error).name === 'AbortError') return;
-      // An unplayable file stays "not paused": release it so the button offers to play again.
-      if (this.player?.audio === audio) this.stopAudio();
-      this.announce(this.t('previewFailed', { name: short(e.path), message: '' }));
-    });
-  }
-
-  /** Stops and releases the audio preview, and drops any preview still being read. */
-  private stopAudio(): void {
+  /** Drops any preview still being read (a later answer is ignored). */
+  private dropPreviews(): void {
     this.previewRequest++;
-    if (!this.player) return;
-    const { audio, url } = this.player;
-    this.player = undefined;
-    audio.pause();
-    audio.removeAttribute('src');
-    this.urls.revokeObjectURL(url);
   }
 
-  /** Shows an image or plays a video in a modal window. */
+  /** Shows an image or a PDF, or plays a video or an audio, in a modal window. */
   private async openPreview(e: InventoryEntry, button: HTMLButtonElement): Promise<void> {
-    this.stopAudio();
-    const url = await this.fetchPreview(e, button);
-    if (!url) return;
-    const media =
-      e.kind === 'video'
-        ? // The player's own download would save the blob: URL without a name; the header offers a named one.
-          h('video', { src: url, controls: true, autoplay: true, playsinline: true, controlslist: 'nodownload', className: 'preview-media' })
-        : h('img', { src: url, alt: short(e.path), className: 'preview-media preview-image' });
-    const size = e.image?.width ? `${e.image.width}×${e.image.height ?? '?'} · ` : e.video?.width ? `${e.video.width}×${e.video.height ?? '?'} · ` : '';
+    const blob = await this.fetchBlob(e, button);
+    if (!blob) return;
+    const url = this.urls.createObjectURL(blob);
+    let media: HTMLElement;
+    let release = (): void => undefined;
+    if (e.format === 'pdf') {
+      // Drawn page by page into a canvas by pdf.js (loaded now): the document is shown, never run.
+      const canvas = h('canvas', { className: 'preview-media preview-pdf', role: 'img', 'aria-label': short(e.path) });
+      const status = h('span', { className: 'small text-body-secondary', 'aria-live': 'polite' });
+      const prev = h('button', { type: 'button', className: 'btn btn-sm btn-outline-secondary', disabled: true }, this.t('pdfPrev'));
+      const next = h('button', { type: 'button', className: 'btn btn-sm btn-outline-secondary', disabled: true }, this.t('pdfNext'));
+      media = h(
+        'div',
+        { className: 'pdf-view d-flex flex-column align-items-center gap-2' },
+        canvas,
+        h('div', { className: 'd-flex align-items-center gap-2' }, prev, status, next),
+      );
+      void (async () => {
+        try {
+          const { openPdf } = await import('./pdf-preview.js');
+          const pdf = await openPdf(new Uint8Array(await blob.arrayBuffer()));
+          release = () => void pdf.destroy();
+          let page = 1;
+          const show = async (): Promise<void> => {
+            prev.disabled = page <= 1;
+            next.disabled = page >= pdf.pages;
+            status.textContent = this.t('pdfPage', { page, pages: pdf.pages });
+            // A drawing overtaken by another page, or by closing the window, is cancelled: not an error.
+            await pdf.render(page, canvas as HTMLCanvasElement, Math.min(900, Math.max(280, media.clientWidth || 800))).catch(() => undefined);
+          };
+          prev.addEventListener('click', () => void ((page = Math.max(1, page - 1)), show()));
+          next.addEventListener('click', () => void ((page = Math.min(pdf.pages, page + 1)), show()));
+          await show();
+        } catch (error) {
+          status.textContent = this.t('previewFailed', { name: short(e.path), message: (error as Error).message });
+        }
+      })();
+    } else {
+      media =
+        e.kind === 'video'
+          ? // The player's own download would save the blob: URL without a name; the header offers a named one.
+            h('video', { src: url, controls: true, autoplay: true, playsinline: true, controlslist: 'nodownload', className: 'preview-media' })
+          : e.kind === 'audio'
+            ? h('audio', { src: url, controls: true, autoplay: true, controlslist: 'nodownload', className: 'preview-audio w-100' })
+            : h('img', { src: url, alt: short(e.path), className: 'preview-media preview-image' });
+    }
+    const size = e.image?.width
+      ? `${e.image.width}×${e.image.height ?? '?'} · `
+      : e.video?.width
+        ? `${e.video.width}×${e.video.height ?? '?'} · `
+        : e.pdf
+          ? `${this.t(e.pdf.pages === 1 ? 'pdfPagesOne' : 'pdfPages', { count: e.pdf.pages })} · `
+          : '';
     const dialog = h(
       'dialog',
       { className: 'preview-dialog', 'aria-labelledby': 'preview-title' },
@@ -1033,8 +1371,9 @@ export class App {
       if (ev.target === dialog) dialog.close();
     });
     dialog.addEventListener('close', () => {
-      if (media instanceof HTMLVideoElement) media.pause();
+      if (media instanceof HTMLMediaElement) media.pause();
       media.removeAttribute('src');
+      release();
       this.urls.revokeObjectURL(url);
       dialog.remove();
     });
@@ -1073,20 +1412,20 @@ export class App {
     this.sort = this.sort.key === key ? { key, dir: this.sort.dir === 1 ? -1 : 1 } : { key, dir: key === 'size' ? -1 : 1 };
     // Sorting is only offered by the table of the review step.
     this.main.querySelector('.inventory-card')!.replaceWith(this.renderInventory(this.analysis!.entries));
+    const form = this.main.querySelector<HTMLFormElement>('form.review-form');
+    if (form) this.syncRemoved(form);
   }
 
-  private renderOptions(brokenCount: number): HTMLElement {
+  /** The right column: the level, the estimated result and the button that runs it. */
+  private renderChoose(): HTMLElement {
     const o = this.options;
-    const a = this.analysis!;
-    const form = h('form', { className: 'options', 'aria-labelledby': 'h-step3' });
-    const presets = h('fieldset', { className: 'mb-3' }, h('legend', { className: 'form-label fw-bold fs-6' }, this.t('preset')));
     const group = h('div', { className: 'list-group preset-group' });
     for (const p of ['conservative', 'balanced', 'aggressive'] as const) {
       group.append(
         h(
           'label',
           { className: 'list-group-item d-flex gap-3 align-items-start radio' },
-          h('input', { type: 'radio', name: 'preset', value: p, checked: o.preset === p, className: 'form-check-input flex-shrink-0 mt-1' }),
+          h('input', { type: 'radio', name: 'preset', value: p, checked: (o.preset ?? 'balanced') === p, className: 'form-check-input flex-shrink-0 mt-1' }),
           h(
             'span',
             {},
@@ -1096,115 +1435,219 @@ export class App {
         ),
       );
     }
-    presets.append(group);
-    const current = o.images?.maxDimension;
-    const size = h('select', { name: 'imageSize', id: 'opt-imageSize', className: 'form-select' });
-    size.append(h('option', { value: 'profile', selected: current === undefined }, this.t('imageSizeProfile')));
-    for (const px of [1280, 1600, 1920, 2560]) size.append(h('option', { value: px, selected: current === px }, `${px} px`));
-    size.append(h('option', { value: 'none', selected: current === null }, this.t('imageSizeNone')));
-    const imageSize = h(
-      'div',
-      { className: 'mb-3' },
-      h('label', { className: 'form-label fw-bold fs-6', for: 'opt-imageSize' }, this.t('imageSize')),
-      size,
-      h('div', { className: 'form-text' }, this.t('imageSizeHelp')),
-    );
-    const num = (name: string, label: string, min: number, max: number, value: number | undefined): HTMLElement =>
-      h(
-        'div',
-        { className: 'mb-2' },
-        h('label', { className: 'form-label small mb-1', for: `opt-${name}` }, this.t(label)),
-        h('input', { type: 'number', id: `opt-${name}`, name, min, max, inputmode: 'numeric', value: value ?? '', className: 'form-control form-control-sm' }),
-      );
-    const check = (name: string, label: string, checked: boolean, help?: string, isSwitch = false): HTMLElement =>
-      h(
-        'div',
-        { className: `form-check${isSwitch ? ' form-switch' : ''} mb-2` },
-        h('input', { type: 'checkbox', name, id: `opt-${name}`, checked, className: 'form-check-input', role: isSwitch ? 'switch' : undefined }),
-        h('label', { className: 'form-check-label', for: `opt-${name}` }, this.t(label)),
-        help ? h('div', { className: 'form-text mt-0' }, help) : false,
-      );
-    const res = h('select', { name: 'maxResolution', id: 'opt-maxResolution', className: 'form-select form-select-sm' });
-    res.append(h('option', { value: 'profile', selected: o.video?.maxResolution === undefined }, this.t('byPreset')));
-    for (const r of ['original', '2160', '1440', '1080', '720', '480', '360']) {
-      res.append(h('option', { value: r, selected: String(o.video?.maxResolution ?? '') === r }, r === 'original' ? this.t('original') : `${r}p`));
-    }
-    const advanced = h(
-      'details',
-      { className: 'advanced mt-3' },
-      h('summary', { className: 'd-flex align-items-center gap-2' }, icon('gear'), this.t('advanced')),
-      h(
-        'div',
-        { className: 'pt-3' },
-        check('video', 'videoEnabled', o.video?.enabled !== false),
-        h('div', { className: 'mb-2' }, h('label', { className: 'form-label small mb-1', for: 'opt-maxResolution' }, this.t('videoResolution')), res),
-        num('crf', 'videoQuality', 16, 35, o.video?.crf),
-        num('audioBitrate', 'audioBitrate', 64, 320, o.video?.audioBitrate),
-        check('audio', 'audioEnabled', o.audio?.enabled !== false),
-        num('audioFilesBitrate', 'audioFilesBitrate', 64, 320, o.audio?.bitrate),
-        check('images', 'imagesEnabled', o.images?.enabled !== false),
-        num('jpegQuality', 'jpegQuality', 30, 100, o.images?.jpegQuality),
-        num('webpQuality', 'webpQuality', 30, 100, o.images?.webpQuality),
-        check('png', 'optimizePng', o.images?.png !== false),
-        check('stripMetadata', 'stripMetadata', o.images?.stripMetadata === true),
-        check('includeScreenshot', 'includeScreenshot', o.images?.includeScreenshot === true),
-        check('pdf', 'pdfEnabled', o.pdf?.enabled !== false),
-        check('pdfLossless', 'pdfLossless', o.pdf?.images === false),
-        check('multithread', 'threadsMulti', this.threading !== 'single'),
-      ),
-    );
-    const unused = a.entries.filter((e) => e.role === 'user-asset' && e.usage === 'unreferenced');
-    const legacy = a.package!.legacyFolders;
-    const cleanup = h(
-      'fieldset',
-      { className: 'cleanup mb-2' },
-      h('legend', { className: 'form-label fw-bold fs-6' }, this.t('cleanup')),
-      check(
-        'removeUnused',
-        'removeUnused',
-        o.removeUnused === 'safe',
-        unused.length > 0
-          ? this.t(unused.length === 1 ? 'removeUnusedHelpOne' : 'removeUnusedHelp', {
-              count: unused.length,
-              size: bytes(
-                unused.reduce((s, e) => s + e.size, 0),
-                this.lang,
-              ),
-            })
-          : undefined,
-        true,
-      ),
-      check(
-        'deduplicate',
-        'deduplicate',
-        o.deduplicate === 'exact',
-        a.duplicates.length > 0 ? this.t(a.duplicates.length === 1 ? 'deduplicateHelpOne' : 'deduplicateHelp', { count: a.duplicates.length }) : undefined,
-        true,
-      ),
-      this.namesCheck(check, o.normalizeNames !== 'off'),
-      legacy.files > 0 ? check('flatten', 'flatten', o.flatten === 'legacy', this.t('flattenHelp', { files: legacy.files }), true) : false,
-      brokenCount > 0
-        ? check('missingReferences', 'missingRefs', o.missingReferences === 'remove', this.t('missingRefsHelp', { count: brokenCount }), true)
-        : false,
-    );
-    form.append(
-      presets,
-      imageSize,
-      h('p', { className: 'note small text-body-secondary' }, this.t('lossyNote')),
-      cleanup,
-      this.renderScreenshot(),
-      advanced,
-      h('button', { type: 'submit', className: 'btn btn-primary btn-lg w-100 mt-3' }, this.t('reviewPlan')),
-    );
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      void this.makePlan(form);
-    });
+    const check = (text: string): HTMLElement => h('li', { className: 'd-flex gap-2' }, icon('check-circle-fill', 'text-success flex-none'), text);
     return h(
       'aside',
       { className: 'panel card options-card', 'aria-labelledby': 'h-step3' },
-      h('div', { className: 'card-body' }, h('h2', { id: 'h-step3', tabindex: -1, className: 'h5 mb-3' }, this.t('step3')), form),
+      h(
+        'div',
+        { className: 'card-body d-flex flex-column gap-3' },
+        h('h2', { id: 'h-step3', tabindex: -1, className: 'h5 mb-0' }, this.t('step3')),
+        h('fieldset', {}, h('legend', { className: 'form-label fw-bold fs-6' }, this.t('preset')), group),
+        h('hr', { className: 'my-1' }),
+        this.renderEstimate(),
+        h(
+          'button',
+          { type: 'submit', className: 'btn btn-primary btn-lg w-100 optimize-button', disabled: !this.plan || this.plan.operations.length === 0 },
+          this.t('optimize'),
+        ),
+        h(
+          'ul',
+          { className: 'promises list-unstyled small d-flex flex-column gap-2 mb-0' },
+          check(this.t('promiseOriginal')),
+          check(this.t('promiseLocal')),
+          check(this.t('promiseEditable')),
+        ),
+      ),
     );
+  }
+
+  /** On narrow screens, the estimate and the button stay at the bottom of the screen. */
+  private renderMobileBar(): HTMLElement {
+    const plan = this.plan;
+    const before = this.analysis!.input.size;
+    const saved = plan ? Math.min(before, plan.estimate.savedBytes) : 0;
+    return h(
+      'div',
+      { className: 'mobile-bar d-lg-none', 'data-role': 'mobile-bar' },
+      h(
+        'div',
+        { className: 'flex-grow-1 min-w-0' },
+        h('span', { className: 'd-block small text-body-secondary' }, this.t('estimateTitle')),
+        h('span', { className: 'mobile-bar-figure' }, plan && saved > 0 ? `≈ −${percent(saved / Math.max(1, before), this.lang)}` : '—'),
+      ),
+      h('button', { type: 'submit', className: 'btn btn-primary optimize-button', disabled: !plan || plan.operations.length === 0 }, this.t('optimize')),
+    );
+  }
+
+  /** The estimate of the current plan (made by the core before anything is encoded). */
+  private renderEstimate(): HTMLElement {
+    const plan = this.plan;
+    const box = h(
+      'div',
+      { className: 'estimate-block', 'data-role': 'estimate', 'aria-live': 'polite' },
+      h('h3', { className: 'h6 mb-2' }, this.t('estimateTitle')),
+    );
+    if (this.planError) {
+      box.append(h('p', { className: 'text-danger small mb-0' }, this.t('planError', { message: this.planError })));
+      return box;
+    }
+    if (!plan) {
+      box.append(h('p', { className: 'text-body-secondary small mb-0' }, this.t('estimatePending')));
+      return box;
+    }
+    if (plan.operations.length === 0) {
+      box.append(h('p', { className: 'text-body-secondary mb-0 plan-empty' }, this.t('planEmpty')));
+      return box;
+    }
+    const before = this.analysis!.input.size;
+    const saved = Math.min(before, plan.estimate.savedBytes);
+    const after = before - saved;
+    const bar = (label: string, value: number, cls: string): HTMLElement => {
+      const fill = h('span', { className: `fill ${cls}` });
+      fill.style.width = `${(value / Math.max(1, before)) * 100}%`;
+      return h(
+        'div',
+        { className: 'compare-row' },
+        h('span', { className: 'compare-label' }, label),
+        h('span', { className: 'compare-track' }, fill),
+        h('span', { className: 'num text-end' }, `${label === this.t('after') ? '≈ ' : ''}${bytes(value, this.lang)}`),
+      );
+    };
+    if (saved > 0) box.append(h('p', { className: 'estimate-figure mb-0' }, `≈ −${percent(saved / Math.max(1, before), this.lang)}`));
+    box.append(
+      h(
+        'p',
+        { className: 'estimate-detail text-body-secondary small' },
+        this.t(saved > 0 ? 'estimateDetail' : 'estimateNoSaving', { size: bytes(saved, this.lang) }),
+      ),
+      h('div', { className: 'compare compare-sm' }, bar(this.t('before'), before, 'fill-before'), bar(this.t('after'), after, 'fill-after')),
+    );
+    if (plan.skipped.length > 0) {
+      box.append(
+        h(
+          'details',
+          { className: 'skipped small mt-2' },
+          h('summary', {}, `${this.t('planSkipped')} (${plan.skipped.length})`),
+          h('ul', { className: 'plan-skipped mb-0 ps-3 mt-1' }, ...plan.skipped.slice(0, 200).map((x) => h('li', {}, `${short(x.path)}: ${x.detail}`))),
+        ),
+      );
+    }
+    const notes = this.riskNotes(plan);
+    if (notes.length > 0) {
+      box.append(
+        h(
+          'details',
+          { className: 'risks small mt-2' },
+          h('summary', {}, this.t('riskTitle')),
+          h('ul', { className: 'mb-0 ps-3 mt-1' }, ...notes.map((r) => h('li', { className: 'note' }, r))),
+        ),
+      );
+    }
+    return box;
+  }
+
+  /** Advanced options: every value defaults to the level's, shown as the field's placeholder. */
+  private renderAdvanced(): HTMLElement {
+    const o = this.options;
+    const num = (name: string, label: string, min: number, max: number, value: number | undefined): HTMLElement =>
+      h(
+        'div',
+        {},
+        h('label', { className: 'form-label small mb-1', for: `opt-${name}` }, this.t(label)),
+        h('input', {
+          type: 'number',
+          id: `opt-${name}`,
+          name,
+          min,
+          max,
+          inputmode: 'numeric',
+          value: value ?? '',
+          className: 'form-control form-control-sm',
+          'data-level': name,
+        }),
+      );
+    const check = (name: string, label: string, checked: boolean): HTMLElement =>
+      h(
+        'div',
+        { className: 'form-check mb-0' },
+        h('input', { type: 'checkbox', name, id: `opt-${name}`, checked, className: 'form-check-input' }),
+        h('label', { className: 'form-check-label', for: `opt-${name}` }, this.t(label)),
+      );
+    const res = h('select', { name: 'maxResolution', id: 'opt-maxResolution', className: 'form-select form-select-sm' });
+    res.append(h('option', { value: 'profile', selected: o.video?.maxResolution === undefined, 'data-level': 'maxResolution' }, this.t('byPreset')));
+    for (const r of ['original', '2160', '1440', '1080', '720', '480', '360']) {
+      res.append(h('option', { value: r, selected: String(o.video?.maxResolution ?? '') === r }, r === 'original' ? this.t('original') : `${r}p`));
+    }
+    const current = o.images?.maxDimension;
+    const size = h('select', { name: 'imageSize', id: 'opt-imageSize', className: 'form-select form-select-sm' });
+    size.append(h('option', { value: 'profile', selected: current === undefined, 'data-level': 'imageSize' }, this.t('imageSizeProfile')));
+    for (const px of [1280, 1600, 1920, 2560]) size.append(h('option', { value: px, selected: current === px }, `${px} px`));
+    size.append(h('option', { value: 'none', selected: current === null }, this.t('imageSizeNone')));
+    const group = (title: string, ...children: HTMLElement[]): HTMLElement =>
+      h('fieldset', { className: 'adv-group' }, h('legend', { className: 'fw-bold fs-6' }, this.t(title)), ...children);
+    const details = h(
+      'details',
+      { className: 'advanced card', open: this.advancedOpen },
+      h(
+        'summary',
+        { className: 'card-header d-flex align-items-center gap-2' },
+        icon('gear'),
+        h('h3', { className: 'h5 mb-0 flex-grow-1' }, this.t('advanced')),
+        h('span', { className: 'small text-body-secondary d-none d-sm-inline' }, this.t('advancedLead')),
+      ),
+      h(
+        'div',
+        { className: 'card-body adv-grid' },
+        group(
+          'advVideo',
+          check('video', 'videoEnabled', o.video?.enabled !== false),
+          h('div', {}, h('label', { className: 'form-label small mb-1', for: 'opt-maxResolution' }, this.t('videoResolution')), res),
+          num('crf', 'videoQuality', 16, 35, o.video?.crf),
+          num('audioBitrate', 'audioBitrate', 64, 320, o.video?.audioBitrate),
+        ),
+        group(
+          'advImages',
+          check('images', 'imagesEnabled', o.images?.enabled !== false),
+          h('div', {}, h('label', { className: 'form-label small mb-1', for: 'opt-imageSize' }, this.t('imageSize')), size),
+          num('jpegQuality', 'jpegQuality', 30, 100, o.images?.jpegQuality),
+          num('webpQuality', 'webpQuality', 30, 100, o.images?.webpQuality),
+          check('png', 'optimizePng', o.images?.png !== false),
+          check('stripMetadata', 'stripMetadata', o.images?.stripMetadata === true),
+          check('includeScreenshot', 'includeScreenshot', o.images?.includeScreenshot === true),
+        ),
+        group('advAudio', check('audio', 'audioEnabled', o.audio?.enabled !== false), num('audioFilesBitrate', 'audioFilesBitrate', 64, 320, o.audio?.bitrate)),
+        group(
+          'advPdf',
+          check('pdf', 'pdfEnabled', o.pdf?.enabled !== false),
+          check('pdfLossless', 'pdfLossless', o.pdf?.images === false),
+          check('multithread', 'threadsMulti', this.threading !== 'single'),
+        ),
+      ),
+    );
+    details.addEventListener('toggle', () => (this.advancedOpen = details.open));
+    return details;
+  }
+
+  /** Shows the chosen level's values where an advanced field is left to the level. */
+  private updateLevelHints(form: HTMLFormElement): void {
+    const preset = (new FormData(form).get('preset') ?? 'balanced') as Preset;
+    const video = VIDEO_PROFILES[preset];
+    const image = IMAGE_PROFILES[preset];
+    const values: Record<string, string> = {
+      crf: String(video.crf),
+      audioBitrate: String(video.audioBitrateKbps),
+      jpegQuality: String(image.jpegQuality),
+      webpQuality: String(image.webpQuality),
+      audioFilesBitrate: String(AUDIO_PROFILES[preset].bitrateKbps),
+    };
+    for (const el of form.querySelectorAll<HTMLInputElement>('input[data-level]')) {
+      el.placeholder = this.t('levelValue', { value: values[el.dataset['level']!]! });
+    }
+    const res = form.querySelector('option[data-level="maxResolution"]');
+    if (res) res.textContent = `${this.t('byPreset')} (${video.maxShortSide === 'original' ? this.t('original') : `${video.maxShortSide}p`})`;
+    const size = form.querySelector('option[data-level="imageSize"]');
+    if (size) size.textContent = `${this.t('imageSizeProfile')} (${image.maxDimension} px)`;
   }
 
   /**
@@ -1212,19 +1655,22 @@ export class App {
    * (the current one is previewed from its row in the contents).
    */
   private renderScreenshot(): HTMLElement {
-    const box = h('fieldset', { className: 'screenshot mb-2' });
+    const box = h('section', { className: 'screenshot card', 'aria-labelledby': 'h-screenshot' });
+    // A new thumbnail changes the options (its hash): plan again.
+    const changed = (): void => void box.dispatchEvent(new Event('change', { bubbles: true }));
     const status = h('p', { className: 'screenshot-status small mb-0', 'aria-live': 'polite' });
     const fill = (): void => {
       const a = this.analysis!;
       const preview = this.screenshot
         ? h('img', {
-            className: 'screenshot-preview img-fluid border rounded mb-2',
+            className: 'screenshot-preview screenshot-thumb border rounded',
             src: this.screenshot.url,
             alt: this.t('screenshotNew'),
-            width: 1280,
-            height: 720,
+            width: 128,
+            height: 72,
           })
-        : h('p', { className: 'small text-body-secondary mb-2' }, this.t(a.package?.hasScreenshot ? 'screenshotCurrent' : 'screenshotNone'));
+        : h('span', { className: 'screenshot-thumb screenshot-empty border rounded', 'aria-hidden': 'true' }, icon('image'));
+      const current = this.t(this.screenshot ? 'screenshotReadyShort' : a.package?.hasScreenshot ? 'screenshotCurrent' : 'screenshotNone');
       const buttons: HTMLButtonElement[] = [];
       const make = async (task: () => Promise<Blob>): Promise<void> => {
         for (const b of buttons) b.disabled = true;
@@ -1237,6 +1683,7 @@ export class App {
           this.dropScreenshot();
           this.screenshot = { blob, url: this.urls.createObjectURL(blob), sha256: sha256Hex(bytes), size: bytes.length };
           fill();
+          changed();
           status.textContent = this.t('screenshotReady');
         } catch (error) {
           for (const b of buttons) b.disabled = false;
@@ -1284,6 +1731,7 @@ export class App {
               onclick: () => {
                 this.dropScreenshot();
                 fill();
+                changed();
                 status.textContent = '';
               },
             },
@@ -1293,32 +1741,47 @@ export class App {
       }
       replace(
         box,
-        h('legend', { className: 'form-label fw-bold fs-6' }, this.t('screenshot')),
-        preview,
-        h('div', { className: 'd-flex flex-wrap gap-2 mb-1' }, ...buttons),
-        file,
-        h('div', { className: 'form-text mt-0 mb-1' }, this.t('screenshotHelp')),
-        status,
+        h(
+          'div',
+          { className: 'card-body d-flex flex-column gap-2' },
+          h(
+            'div',
+            { className: 'd-flex align-items-start gap-3' },
+            preview,
+            h(
+              'div',
+              { className: 'flex-grow-1 min-w-0 d-flex flex-column gap-2' },
+              h(
+                'div',
+                {},
+                h('h3', { id: 'h-screenshot', className: 'h6 mb-1' }, this.t('screenshot')),
+                h('p', { className: 'small text-body-secondary mb-0 screenshot-current' }, current),
+              ),
+              h('div', { className: 'd-flex flex-wrap gap-2' }, ...buttons),
+            ),
+          ),
+          file,
+          h('p', { className: 'form-text mt-0 mb-0' }, this.t('screenshotHelp')),
+          status,
+        ),
       );
     };
     fill();
     return box;
   }
 
-  /** The clean-names switch, with how many files would get a new name and one example. */
-  private namesCheck(check: (name: string, label: string, checked: boolean, help?: string, isSwitch?: boolean) => HTMLElement, checked: boolean): HTMLElement {
+  /** How many files would get a clean name, with one example. */
+  private namesHelp(): string {
     const changes = this.analysis!.entries.filter((e) => !e.isDirectory && e.role === 'user-asset' && !e.path.startsWith('custom/'))
       .map((e) => e.path.slice(e.path.lastIndexOf('/') + 1))
       .filter((name) => cleanFileName(name) !== name);
-    const help =
-      changes.length === 0
-        ? this.t('normalizeNamesClean')
-        : this.t(changes.length === 1 ? 'normalizeNamesHelpOne' : 'normalizeNamesHelp', {
-            count: changes.length,
-            from: changes[0]!,
-            to: cleanFileName(changes[0]!),
-          });
-    return check('normalizeNames', 'normalizeNames', checked, help, true);
+    return changes.length === 0
+      ? this.t('normalizeNamesClean')
+      : this.t(changes.length === 1 ? 'normalizeNamesHelpOne' : 'normalizeNamesHelp', {
+          count: changes.length,
+          from: changes[0]!,
+          to: cleanFileName(changes[0]!),
+        });
   }
 
   /** Reads the options form into OptionsInput. */
@@ -1329,7 +1792,10 @@ export class App {
       return v === '' ? undefined : Number(v);
     };
     const on = (k: string): boolean => data.get(k) !== null;
-    const video: NonNullable<OptionsInput['video']> = { enabled: on('video') };
+    // The media card's switch turns every kind off; without it (a bare form) each kind decides.
+    if (form.elements.namedItem('recompress')) this.recompress = on('recompress');
+    const media = (k: string): boolean => this.recompress && on(k);
+    const video: NonNullable<OptionsInput['video']> = { enabled: media('video') };
     const res = String(data.get('maxResolution') ?? '');
     if (res && res !== 'profile') video.maxResolution = res;
     const crf = n('crf');
@@ -1337,7 +1803,7 @@ export class App {
     const ab = n('audioBitrate');
     if (ab !== undefined) video.audioBitrate = ab;
     const images: NonNullable<OptionsInput['images']> = {
-      enabled: on('images'),
+      enabled: media('images'),
       png: on('png'),
       stripMetadata: on('stripMetadata'),
       includeScreenshot: on('includeScreenshot'),
@@ -1349,9 +1815,9 @@ export class App {
     const imageSize = String(data.get('imageSize') ?? 'profile');
     if (imageSize === 'none') images.maxDimension = null;
     else if (/^\d+$/.test(imageSize)) images.maxDimension = Number(imageSize);
-    const audio: NonNullable<OptionsInput['audio']> = { enabled: on('audio') };
+    const audio: NonNullable<OptionsInput['audio']> = { enabled: media('audio') };
     // Unchecked, the preset decides whether images inside PDFs are converted.
-    const pdf: NonNullable<OptionsInput['pdf']> = { enabled: on('pdf'), ...(on('pdfLossless') ? { images: false } : {}) };
+    const pdf: NonNullable<OptionsInput['pdf']> = { enabled: media('pdf'), ...(on('pdfLossless') ? { images: false } : {}) };
     const afb = n('audioFilesBitrate');
     if (afb !== undefined) audio.bitrate = afb;
     this.threading = on('multithread') ? 'auto' : 'single';
@@ -1365,47 +1831,71 @@ export class App {
       deduplicate: on('deduplicate') ? 'exact' : 'off',
       flatten: on('flatten') ? 'legacy' : 'off',
       missingReferences: on('missingReferences') ? 'remove' : 'keep',
-      normalizeNames: on('normalizeNames') ? 'slug' : 'off',
+      // Read from the switch itself: it stays checked, but disabled (so absent from FormData), when names are already clean.
+      normalizeNames: form.querySelector<HTMLInputElement>('input[name="normalizeNames"]')?.checked ? 'slug' : 'off',
       exclude: [...this.excluded],
       ...(this.screenshot ? { screenshot: { sha256: this.screenshot.sha256, size: this.screenshot.size } } : {}),
     };
   }
 
-  private async makePlan(form: HTMLFormElement): Promise<void> {
-    const options = this.readOptions(form);
-    this.options = options;
-    try {
-      this.plan = await this.pipeline.plan(options);
-      this.go('plan');
-    } catch (error) {
-      this.showError((error as { code?: string }).code ?? 'error', (error as Error).message);
-    }
+  /** Makes the plan again shortly after the options change. */
+  private schedulePlan(form: HTMLFormElement, delay = 150): void {
+    clearTimeout(this.planTimer);
+    this.planTimer = setTimeout(() => void this.refreshPlan(form), delay);
   }
 
-  // ------------------------------------------------------------------ step 4
-  private opText(op: PlanOperation): string {
-    switch (op.op) {
-      case 'transcode-video':
-      case 'recompress-image':
-      case 'optimize-pdf':
-        return `${short(op.path)} (${bytes(op.size, this.lang)}): ${op.conversions.join('; ')}`;
-      case 'transcode-audio':
-        return `${short(op.path)}${op.to ? ` → ${short(op.to)}` : ''} (${bytes(op.size, this.lang)}): ${op.conversions.join('; ')}`;
-      case 'remove-unused':
-        return `${short(op.path)} (${bytes(op.size, this.lang)})`;
-      case 'deduplicate':
-        return `${op.remove.map(short).join(', ')}: ${this.t('mergedInto', { keep: short(op.keep) })}`;
-      case 'move-resource':
-        return `${op.path} → ${op.to}`;
-      case 'rename-resource':
-        return `${short(op.path)} → ${short(op.to)}`;
-      case 'remove-missing-reference':
-        return `${short(op.path)}: ${this.t('unlinkCount', { count: op.references })}`;
-      case 'replace-screenshot':
-        return `${op.path} (${this.t(op.added ? 'screenshotAdded' : 'screenshotReplaced', { size: bytes(op.after, this.lang) })})`;
-      default:
-        return op.path;
+  /** Plans the current options; an answer overtaken by a newer request is dropped. */
+  private async refreshPlan(form: HTMLFormElement): Promise<void> {
+    if (this.view !== 'review' || !form.isConnected) return;
+    const options = this.readOptions(form);
+    // The choices are kept at once (a re-render, e.g. another language, shows them), planned or not.
+    this.options = options;
+    const key = JSON.stringify(options);
+    if (key === this.planKey && this.plan && this.planFor === this.planRequest) return;
+    const request = ++this.planRequest;
+    try {
+      const plan = await this.pipeline.plan(options);
+      if (request !== this.planRequest) return;
+      Object.assign(this, { plan, planFor: request, planKey: key, planError: '' });
+    } catch (error) {
+      if (request !== this.planRequest) return;
+      Object.assign(this, { plan: undefined, planKey: '', planError: (error as Error).message });
     }
+    this.updatePlanView();
+  }
+
+  /** Refreshes what depends on the plan: the media card, the estimate and the button. */
+  private updatePlanView(): void {
+    if (this.view !== 'review') return;
+    const media = this.main.querySelector('[data-role="media"]');
+    if (media) this.fillMediaSummary(media);
+    this.main.querySelector('[data-role="estimate"]')?.replaceWith(this.renderEstimate());
+    this.main.querySelector('[data-role="mobile-bar"]')?.replaceWith(this.renderMobileBar());
+    for (const button of this.main.querySelectorAll<HTMLButtonElement>('.optimize-button')) button.disabled = !this.plan || this.plan.operations.length === 0;
+  }
+
+  /** Runs the plan of the current options, planning them first when the last plan is not theirs. */
+  private async optimizeNow(form: HTMLFormElement): Promise<void> {
+    clearTimeout(this.planTimer);
+    const options = this.readOptions(form);
+    const key = JSON.stringify(options);
+    // The worker keeps only the last plan it made: reuse ours only when it is that one.
+    if (!(this.plan && key === this.planKey && this.planFor === this.planRequest)) {
+      const request = ++this.planRequest;
+      try {
+        const plan = await this.pipeline.plan(options);
+        Object.assign(this, { plan, planFor: request, planKey: key, planError: '', options });
+      } catch (error) {
+        this.showError((error as { code?: string }).code ?? 'error', (error as Error).message);
+        return;
+      }
+    }
+    if (this.plan!.operations.length === 0) {
+      this.updatePlanView();
+      return;
+    }
+    this.options = options;
+    await this.run();
   }
 
   /** Warnings about the plan, derived from its operations so they follow the interface language. */
@@ -1423,67 +1913,6 @@ export class App {
     if (has('rename-resource')) notes.push(this.t('risk_rename'));
     if (has('remove-missing-reference')) notes.push(this.t('risk_unlink'));
     return notes;
-  }
-
-  private renderPlan(): HTMLElement {
-    const plan = this.plan!;
-    const ops = h('div', { className: 'plan-ops list-group mb-3' });
-    for (const [kind, iconName] of OP_ORDER) {
-      const list = plan.operations.filter((o) => o.op === kind);
-      if (list.length === 0) continue;
-      const items = h('ul', { className: 'plan-op-items list-unstyled small mb-0 mt-2' });
-      for (const op of list.slice(0, 300)) items.append(h('li', { className: `op op-${op.op}` }, this.opText(op)));
-      if (list.length > 300) items.append(h('li', {}, `… +${list.length - 300}`));
-      ops.append(
-        h(
-          'details',
-          { className: 'list-group-item plan-group', open: list.length <= 5 },
-          h(
-            'summary',
-            { className: 'd-flex align-items-center gap-2' },
-            h('span', { className: 'op-icon text-primary' }, icon(iconName)),
-            h('span', { className: 'op-kind flex-grow-1' }, this.t(`op_${kind}`)),
-            h('span', { className: 'badge rounded-pill text-bg-primary' }, String(list.length)),
-          ),
-          items,
-        ),
-      );
-    }
-    const skipped = h('ul', { className: 'plan-skipped small mb-0 mt-2' });
-    for (const s of plan.skipped.slice(0, 200)) skipped.append(h('li', {}, `${short(s.path)}: ${s.detail}`));
-    const actionable = plan.operations.length > 0;
-    const notes = this.riskNotes(plan);
-    const risks =
-      notes.length > 0
-        ? h(
-            'div',
-            { className: 'alert alert-warning risks', role: 'note' },
-            h('strong', { className: 'd-block mb-1' }, this.t('riskTitle')),
-            h('ul', { className: 'mb-0 ps-3' }, ...notes.map((r) => h('li', { className: 'note' }, r))),
-          )
-        : false;
-    return this.section(
-      'step4',
-      this.t('step4'),
-      actionable ? h('h3', { className: 'h6 text-body-secondary' }, this.t('planOps')) : h('p', { className: 'alert alert-secondary' }, this.t('planEmpty')),
-      actionable ? ops : false,
-      actionable ? h('p', { className: 'estimate text-body-secondary' }, this.t('estimate', { size: bytes(plan.estimate.savedBytes, this.lang) })) : false,
-      risks,
-      plan.skipped.length > 0
-        ? h('details', { className: 'skipped mb-3' }, h('summary', {}, `${this.t('planSkipped')} (${plan.skipped.length})`), skipped)
-        : false,
-      h(
-        'div',
-        { className: 'actions d-flex flex-wrap gap-2' },
-        h('button', { type: 'button', className: 'btn btn-primary btn-lg px-4', onclick: () => void this.run(), disabled: !actionable }, this.t('optimize')),
-        h(
-          'button',
-          { type: 'button', className: 'btn btn-outline-secondary btn-lg d-inline-flex align-items-center gap-2', onclick: () => this.go('review') },
-          icon('arrow-left'),
-          this.t('changeOptions'),
-        ),
-      ),
-    );
   }
 
   // ------------------------------------------------------------------ step 5
@@ -1557,27 +1986,25 @@ export class App {
       'no-improvement': ['secondary', 'info-circle-fill'],
     };
     const [kind, statusIcon] = tone[report.status] ?? ['danger', 'x-circle-fill'];
-    const children: Child[] = [
+    const hero: Child[] = [
       h(
         'p',
-        { className: `result-status status-${report.status} alert alert-${kind} d-flex align-items-center gap-2` },
+        { className: `result-status status-${report.status} text-${kind} d-flex align-items-center justify-content-center gap-2 fw-bold mb-0` },
         icon(statusIcon),
         this.t(`status_${report.status}`),
       ),
     ];
     // Never imply that videos were optimized when every planned one kept its original.
     const videos = report.operations.filter((o) => o.op === 'transcode-video');
-    if (videos.length > 0 && !videos.some((o) => o.status === 'applied')) {
-      children.push(h('p', { className: 'callout alert alert-light border', role: 'note' }, this.t('videosKept')));
-    }
+    const videosKept = videos.length > 0 && !videos.some((o) => o.status === 'applied');
     if (output) {
       if (s.saved > 0) {
-        children.push(
+        hero.push(
+          h('p', { className: 'saved-figure mb-0' }, this.t('savedShort', { percent: percent(s.saved / s.before, this.lang) })),
           h(
-            'div',
-            { className: 'saved-hero text-center my-4' },
-            h('p', { className: 'saved-figure mb-1' }, this.t('savedShort', { percent: percent(s.saved / s.before, this.lang) })),
-            h('p', { className: 'saved text-body-secondary mb-0' }, this.t('savedDetail', { size: bytes(s.saved, this.lang) })),
+            'p',
+            { className: 'saved text-body-secondary mb-0' },
+            this.t('savedDetail', { size: bytes(s.saved, this.lang), before: bytes(s.before, this.lang), after: bytes(s.after, this.lang) }),
           ),
         );
       }
@@ -1593,49 +2020,124 @@ export class App {
           h('span', { className: 'num text-end' }, bytes(value, this.lang)),
         );
       };
-      children.push(h('div', { className: 'compare mb-4' }, bar(this.t('before'), s.before, 'fill-before'), bar(this.t('after'), s.after, 'fill-after')));
       // A named File: browsers that ignore the download attribute for blob: URLs fall back to its name.
       const url = this.urls.createObjectURL(new File([output], fileName, { type: output.type || 'application/zip' }));
-      const reportUrl = this.urls.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
-      this.objectUrls.push(url, reportUrl);
-      children.push(
+      this.objectUrls.push(url);
+      hero.push(
+        h('div', { className: 'compare w-100' }, bar(this.t('before'), s.before, 'fill-before'), bar(this.t('after'), s.after, 'fill-after')),
         h(
-          'div',
-          { className: 'actions downloads d-flex flex-wrap gap-2 mb-4' },
-          h(
-            'a',
-            { className: 'btn btn-primary btn-lg d-inline-flex align-items-center gap-2', href: url, download: fileName, 'data-testid': 'download' },
-            icon('download'),
-            this.t('download', { name: fileName }),
-          ),
-          h(
-            'a',
-            {
-              className: 'btn btn-outline-secondary btn-lg d-inline-flex align-items-center gap-2',
-              href: reportUrl,
-              download: fileName.replace(/\.elpx$/, '_report.json'),
-              'data-testid': 'download-report',
-            },
-            icon('filetype-json'),
-            this.t('downloadReport'),
-          ),
+          'a',
+          {
+            className: 'btn btn-primary btn-lg d-inline-flex align-items-center gap-2 download-button',
+            href: url,
+            download: fileName,
+            'data-testid': 'download',
+          },
+          icon('download'),
+          this.t('download'),
         ),
+        h('p', { className: 'small text-body-secondary mb-0 download-name' }, this.t('downloadName', { name: fileName })),
       );
     }
-    children.push(this.renderOperationResults(report));
-    children.push(
+    const reportUrl = this.urls.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+    this.objectUrls.push(reportUrl);
+    return h(
+      'div',
+      { className: 'result-view d-flex flex-column align-items-center gap-4' },
       h(
-        'div',
-        { className: 'actions mt-4' },
+        'section',
+        { className: 'step step-step6 card result-hero', 'aria-labelledby': 'h-step6' },
         h(
-          'button',
-          { type: 'button', className: 'btn btn-outline-primary d-inline-flex align-items-center gap-2', onclick: () => this.reset() },
-          icon('arrow-repeat'),
-          this.t('another'),
+          'div',
+          { className: 'card-body d-flex flex-column align-items-center text-center gap-3' },
+          h('h2', { id: 'h-step6', tabindex: -1, className: 'visually-hidden' }, this.t('step6')),
+          ...hero,
         ),
       ),
+      videosKept ? h('p', { className: 'callout alert alert-light border mb-0 result-width', role: 'note' }, this.t('videosKept')) : false,
+      h(
+        'section',
+        { className: 'card changes result-width', 'aria-labelledby': 'h-changes' },
+        h(
+          'div',
+          { className: 'card-body d-flex flex-column gap-3' },
+          h('h3', { id: 'h-changes', className: 'h5 mb-0' }, this.t('changesTitle')),
+          this.renderChanges(report),
+          this.renderOperationResults(report),
+          h(
+            'p',
+            { className: 'mb-0' },
+            h(
+              'a',
+              {
+                href: reportUrl,
+                download: fileName.replace(/\.elpx$/, '_report.json'),
+                'data-testid': 'download-report',
+                className: 'd-inline-flex align-items-center gap-1',
+              },
+              icon('filetype-json'),
+              this.t('downloadReport'),
+            ),
+          ),
+        ),
+      ),
+      h(
+        'button',
+        { type: 'button', className: 'btn btn-outline-primary d-inline-flex align-items-center gap-2', onclick: () => this.reset() },
+        icon('arrow-repeat'),
+        this.t('another'),
+      ),
     );
-    return this.section('step6', this.t('step6'), ...children);
+  }
+
+  /** What changed, in plain words, from the report. */
+  private renderChanges(report: OptimizationReport): HTMLElement {
+    const ops = report.operations;
+    const applied = (op: string): OperationResult[] => ops.filter((o) => o.op === op && o.status === 'applied');
+    const saved = (list: readonly OperationResult[]): number => list.reduce((s, o) => s + Math.max(0, (o.before ?? 0) - (o.after ?? 0)), 0);
+    const items: [IconName, string][] = [];
+    const media: [string, string][] = [
+      ['transcode-video', 'chVideo'],
+      ['recompress-image', 'chImage'],
+      ['transcode-audio', 'chAudio'],
+      ['optimize-pdf', 'chPdf'],
+    ];
+    for (const [op, key] of media) {
+      const list = applied(op);
+      if (list.length > 0)
+        items.push(['check-circle-fill', this.t(list.length === 1 ? `${key}One` : key, { count: list.length, size: bytes(saved(list), this.lang) })]);
+    }
+    const kept = ops.filter((o) => media.some(([m]) => m === o.op) && (o.status === 'reverted' || o.status === 'skipped')).length;
+    if (kept > 0) items.push(['info-circle-fill', this.t(kept === 1 ? 'chKeptOne' : 'chKept', { count: kept })]);
+    const failed = ops.filter((o) => o.status === 'failed').length;
+    if (failed > 0) items.push(['x-circle-fill', this.t(failed === 1 ? 'chFailedOne' : 'chFailed', { count: failed })]);
+    const simple: [string, string][] = [
+      ['remove-unused', 'chUnused'],
+      ['deduplicate', 'chDup'],
+      ['move-resource', 'chMoved'],
+      ['rename-resource', 'chRenamed'],
+      ['remove-missing-reference', 'chUnlinked'],
+      ['replace-screenshot', 'chScreenshot'],
+    ];
+    for (const [op, key] of simple) {
+      const n = applied(op).length;
+      if (n > 0) items.push(['check-circle-fill', this.t(n === 1 ? `${key}One` : key, { count: n })]);
+    }
+    const passed = report.validations.filter((v) => v.ok).length;
+    if (report.validations.length > 0) items.push(['shield-lock', this.t('chVerified', { passed, total: report.validations.length })]);
+    const tone: Partial<Record<IconName, string>> = {
+      'check-circle-fill': 'text-success',
+      'info-circle-fill': 'text-body-secondary',
+      'x-circle-fill': 'text-danger',
+      'shield-lock': 'text-primary',
+    };
+    return h(
+      'ul',
+      { className: 'changes-list list-unstyled d-flex flex-column gap-2 mb-0' },
+      ...items.map(([name, text]) =>
+        h('li', { className: 'd-flex gap-2 align-items-start' }, h('span', { className: `flex-none ${tone[name] ?? ''}` }, icon(name)), text),
+      ),
+    );
   }
 
   private renderOperationResults(report: OptimizationReport): HTMLElement {
@@ -1664,12 +2166,7 @@ export class App {
         ),
       );
     }
-    return h(
-      'details',
-      { className: 'op-details card', open: report.operations.length <= 8 },
-      h('summary', { className: 'card-header' }, `${this.t('opsDetail')} (${report.operations.length})`),
-      list,
-    );
+    return h('details', { className: 'op-details' }, h('summary', {}, `${this.t('opsDetail')} (${report.operations.length})`), list);
   }
 
   // ------------------------------------------------------------------ errors
@@ -1711,13 +2208,22 @@ export class App {
     this.screenshot = undefined;
   }
 
+  /** Forgets the plan and any planning in flight. */
+  private clearPlan(): void {
+    clearTimeout(this.planTimer);
+    this.planRequest++;
+    this.plan = undefined;
+    this.planKey = '';
+    this.planError = '';
+  }
+
   /** Returns to the first step, releasing downloads. */
   reset(): void {
     this.revokeUrls();
     this.dropScreenshot();
     this.file = undefined;
     this.analysis = undefined;
-    this.plan = undefined;
+    this.clearPlan();
     this.result = undefined;
     this.go('start');
   }

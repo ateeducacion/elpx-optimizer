@@ -124,6 +124,19 @@ describe('content.xml variants', () => {
     expect(entry(a, 'content/resources/z.png').usage).toBe('unreferenced');
     expect(diags(a, 'pp-screenshot-duplicate')[0]!.message).toMatch(/embeds a \d+-character base64 screenshot/);
   });
+
+  it('protects a favicon that nothing references: sites and themes find it by its name', async () => {
+    const a = await analyzeBytes(
+      buildElpx({
+        components: [],
+        files: { 'content/resources/favicon.ico': 'ico', 'content/resources/img/FAVICON.PNG': PNG, 'content/resources/favicon-old.png': PNG },
+      }),
+    );
+    expect(entry(a, 'content/resources/favicon.ico').usage).toBe('protected');
+    expect(entry(a, 'content/resources/favicon.ico').usageReasons).toEqual(['site icon (favicon), used by its name']);
+    expect(entry(a, 'content/resources/img/FAVICON.PNG').usage).toBe('protected');
+    expect(entry(a, 'content/resources/favicon-old.png').usage).toBe('unreferenced');
+  });
 });
 
 describe('reference forms and resolution rules', () => {

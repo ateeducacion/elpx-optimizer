@@ -39,6 +39,7 @@ export const COMPONENTS: readonly Component[] = [
   { name: 'Bootstrap Icons', version: '1.13.1', license: 'MIT', file: 'bootstrap-icons-MIT.txt', role: 'lic_ui' },
   { name: 'Atkinson Hyperlegible', version: '5.3.0', license: 'OFL-1.1', file: 'atkinson-hyperlegible-OFL-1.1.txt', role: 'lic_font' },
   { name: 'fflate', version: '0.8.3', license: 'MIT', file: 'fflate-MIT.txt', role: 'lic_zip' },
+  { name: 'PDF.js (pdfjs-dist)', version: '6.3.289', license: 'Apache-2.0', file: 'pdfjs-Apache-2.0.txt', role: 'lic_pdfjs' },
   { name: 'parse5', version: '8.0.1', license: 'MIT', file: 'parse5-MIT.txt', role: 'lic_parse' },
   { name: 'entities', version: '8.1.0', license: 'BSD-2-Clause', file: 'entities-BSD-2-Clause.txt', role: 'lic_parse' },
   { name: '@noble/hashes', version: '2.4.0', license: 'MIT', file: 'noble-hashes-MIT.txt', role: 'lic_hash' },

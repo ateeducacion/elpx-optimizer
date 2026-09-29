@@ -26,6 +26,13 @@ export class ScreenshotError extends Error {
   }
 }
 
+/** Largest file inlined into the drawn page. */
+const INLINE_MAX_BYTES = 4 * 1024 * 1024;
+
+/** Characters XML does not allow (pasted text may carry them); one of them makes the whole SVG unreadable. */
+// eslint-disable-next-line no-control-regex
+const NOT_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
 /** Largest image accepted for upload, as in eXeLearning. */
 export const UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -76,7 +83,11 @@ export function packagePath(from: string, ref: string): string | undefined {
 /** Inlines the files of a package as data: URLs, each read once. */
 class Inliner {
   private readonly cache = new Map<string, Promise<string | undefined>>();
-  constructor(private readonly read: ReadEntry) {}
+  /** `images: false` inlines style sheets only (the fallback when a page with its images cannot be drawn). */
+  constructor(
+    private readonly read: ReadEntry,
+    private readonly images = true,
+  ) {}
 
   dataUrl(path: string): Promise<string | undefined> {
     let result = this.cache.get(path);
@@ -89,8 +100,10 @@ class Inliner {
 
   private async load(path: string): Promise<string | undefined> {
     const mime = MIME[path.slice(path.lastIndexOf('.') + 1).toLowerCase()];
-    const blob = mime ? await this.read(path) : undefined;
-    if (!blob) return undefined;
+    if (!mime || (!this.images && mime.startsWith('image/'))) return undefined;
+    const blob = await this.read(path);
+    // A very large file would make the page too heavy to draw; it is left out.
+    if (!blob || blob.size > INLINE_MAX_BYTES) return undefined;
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -167,23 +180,42 @@ async function toPng(image: CanvasImageSource, width: number, height: number): P
 export async function renderFirstPage(read: ReadEntry): Promise<Blob> {
   const html = await read('index.html');
   if (!html) throw new ScreenshotError('no-page', 'The package has no index.html');
+  const source = await html.text();
+  try {
+    return await drawPage(source, new Inliner(read));
+  } catch (first) {
+    if (!(first instanceof NotDecoded)) throw first;
+    // An image the browser cannot draw inside an SVG spoils the whole page: try again without images.
+    try {
+      return await drawPage(source, new Inliner(read, false));
+    } catch (error) {
+      throw error instanceof ScreenshotError ? error : new ScreenshotError('render', (error as Error).message || 'The page could not be drawn');
+    }
+  }
+}
+
+/** The browser could not decode the drawn page (the only failure worth a second try without images). */
+class NotDecoded extends ScreenshotError {}
+
+/** Draws a page with what the inliner brings in, at 1280×720. */
+async function drawPage(source: string, inliner: Inliner): Promise<Blob> {
   // A parsed document is inert: nothing in it runs or loads.
-  const doc = new DOMParser().parseFromString(await html.text(), 'text/html');
-  await new Inliner(read).page(doc, 'index.html');
+  const doc = new DOMParser().parseFromString(source, 'text/html');
+  await inliner.page(doc, 'index.html');
   const cleanup = doc.createElement('style');
   cleanup.textContent = CLEANUP_CSS;
   doc.head.append(cleanup);
-  const xhtml = new XMLSerializer().serializeToString(doc.documentElement);
+  const xhtml = new XMLSerializer().serializeToString(doc.documentElement).replace(NOT_XML, '');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}"><foreignObject x="0" y="0" width="${WIDTH}" height="${HEIGHT}">${xhtml}</foreignObject></svg>`;
+  const image = new Image(WIDTH, HEIGHT);
+  // A data: URL, not blob:, which Chromium treats as cross-origin for a <foreignObject> and taints the canvas.
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   try {
-    const image = new Image(WIDTH, HEIGHT);
-    // A data: URL, not blob:, which Chromium treats as cross-origin for a <foreignObject> and taints the canvas.
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     await image.decode();
-    return await toPng(image, WIDTH, HEIGHT);
   } catch (error) {
-    throw error instanceof ScreenshotError ? error : new ScreenshotError('render', (error as Error).message || 'The page could not be drawn');
+    throw new NotDecoded('render', (error as Error).message || 'The page could not be drawn');
   }
+  return toPng(image, WIDTH, HEIGHT);
 }
 
 /** Turns an image chosen by the user into a thumbnail: 16:9, at least 600 px wide, scaled to fit 1280×720. */

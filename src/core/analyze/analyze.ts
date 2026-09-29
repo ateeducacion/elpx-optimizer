@@ -48,6 +48,9 @@ export interface AnalyzeOptions {
 }
 
 const RUNTIME_PREFIXES = ['theme/', 'libs/', 'idevices/', 'content/css/', 'content/img/'];
+/** A site icon, found by browsers and themes by its name. */
+const FAVICON = /(?:^|\/)favicon\.(?:ico|png|svg|gif|jpe?g|webp)$/i;
+
 const PACKAGE_FILES = new Set(['content.xml', 'content.dtd', 'screenshot.png', 'search_index.js', MANIFEST_PATH]);
 const RESOLUTION_SENSITIVE_TYPES = new Set(['magnifier', 'hidden-image', 'puzzle', 'map', 'beforeafter', 'identify', 'image-gallery']);
 const DEDUP_KINDS = new Set(['image', 'video', 'audio', 'document', 'font']);
@@ -777,6 +780,10 @@ function buildInventory(
       } else if (weak.has(e.name)) {
         usage = 'uncertain';
         reasons.push(...weak.get(e.name)!);
+      } else if (FAVICON.test(e.name)) {
+        // Sites and themes pick a favicon up by its name, without a reference: never remove it.
+        usage = 'protected';
+        reasons.push('site icon (favicon), used by its name');
       } else {
         usage = 'unreferenced';
         reasons.push('no reference found in content.xml, pages, search index or stylesheets');

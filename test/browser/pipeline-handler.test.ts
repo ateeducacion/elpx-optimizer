@@ -429,7 +429,7 @@ describe('pipeline handler previews', () => {
   it('refuses anything that is not an image, audio or video of the project', async () => {
     const h = harness();
     expectType(await h.analyze(await fixtureFile(efficientUrl, 'e.elpx')), 'analysis');
-    const refused = { type: 'error', code: 'invalid-options', message: 'Only images, audio and video can be previewed' };
+    const refused = { type: 'error', code: 'invalid-options', message: 'Only images, audio, video and PDFs can be previewed' };
     expect(await h.preview('content.xml')).toMatchObject(refused);
     expect(await h.preview('content/resources/no-such.png')).toMatchObject(refused);
     expect(await h.preview('../outside.png')).toMatchObject(refused);

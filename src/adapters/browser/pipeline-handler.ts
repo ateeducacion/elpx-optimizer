@@ -142,8 +142,8 @@ export function createPipelineHandler(deps: PipelineDeps, post: (m: WorkerMessag
           if (!analysis || !archive || !file) throw new ElpxError('internal', 'Analyze a project first');
           const info = analysis.result.entries.find((e) => e.path === message.path);
           const entry = archive.byName.get(message.path);
-          if (!info || !entry || (info.kind !== 'image' && info.kind !== 'video' && info.kind !== 'audio')) {
-            throw new ElpxError('invalid-options', 'Only images, audio and video can be previewed');
+          if (!info || !entry || (info.kind !== 'image' && info.kind !== 'video' && info.kind !== 'audio' && info.format !== 'pdf')) {
+            throw new ElpxError('invalid-options', 'Only images, audio, video and PDFs can be previewed');
           }
           let blob: Blob;
           if (entry.method === 0) {

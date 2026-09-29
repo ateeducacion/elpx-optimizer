@@ -56,12 +56,11 @@ test('CLI and web share plan and rules and give equivalent results', async ({ pa
     // Web run in the browser (ffmpeg.wasm + WASM codecs).
     await page.goto('/');
     await page.setInputFiles('#file-input', COURSE);
-    await expect(page.locator('.inventory')).toBeVisible({ timeout: 180_000 });
-    await page.getByLabel(/Quitar archivos sin ninguna referencia|Remove files with no reference/).check();
-    await page.getByLabel(/Unificar archivos idénticos|Merge identical files/).check();
+    await expect(page.locator('.action-list')).toBeVisible({ timeout: 180_000 });
+    await ui.removeUnused(page).check();
+    await ui.deduplicate(page).check();
     await expect(ui.cleanNames(page)).toBeChecked();
-    await ui.reviewPlan(page).click();
-    await expect(ui.planHeading(page)).toBeVisible();
+    await expect(ui.optimize(page)).toBeEnabled({ timeout: 60_000 });
     await ui.optimize(page).click();
     await expect(page.locator('.result-status')).toBeVisible({ timeout: 280_000 });
     const [reportDl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('download-report').click()]);
