@@ -1,0 +1,118 @@
+name: Release
+
+# On every published GitHub release: the Docker images are pushed to GHCR as
+# `latest` and with the release version, the web app is deployed to GitHub
+# Pages, and the CLI, the Agent Skill and the static web build are attached
+# to the release. Can also be run by hand (images and web only).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: 1.4.0
+  NODE_VERSION: 24
+
+jobs:
+  images:
+    name: Docker image (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - target: web
+            image: elpx-optimizer
+          - target: cli
+            image: elpx-optimizer-cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=eXeLearning project optimizer (${{ matrix.target }})
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+
+  pages:
+    name: Web app on GitHub Pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - run: bun install --frozen-lockfile
+      - id: pages
+        uses: actions/configure-pages@v5
+      # Absolute URLs for the social preview (og:image, twitter:image).
+      - run: bun run build:web
+        env:
+          ELPX_SITE_URL: ${{ steps.pages.outputs.base_url }}/
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: dist/web }
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  assets:
+    name: Release assets
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - run: bun install --frozen-lockfile
+      - run: make build
+      - name: Package
+        run: |
+          (cd dist/cli && npm pack --pack-destination ..)
+          (cd dist/skill && zip -qr ../elpx-optimizer-skill.zip elpx-optimizer)
+          tar -C dist -czf dist/elpx-optimizer-web.tar.gz web
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/elpx-optimizer-cli-*.tgz dist/elpx-optimizer-skill.zip dist/elpx-optimizer-web.tar.gz --clobber

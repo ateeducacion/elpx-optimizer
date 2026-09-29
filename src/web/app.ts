@@ -51,6 +51,7 @@ const VIEW_STEP: Record<View, number> = { start: 1, analyzing: 1, review: 2, pla
 const OP_ORDER: readonly [PlanOperation['op'], IconName][] = [
   ['transcode-video', 'camera-video'],
   ['recompress-image', 'image'],
+  ['transcode-audio', 'music-note-beamed'],
   ['remove-unused', 'trash3'],
   ['deduplicate', 'files'],
   ['move-resource', 'folder-symlink'],
@@ -319,6 +320,7 @@ export class App {
   private renderHelp(): HTMLDialogElement {
     const external = { target: '_blank', rel: 'noopener noreferrer' };
     const cli = 'node dist/cli/elpx-optimizer.mjs';
+    const docker = 'docker run --rm -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli';
     const step = (title: string, code?: string, note?: string): HTMLElement =>
       h(
         'li',
@@ -332,6 +334,19 @@ export class App {
       this.t('helpTitle'),
       h('h3', { className: 'h6 d-flex align-items-center gap-2' }, icon('terminal'), this.t('helpCliTitle')),
       h('p', { className: 'small' }, this.t('helpCliIntro')),
+      h('h4', { className: 'h6 mt-3' }, this.t('helpDockerTitle')),
+      h('p', { className: 'small' }, this.t('helpDocker')),
+      h(
+        'ol',
+        { className: 'help-steps ps-3' },
+        step(this.t('helpStep4'), `${docker} inspect /work/curso.elpx`),
+        step(this.t('helpStep5'), `${docker} optimize /work/curso.elpx --dry-run`),
+        step(this.t('helpStep6'), `${docker} optimize /work/curso.elpx \\\n  --remove-unused safe --deduplicate exact`, this.t('helpStep6Note')),
+      ),
+      h('p', { className: 'small text-body-secondary' }, this.t('helpDockerWindows')),
+      h('p', { className: 'small' }, this.t('helpDockerWeb')),
+      this.codeBlock('docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer'),
+      h('h4', { className: 'h6 mt-4' }, this.t('helpLocalTitle')),
       h(
         'ol',
         { className: 'help-steps ps-3' },
@@ -346,8 +361,6 @@ export class App {
           this.t('helpStep6Note'),
         ),
       ),
-      h('p', { className: 'small' }, this.t('helpDocker')),
-      this.codeBlock('docker build --target cli -t elpx-optimizer-cli .\ndocker run --rm -v "$PWD:/work" elpx-optimizer-cli optimize /work/curso.elpx'),
       h('p', {}, h('a', { ...external, href: CLI_DOCS_URL }, this.t('helpCliDocs'))),
       h('hr', { className: 'my-4' }),
       h('h3', { className: 'h6 d-flex align-items-center gap-2' }, icon('robot'), this.t('helpSkillTitle')),
@@ -764,7 +777,7 @@ export class App {
     };
     const body = h('tbody');
     for (const e of rows) {
-      const optimizable = e.kind === 'image' || e.kind === 'video';
+      const optimizable = e.kind === 'image' || e.kind === 'video' || e.kind === 'audio';
       const box = optimizable
         ? h(
             'div',
@@ -979,6 +992,17 @@ export class App {
     }
     if (e.kind === 'video') return this.t('notProbed');
     if (e.image) return `${e.image.width ?? '?'}×${e.image.height ?? '?'}${e.image.animated ? `, ${this.t('animated')}` : ''}`;
+    if (e.audio) {
+      const a = e.audio;
+      const channels = a.channels === 1 ? this.t('mono') : a.channels === 2 ? this.t('stereo') : a.channels ? `${a.channels} ch` : '';
+      const parts = [
+        a.codec,
+        channels,
+        a.sampleRate ? `${(a.sampleRate / 1000).toLocaleString(this.lang)} kHz` : '',
+        a.bitRate ? `${Math.round(a.bitRate / 1000)} kb/s` : '',
+      ];
+      return `${parts.filter(Boolean).join(' ')}, ${duration(a.duration)}`;
+    }
     return '';
   }
 
@@ -1041,6 +1065,8 @@ export class App {
         h('div', { className: 'mb-2' }, h('label', { className: 'form-label small mb-1', for: 'opt-maxResolution' }, this.t('videoResolution')), res),
         num('crf', 'videoQuality', 16, 35, o.video?.crf),
         num('audioBitrate', 'audioBitrate', 64, 320, o.video?.audioBitrate),
+        check('audio', 'audioEnabled', o.audio?.enabled !== false),
+        num('audioFilesBitrate', 'audioFilesBitrate', 64, 320, o.audio?.bitrate),
         check('images', 'imagesEnabled', o.images?.enabled !== false),
         num('jpegQuality', 'jpegQuality', 30, 100, o.images?.jpegQuality),
         num('webpQuality', 'webpQuality', 30, 100, o.images?.webpQuality),
@@ -1129,11 +1155,15 @@ export class App {
     if (wq !== undefined) images.webpQuality = wq;
     const md = n('maxDimension');
     if (md !== undefined) images.maxDimension = md;
+    const audio: NonNullable<OptionsInput['audio']> = { enabled: on('audio') };
+    const afb = n('audioFilesBitrate');
+    if (afb !== undefined) audio.bitrate = afb;
     this.threading = on('multithread') ? 'auto' : 'single';
     return {
       preset: String(data.get('preset') ?? 'balanced') as OptionsInput['preset'],
       video,
       images,
+      audio,
       removeUnused: on('removeUnused') ? 'safe' : 'off',
       deduplicate: on('deduplicate') ? 'exact' : 'off',
       flatten: on('flatten') ? 'legacy' : 'off',
@@ -1159,6 +1189,8 @@ export class App {
       case 'transcode-video':
       case 'recompress-image':
         return `${short(op.path)} (${bytes(op.size, this.lang)}): ${op.conversions.join('; ')}`;
+      case 'transcode-audio':
+        return `${short(op.path)}${op.to ? ` → ${short(op.to)}` : ''} (${bytes(op.size, this.lang)}): ${op.conversions.join('; ')}`;
       case 'remove-unused':
         return `${short(op.path)} (${bytes(op.size, this.lang)})`;
       case 'deduplicate':
@@ -1177,7 +1209,8 @@ export class App {
     const ops = plan.operations;
     const has = (kind: PlanOperation['op']): boolean => ops.some((o) => o.op === kind);
     const notes: string[] = [];
-    if (ops.some((o) => o.op === 'transcode-video' || (o.op === 'recompress-image' && o.lossy))) notes.push(this.t('risk_lossy'));
+    if (ops.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || (o.op === 'recompress-image' && o.lossy))) notes.push(this.t('risk_lossy'));
+    if (ops.some((o) => o.op === 'transcode-audio' && o.to !== undefined)) notes.push(this.t('risk_audioRename'));
     if (ops.some((o) => (o.op === 'transcode-video' && o.job.scale) || (o.op === 'recompress-image' && o.job.resize))) notes.push(this.t('risk_downscale'));
     if (has('remove-unused')) notes.push(this.t('risk_unused'));
     if (has('deduplicate')) notes.push(this.t('risk_dedup'));
