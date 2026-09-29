@@ -98,5 +98,5 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 - No local installation, or Windows: the published Docker image includes everything
   (`docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx`;
   in PowerShell `-v "${PWD}:/work"`). It is used directly, not through `scripts/run.mjs`.
-- The CLI package (`elpx-optimizer-cli-X.Y.Z.tgz`) and this skill (`elpx-optimizer-skill.zip`) are
+- The CLI package (`elpx-optimizer-X.Y.Z.tgz`) and this skill (`elpx-optimizer-skill.zip`) are
   attached to every release at https://github.com/ateeducacion/elpx-optimizer/releases.

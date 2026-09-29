@@ -4,7 +4,9 @@ name: Release
 # `latest` and with the release version, the web app is deployed to GitHub
 # Pages, and the CLI, the Agent Skill and the static web build are attached
 # to the release. Each image architecture is built on a native runner (no
-# emulation) and the two are joined into one multi-platform image.
+# emulation) and the two are joined into one multi-platform image. The CLI is
+# published on npm when the repository variable NPM_PUBLISH is "true"
+# (docs/npm.md).
 #
 # Run by hand with an existing release tag to publish that release's images
 # and web app again with this workflow (a re-run would use the workflow of
@@ -193,4 +195,25 @@ jobs:
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/elpx-optimizer-cli-*.tgz dist/elpx-optimizer-skill.zip dist/elpx-optimizer-web.tar.gz --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/elpx-optimizer-[0-9]*.tgz dist/elpx-optimizer-skill.zip dist/elpx-optimizer-web.tar.gz --clobber
+
+  npm:
+    name: npm package
+    # Off until the package exists on npm with this workflow as its trusted publisher (docs/npm.md).
+    if: github.event_name == 'release' && vars.NPM_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance, no token stored
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - uses: actions/setup-node@v7
+        with: { node-version: '${{ env.NODE_VERSION }}', registry-url: 'https://registry.npmjs.org' }
+      - run: bun install --frozen-lockfile
+      - run: bun run build:cli
+      - name: The package version is the release tag
+        run: test "v$(node -p "require('./dist/cli/package.json').version")" = "${{ github.event.release.tag_name }}"
+      - run: npm publish --provenance --access public
+        working-directory: dist/cli

@@ -49,8 +49,8 @@ Tres niveles: conservador, equilibrado (el predeterminado) y máximo. Qué cambi
 [Web](docs/web.md) · [CLI](docs/cli.md) · [Agent Skill](docs/skill.md) ·
 [Niveles y calidad](docs/profiles.md) · [Arquitectura](docs/architecture.md) ·
 [Diagnósticos](docs/diagnostics.md) · [Decisiones de diseño](docs/decisions.md) ·
-[Pruebas](docs/testing.md) · [Revisión del formato de eXeLearning](docs/upstream-review.md)
-(en inglés)
+[Pruebas](docs/testing.md) · [Publicación en npm](docs/npm.md) ·
+[Revisión del formato de eXeLearning](docs/upstream-review.md) (en inglés)
 
 Desarrollo: `bun install` y `make help`; ver [CONTRIBUTING.md](CONTRIBUTING.md) y
 [AGENTS.md](AGENTS.md). Seguridad: [SECURITY.md](SECURITY.md).
