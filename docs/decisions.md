@@ -354,9 +354,9 @@ the number.
 ## D21. Docker images built on native runners, not under emulation
 
 The release workflow first built both architectures of each image on one amd64 runner, with arm64
-under QEMU. The web image took 2.5 minutes, but the CLI image's last stage (`bun install
---production`, which installs sharp and qpdf-wasm for the target platform) hung under emulation
-and was cancelled after more than two hours. Each architecture is now built on its own native
+under QEMU. For v0.1.0 the web image took 2.5 minutes, but the CLI image hung under emulation and
+was cancelled after more than two hours; for v0.1.1 the same build took 3 minutes. An intermittent
+hang cannot be ruled out under emulation, and a release should not depend on luck. Each architecture is now built on its own native
 runner (`ubuntu-latest` for amd64, `ubuntu-24.04-arm` for arm64, free for public repositories) and
 pushed by digest; a second job joins the two digests into one multi-platform image with the
 `latest`, `X.Y.Z` and `X.Y` tags (Docker's documented pattern for distributed multi-platform
