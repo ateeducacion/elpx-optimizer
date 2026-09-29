@@ -132,6 +132,11 @@ class Inliner {
   /** Inlines style sheets, images and style attributes of a page read from `from`. */
   async page(doc: Document, from: string): Promise<void> {
     for (const el of doc.querySelectorAll('script, noscript, base, meta, iframe, object, embed')) el.remove();
+    // A comment holding "--" is valid HTML but not XML, and would make the whole SVG unreadable.
+    const comments = doc.createTreeWalker(doc, NodeFilter.SHOW_COMMENT);
+    const drop: Node[] = [];
+    while (comments.nextNode()) drop.push(comments.currentNode);
+    for (const c of drop) c.parentNode?.removeChild(c);
     const jobs: Promise<void>[] = [];
     for (const link of doc.querySelectorAll('link')) {
       const href = link.getAttribute('href');
@@ -157,6 +162,13 @@ class Inliner {
       img.removeAttribute('loading');
       const src = img.getAttribute('src');
       if (src !== null) jobs.push(this.pathData(from, src).then((data) => (data ? img.setAttribute('src', data) : img.removeAttribute('src'))));
+    }
+    // Images of inline SVG, such as the slide iDevice's.
+    for (const image of doc.querySelectorAll('svg image')) {
+      for (const name of ['href', 'xlink:href']) {
+        const ref = image.getAttribute(name);
+        if (ref !== null) jobs.push(this.pathData(from, ref).then((data) => (data ? image.setAttribute(name, data) : image.removeAttribute(name))));
+      }
     }
     await Promise.all(jobs);
   }
