@@ -685,6 +685,13 @@ function buildInventory(
         if (!f.isDirectory && entryRole(f.name) === 'user-asset' && names.has(basename(f.name)))
           addWeak(f.name, 'same file name as a missing or ambiguous reference');
       }
+    } else if (r.status === 'missing' && r.kind === 'dynamic') {
+      // A file name in code that does not resolve as a path may still be combined with a folder at run time.
+      const names = new Set((r.candidates ?? []).map((c) => basename(c)));
+      for (const f of archive.entries) {
+        if (!f.isDirectory && entryRole(f.name) === 'user-asset' && names.has(basename(f.name)))
+          addWeak(f.name, 'file name mentioned in script or obfuscated data');
+      }
     } else if (r.status === 'unmapped') {
       const tail =
         r.value

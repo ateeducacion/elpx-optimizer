@@ -121,6 +121,8 @@ const PARAM_URL_NAMES = new Set(['movie', 'src', 'url', 'filename', 'file', 'vid
 /** Upstream "unresolved reference" detector (unresolvedAssetRefs.ts:29). */
 const CONTEXT_PATH_RE = /\{\{context_path\}\}\/[^"'<>\s\\]+/g;
 const PATH_LIKE = /^(?:\.\.?\/)*(?:content\/resources|resources|custom|files\/tmp|content)\/[^\s<>"]+$/;
+/** A file name in code may contain spaces ("Sonido Raro.mp3"): same shapes, spaces allowed, one line, an extension at the end. */
+const PATH_LIKE_SPACED = /^(?:\.\.?\/)*(?:content\/resources|resources|custom|files\/tmp|content)\/[^\t\n\r<>"]+\.[A-Za-z0-9]{1,8}$/;
 const MEDIA_EXT =
   /\.(?:jpe?g|png|gif|webp|svg|bmp|ico|avif|mp4|m4v|mov|webm|ogv|ogg|oga|mp3|m4a|wav|flac|aiff?|opus|vtt|srt|pdf|zip|elpx?|docx?|xlsx?|pptx?|odt|ods|odp|txt|html?|swf|woff2?|ttf|otf|css|js|json|xml|gif)$/i;
 
@@ -186,7 +188,9 @@ export function scanCode(text: string, ctx: ScanContext): void {
   for (const m of text.matchAll(/(["'`])((?:(?!\1)[^\\\n]|\\.){1,512}?)\1/g)) {
     const inner = m[2]!;
     if (inner.includes(CONTEXT_PATH)) continue;
-    if (PATH_LIKE.test(inner) || (MEDIA_EXT.test(inner) && !/\s/.test(inner) && inner.length < 300)) {
+    // Spaces are allowed too: a false positive only protects a file (dynamic references make it uncertain).
+    const media = MEDIA_EXT.test(inner) && !/[\t\n\r]/.test(inner) && inner.length < 300;
+    if (PATH_LIKE.test(inner) || PATH_LIKE_SPACED.test(inner) || media) {
       emit(dyn, text, m.index + 1, m.index + 1 + inner.length, 'dynamic');
     }
   }
