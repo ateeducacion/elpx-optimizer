@@ -11,6 +11,24 @@ import { defineConfig, type Plugin } from 'vite';
 export const CSP =
   "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
+/**
+ * Where the site is published (e.g. https://example.org/elpx/), from
+ * ELPX_SITE_URL at build time. Social networks need absolute image URLs in
+ * og:image and twitter:image; without it they are relative to the page.
+ */
+function siteUrlPlugin(): Plugin {
+  const raw = process.env['ELPX_SITE_URL']?.trim() ?? '';
+  const site = raw === '' ? './' : raw.endsWith('/') ? raw : `${raw}/`;
+  return {
+    name: 'elpx-site-url',
+    transformIndexHtml(html) {
+      const withUrl =
+        raw === '' ? html : html.replace('<meta property="og:type"', `<meta property="og:url" content="${site}" />\n    <meta property="og:type"`);
+      return withUrl.replaceAll('__ELPX_SITE_URL__', site);
+    },
+  };
+}
+
 function cspPlugin(): Plugin {
   return {
     name: 'elpx-csp',
@@ -60,8 +78,8 @@ function licensesPlugin(): Plugin {
 export default defineConfig({
   root: 'src/web',
   base: './',
-  publicDir: false,
-  plugins: [cspPlugin(), licensesPlugin()],
+  publicDir: 'public',
+  plugins: [cspPlugin(), siteUrlPlugin(), licensesPlugin()],
   build: {
     outDir: '../../dist/web',
     emptyOutDir: true,
