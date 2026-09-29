@@ -1731,7 +1731,7 @@ describe('side panels', () => {
     expect(codes).toContain('docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer');
     expect(codes).toContain('node dist/cli/elpx-optimizer.mjs doctor');
     expect(codes.some((c) => c.includes('--flatten legacy --missing-references remove'))).toBe(true);
-    expect(dialog.textContent).toContain('On Windows (PowerShell), use -v "${PWD}:/work".');
+    expect(dialog.textContent).toContain('On Windows (PowerShell), drop --user and use -v "${PWD}:/work".');
     expectExternal([...dialog.querySelectorAll<HTMLAnchorElement>('a')]);
     expect([...dialog.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
       'https://github.com/ateeducacion/elpx-optimizer/blob/main/docs/cli.md',
