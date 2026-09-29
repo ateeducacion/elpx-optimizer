@@ -20,6 +20,9 @@ import {
 import { CODEC_VERSIONS, verifyWithCodecs, type ImageCodecs } from './image-codecs.js';
 import { ImagePool, imageWorkerCount, type ImageWorkerLike } from './image-pool.js';
 
+/** FFmpeg runs per instance before a fresh one is loaded (the core is cached, so a reload is quick). */
+export const JOBS_PER_INSTANCE = 60;
+
 /** The subset of @ffmpeg/ffmpeg's FFmpeg class the engine uses (injectable for tests). */
 export interface FfmpegLike {
   load(config: { coreURL: string; wasmURL: string; workerURL?: string; classWorkerURL?: string }): Promise<unknown>;
@@ -69,6 +72,7 @@ export class BrowserMediaEngine implements MediaEngine {
   private readonly log: string[] = [];
   private progressHandler: ((e: { progress: number; time: number }) => void) | undefined;
   private jobCounter = 0;
+  private jobsSinceLoad = 0;
   private readonly threading: ThreadingDecision;
   private readonly codecs: ImageCodecs | undefined;
   private pool: ImagePool | undefined;
@@ -155,6 +159,7 @@ export class BrowserMediaEngine implements MediaEngine {
   private reset(): void {
     this.ff?.terminate();
     this.ff = undefined;
+    this.jobsSinceLoad = 0;
   }
 
   /**
@@ -162,12 +167,16 @@ export class BrowserMediaEngine implements MediaEngine {
    * both terminate the FFmpeg worker, so the codec actually stops.
    */
   private run<T>(ctx: JobContext, fn: (ff: FfmpegLike, id: number) => Promise<T>): Promise<T> {
-    const task = async (): Promise<T> => {
+    const attempt = async (retry: boolean): Promise<T> => {
       throwIfCancelled(ctx.signal);
+      // ffmpeg.wasm does not give back all memory between runs: a fresh instance every few jobs
+      // keeps long sequences (hundreds of small recordings) from running out of memory.
+      if (this.ff && this.jobsSinceLoad >= JOBS_PER_INSTANCE) this.reset();
       const ff = await this.ensureLoaded();
       // Cancelled while loading: keep the loaded core for the next job.
       throwIfCancelled(ctx.signal);
       const id = ++this.jobCounter;
+      this.jobsSinceLoad++;
       let stopped: 'cancel' | 'timeout' | undefined;
       const stop = (why: 'cancel' | 'timeout'): void => {
         if (stopped) return;
@@ -186,7 +195,9 @@ export class BrowserMediaEngine implements MediaEngine {
         // ffmpeg.wasm logs a bare "Aborted()" after any failure; only memory aborts mean OOM.
         if (/memory|OOM|out of bounds/i.test(text)) {
           this.reset();
-          throw new ElpxError('media-failed', 'The browser ran out of memory for this video; the original is kept (the CLI can process larger files)');
+          // Once more on a fresh instance: the memory may have been exhausted by earlier jobs.
+          if (retry) return attempt(false);
+          throw new ElpxError('media-failed', 'The browser ran out of memory for this file; the original is kept (the CLI can process larger files)');
         }
         throw error instanceof ElpxError ? error : new ElpxError('media-failed', errorMessage(error));
       } finally {
@@ -195,6 +206,7 @@ export class BrowserMediaEngine implements MediaEngine {
         this.progressHandler = undefined;
       }
     };
+    const task = (): Promise<T> => attempt(true);
     const result = this.queue.then(task, task);
     this.queue = result.catch(() => undefined);
     return result;
