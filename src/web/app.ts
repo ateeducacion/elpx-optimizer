@@ -342,7 +342,7 @@ export class App {
   /** How to use the command-line version and the Agent Skill. */
   private renderHelp(): HTMLDialogElement {
     const external = { target: '_blank', rel: 'noopener noreferrer' };
-    const cli = 'node dist/cli/elpx-optimizer.mjs';
+    const cli = 'npx elpx-optimizer';
     const docker = 'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer';
     const step = (title: string, code?: string, note?: string): HTMLElement =>
       h(
@@ -367,12 +367,12 @@ export class App {
         step(this.t('helpStep6'), `${docker} optimize /work/curso.elpx \\\n  --remove-unused safe --deduplicate exact`, this.t('helpStep6Note')),
       ),
       h('p', { className: 'small text-body-secondary' }, this.t('helpDockerWindows')),
-      h('h4', { className: 'h6 mt-4' }, this.t('helpLocalTitle')),
+      h('h4', { className: 'h6 mt-4' }, this.t('helpNpxTitle')),
+      h('p', { className: 'small' }, this.t('helpNpx')),
       h(
         'ol',
         { className: 'help-steps ps-3' },
         step(this.t('helpStep1'), 'sudo apt install ffmpeg      # Ubuntu\nbrew install ffmpeg          # macOS', this.t('helpStep1Note')),
-        step(this.t('helpStep2'), 'git clone https://github.com/ateeducacion/elpx-optimizer.git\ncd elpx-optimizer\nbun install && bun run build:cli'),
         step(this.t('helpStep3'), `${cli} doctor`),
         step(this.t('helpStep4'), `${cli} inspect curso.elpx`),
         step(this.t('helpStep5'), `${cli} optimize curso.elpx --dry-run`),
