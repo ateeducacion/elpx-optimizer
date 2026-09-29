@@ -17,6 +17,8 @@ export type ClientMessage =
     }
   | { readonly type: 'plan'; readonly id: number; readonly options: OptionsInput }
   | { readonly type: 'optimize'; readonly id: number; readonly planHash: string }
+  /** Extracts one image, audio or video resource of the analyzed project for a local preview. */
+  | { readonly type: 'preview'; readonly id: number; readonly path: string }
   | { readonly type: 'cancel' }
   | { readonly type: 'playback-result'; readonly requestId: number; readonly result: 'playable' | 'not-playable' | 'unsupported' };
 
@@ -34,6 +36,7 @@ export type WorkerMessage =
   | { readonly type: 'engine'; readonly status: EngineStatus }
   | { readonly type: 'analysis'; readonly id: number; readonly result: AnalysisResult }
   | { readonly type: 'plan'; readonly id: number; readonly plan: OptimizationPlan }
+  | { readonly type: 'preview'; readonly id: number; readonly blob: Blob }
   | { readonly type: 'result'; readonly id: number; readonly report: OptimizationReport; readonly output?: Blob; readonly fileName: string }
   | { readonly type: 'error'; readonly id: number; readonly code: string; readonly message: string }
   | { readonly type: 'cancelled'; readonly id: number }

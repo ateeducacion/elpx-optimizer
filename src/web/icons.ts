@@ -11,6 +11,15 @@ import checkCircleFill from 'bootstrap-icons/icons/check-circle-fill.svg?raw';
 import circle from 'bootstrap-icons/icons/circle.svg?raw';
 import download from 'bootstrap-icons/icons/download.svg?raw';
 import eraser from 'bootstrap-icons/icons/eraser.svg?raw';
+import eye from 'bootstrap-icons/icons/eye.svg?raw';
+import pauseFill from 'bootstrap-icons/icons/pause-fill.svg?raw';
+import playFill from 'bootstrap-icons/icons/play-fill.svg?raw';
+import playCircle from 'bootstrap-icons/icons/play-circle.svg?raw';
+import questionCircle from 'bootstrap-icons/icons/question-circle.svg?raw';
+import robot from 'bootstrap-icons/icons/robot.svg?raw';
+import terminal from 'bootstrap-icons/icons/terminal.svg?raw';
+import clipboard from 'bootstrap-icons/icons/clipboard.svg?raw';
+import clipboardCheck from 'bootstrap-icons/icons/clipboard-check.svg?raw';
 import exclamationTriangleFill from 'bootstrap-icons/icons/exclamation-triangle-fill.svg?raw';
 import fileEarmark from 'bootstrap-icons/icons/file-earmark.svg?raw';
 import fileEarmarkArrowUp from 'bootstrap-icons/icons/file-earmark-arrow-up.svg?raw';
@@ -38,6 +47,15 @@ const SOURCES = {
   circle,
   download,
   eraser,
+  eye,
+  'pause-fill': pauseFill,
+  'play-fill': playFill,
+  'play-circle': playCircle,
+  'question-circle': questionCircle,
+  robot,
+  terminal,
+  clipboard,
+  'clipboard-check': clipboardCheck,
   'exclamation-triangle-fill': exclamationTriangleFill,
   'file-earmark': fileEarmark,
   'file-earmark-arrow-up': fileEarmarkArrowUp,

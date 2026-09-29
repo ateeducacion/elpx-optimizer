@@ -18,6 +18,8 @@ import { COMPONENTS } from './licenses.js';
 export interface PipelineApi {
   analyze(file: File, onProgress?: (e: ProgressEvent) => void, threading?: ThreadingPreference): Promise<AnalysisResult>;
   plan(options: OptionsInput): Promise<OptimizationPlan>;
+  /** Returns an image, audio or video of the analyzed project for a local preview (optional). */
+  preview?(path: string): Promise<Blob>;
   optimize(planHash: string, onProgress?: (e: ProgressEvent) => void): Promise<OptimizeResult>;
   cancel(): Promise<void>;
   onEngineStatus: ((s: EngineStatus) => void) | undefined;
@@ -36,6 +38,9 @@ type Child = Node | string | false | undefined;
 
 const REPO_URL = 'https://github.com/ateeducacion/elpx-optimizer';
 const ATE_URL = 'https://www3.gobiernodecanarias.org/medusa/ecoescuela/ate/';
+const SKILL_URL = `${REPO_URL}/blob/main/skills/elpx-optimizer/SKILL.md`;
+const CLI_DOCS_URL = `${REPO_URL}/blob/main/docs/cli.md`;
+const SKILL_DOCS_URL = `${REPO_URL}/blob/main/docs/skill.md`;
 
 const STAGES = ['engine-load', 'extract', 'transcode', 'encode-image', 'validate', 'package', 'verify'] as const;
 
@@ -103,6 +108,9 @@ export class App {
   private readonly engineLine: HTMLElement;
   private readonly status: HTMLElement;
   private licensesPanel: HTMLDialogElement | undefined;
+  private helpPanel: HTMLDialogElement | undefined;
+  /** The audio being previewed from the resources table, if any. */
+  private player: { readonly path: string; readonly audio: HTMLAudioElement; readonly url: string } | undefined;
 
   constructor(
     private readonly root: HTMLElement,
@@ -144,21 +152,52 @@ export class App {
           h('h1', { className: 'brand-title mb-0' }, this.t('title')),
         ),
         h(
-          'button',
-          {
-            type: 'button',
-            className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1',
-            'aria-label': this.t('languageLabel'),
-            onclick: () => this.switchLanguage(),
-          },
-          icon('translate'),
-          this.t('language'),
+          'div',
+          { className: 'header-actions d-flex align-items-center gap-2' },
+          h(
+            'a',
+            {
+              href: SKILL_URL,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1',
+              title: this.t('skillLink'),
+              'aria-label': this.t('skillLink'),
+            },
+            icon('robot'),
+            h('span', { className: 'd-none d-md-inline' }, 'SKILL.md'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 help-button',
+              'aria-haspopup': 'dialog',
+              title: this.t('helpTitle'),
+              onclick: () => this.helpPanel?.showModal(),
+            },
+            icon('terminal'),
+            h('span', { className: 'd-none d-md-inline' }, this.t('helpButton')),
+            h('span', { className: 'visually-hidden d-md-none' }, this.t('helpTitle')),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1',
+              'aria-label': this.t('languageLabel'),
+              onclick: () => this.switchLanguage(),
+            },
+            icon('translate'),
+            this.t('language'),
+          ),
         ),
       ),
     );
     const body = h('div', { className: 'container-lg app-body' }, this.stepper, this.engineLine, this.main, this.status);
     this.licensesPanel = this.renderLicenses();
-    replace(this.root, header, body, this.renderFooter(), this.licensesPanel);
+    this.helpPanel = this.renderHelp();
+    replace(this.root, header, body, this.renderFooter(), this.licensesPanel, this.helpPanel);
     this.renderEngine();
     this.render();
   }
@@ -226,48 +265,124 @@ export class App {
         ),
       );
     }
-    const close = (): void => dialog.close();
+    return this.sidePanel(
+      'licenses',
+      this.t('licensesTitle'),
+      h('p', {}, this.t('licensesIntro')),
+      h(
+        'div',
+        { className: 'd-flex flex-wrap gap-2 mb-4' },
+        h('a', { ...external, href: 'licenses/elpx-optimizer-AGPL-3.0.txt', className: 'btn btn-sm btn-outline-primary' }, this.t('licensesApp')),
+        h(
+          'a',
+          { ...external, href: REPO_URL, className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1' },
+          icon('github'),
+          this.t('sourceCode'),
+        ),
+      ),
+      h('h3', { className: 'h6' }, this.t('licensesComponents')),
+      list,
+      h('div', { className: 'alert alert-secondary small mt-4', role: 'note' }, this.t('licensesGpl')),
+      h('p', { className: 'small' }, h('a', { ...external, href: 'licenses/THIRD-PARTY-NOTICES.txt' }, this.t('licensesAll'))),
+      h(
+        'p',
+        { className: 'small text-body-secondary d-flex align-items-center gap-2 mb-0' },
+        h('img', { src: ateLogo, alt: '', className: 'ate-logo', width: 28, height: 29 }),
+        this.t('licensesAte'),
+      ),
+    );
+  }
+
+  /** A panel that slides in from the side (a modal dialog: Escape and the backdrop close it). */
+  private sidePanel(id: string, title: string, ...children: Child[]): HTMLDialogElement {
     const dialog = h(
       'dialog',
-      { className: 'licenses-panel', 'aria-labelledby': 'licenses-title' },
+      { className: `side-panel ${id}-panel`, 'aria-labelledby': `${id}-title` },
       h(
         'div',
-        { className: 'licenses-header d-flex align-items-center justify-content-between border-bottom' },
-        h('h2', { id: 'licenses-title', className: 'h5 mb-0', tabindex: -1, autofocus: true }, this.t('licensesTitle')),
-        h('button', { type: 'button', className: 'btn-close', 'aria-label': this.t('close'), onclick: close }),
+        { className: 'side-panel-header d-flex align-items-center justify-content-between border-bottom' },
+        h('h2', { id: `${id}-title`, className: 'h5 mb-0', tabindex: -1, autofocus: true }, title),
+        h('button', { type: 'button', className: 'btn-close', 'aria-label': this.t('close'), onclick: () => dialog.close() }),
       ),
-      h(
-        'div',
-        { className: 'licenses-body' },
-        h('p', {}, this.t('licensesIntro')),
-        h(
-          'div',
-          { className: 'd-flex flex-wrap gap-2 mb-4' },
-          h('a', { ...external, href: 'licenses/elpx-optimizer-AGPL-3.0.txt', className: 'btn btn-sm btn-outline-primary' }, this.t('licensesApp')),
-          h(
-            'a',
-            { ...external, href: REPO_URL, className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1' },
-            icon('github'),
-            this.t('sourceCode'),
-          ),
-        ),
-        h('h3', { className: 'h6' }, this.t('licensesComponents')),
-        list,
-        h('div', { className: 'alert alert-secondary small mt-4', role: 'note' }, this.t('licensesGpl')),
-        h('p', { className: 'small' }, h('a', { ...external, href: 'licenses/THIRD-PARTY-NOTICES.txt' }, this.t('licensesAll'))),
-        h(
-          'p',
-          { className: 'small text-body-secondary d-flex align-items-center gap-2 mb-0' },
-          h('img', { src: ateLogo, alt: '', className: 'ate-logo', width: 28, height: 29 }),
-          this.t('licensesAte'),
-        ),
-      ),
+      h('div', { className: 'side-panel-body' }, ...children),
     );
     // A click on the backdrop reaches the dialog itself: close, as Bootstrap's offcanvas does.
     dialog.addEventListener('click', (e) => {
-      if (e.target === dialog) close();
+      if (e.target === dialog) dialog.close();
     });
     return dialog;
+  }
+
+  /** How to use the command-line version and the Agent Skill. */
+  private renderHelp(): HTMLDialogElement {
+    const external = { target: '_blank', rel: 'noopener noreferrer' };
+    const cli = 'node dist/cli/elpx-optimizer.mjs';
+    const step = (title: string, code?: string, note?: string): HTMLElement =>
+      h(
+        'li',
+        { className: 'mb-3' },
+        h('span', { className: 'fw-bold d-block mb-1' }, title),
+        code ? this.codeBlock(code) : false,
+        note ? h('span', { className: 'small text-body-secondary' }, note) : false,
+      );
+    return this.sidePanel(
+      'help',
+      this.t('helpTitle'),
+      h('h3', { className: 'h6 d-flex align-items-center gap-2' }, icon('terminal'), this.t('helpCliTitle')),
+      h('p', { className: 'small' }, this.t('helpCliIntro')),
+      h(
+        'ol',
+        { className: 'help-steps ps-3' },
+        step(this.t('helpStep1'), 'sudo apt install ffmpeg      # Ubuntu\nbrew install ffmpeg          # macOS', this.t('helpStep1Note')),
+        step(this.t('helpStep2'), 'git clone https://github.com/ateeducacion/elpx-optimizer.git\ncd elpx-optimizer\nbun install && bun run build:cli'),
+        step(this.t('helpStep3'), `${cli} doctor`),
+        step(this.t('helpStep4'), `${cli} inspect curso.elpx`),
+        step(this.t('helpStep5'), `${cli} optimize curso.elpx --dry-run`),
+        step(
+          this.t('helpStep6'),
+          `${cli} optimize curso.elpx --preset balanced \\\n  --remove-unused safe --deduplicate exact \\\n  --flatten legacy --missing-references remove`,
+          this.t('helpStep6Note'),
+        ),
+      ),
+      h('p', { className: 'small' }, this.t('helpDocker')),
+      this.codeBlock('docker build --target cli -t elpx-optimizer-cli .\ndocker run --rm -v "$PWD:/work" elpx-optimizer-cli optimize /work/curso.elpx'),
+      h('p', {}, h('a', { ...external, href: CLI_DOCS_URL }, this.t('helpCliDocs'))),
+      h('hr', { className: 'my-4' }),
+      h('h3', { className: 'h6 d-flex align-items-center gap-2' }, icon('robot'), this.t('helpSkillTitle')),
+      h('p', { className: 'small' }, this.t('helpSkillIntro')),
+      this.codeBlock('make build-skill\ncp -r dist/skill/elpx-optimizer ~/.claude/skills/'),
+      h('p', { className: 'small text-body-secondary' }, this.t('helpSkillNote')),
+      h(
+        'div',
+        { className: 'd-flex flex-wrap gap-2' },
+        h('a', { ...external, href: SKILL_URL, className: 'btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1' }, icon('robot'), 'SKILL.md'),
+        h('a', { ...external, href: SKILL_DOCS_URL, className: 'btn btn-sm btn-outline-secondary' }, this.t('helpSkillDocs')),
+      ),
+    );
+  }
+
+  /** A command block with a copy button. */
+  private codeBlock(code: string): HTMLElement {
+    const copy = h(
+      'button',
+      {
+        type: 'button',
+        className: 'btn btn-sm btn-light copy-button',
+        'aria-label': this.t('copy'),
+        title: this.t('copy'),
+        onclick: () => {
+          void navigator.clipboard?.writeText(code).then(
+            () => {
+              replace(copy, icon('clipboard-check'));
+              this.announce(this.t('copied'));
+            },
+            () => undefined,
+          );
+        },
+      },
+      icon('clipboard'),
+    );
+    return h('div', { className: 'code-block' }, h('pre', { className: 'mb-0' }, h('code', {}, code)), copy);
   }
 
   private switchLanguage(): void {
@@ -315,6 +430,7 @@ export class App {
   }
 
   private render(): void {
+    if (this.view !== 'review') this.stopAudio();
     this.renderStepper();
     switch (this.view) {
       case 'start':
@@ -665,6 +781,7 @@ export class App {
           )
         : '';
       const kindIcon: IconName = e.kind === 'video' ? 'camera-video' : e.kind === 'image' ? 'image' : e.kind === 'audio' ? 'music-note-beamed' : 'file-earmark';
+      const lead = this.pipeline.preview && (e.kind === 'image' || e.kind === 'video' || e.kind === 'audio') ? this.previewButton(e) : undefined;
       body.append(
         h(
           'tr',
@@ -675,7 +792,7 @@ export class App {
             h(
               'span',
               { className: 'd-flex gap-2 align-items-baseline' },
-              h('span', { className: 'kind-icon text-body-secondary' }, icon(kindIcon)),
+              lead ?? h('span', { className: 'kind-icon text-body-secondary' }, icon(kindIcon)),
               h('span', {}, short(e.path)),
             ),
           ),
@@ -718,6 +835,113 @@ export class App {
       ),
       h('div', { className: 'table-wrap table-responsive', tabindex: 0, role: 'region', 'aria-label': this.t('resources') }, table),
     );
+  }
+
+  /** Play/pause (audio) or open-in-a-window (image, video) button for a resource. */
+  private previewButton(e: InventoryEntry): HTMLButtonElement {
+    const audio = e.kind === 'audio';
+    const playing = audio && this.player?.path === e.path && !this.player.audio.paused;
+    const label = this.t(audio ? (playing ? 'pauseAudio' : 'playAudio') : e.kind === 'video' ? 'playVideo' : 'viewImage', { name: short(e.path) });
+    const button = h(
+      'button',
+      {
+        type: 'button',
+        className: 'preview-button btn btn-sm btn-light rounded-circle',
+        'aria-label': label,
+        title: label,
+        'data-path': e.path,
+        'aria-pressed': audio ? String(playing) : undefined,
+        onclick: () => void (audio ? this.toggleAudio(e, button) : this.openPreview(e, button)),
+      },
+      icon(audio ? (playing ? 'pause-fill' : 'play-fill') : e.kind === 'video' ? 'play-circle' : 'eye'),
+    );
+    return button;
+  }
+
+  /** Fetches a resource for preview, showing a spinner on the button meanwhile. */
+  private async fetchPreview(e: InventoryEntry, button: HTMLButtonElement): Promise<string | undefined> {
+    const content = [...button.childNodes];
+    button.disabled = true;
+    replace(button, h('span', { className: 'spinner-border spinner-border-sm', 'aria-hidden': 'true' }));
+    try {
+      return this.urls.createObjectURL(await this.pipeline.preview!(e.path));
+    } catch (error) {
+      this.announce(this.t('previewFailed', { name: short(e.path), message: (error as Error).message }));
+      return undefined;
+    } finally {
+      button.disabled = false;
+      replace(button, ...content);
+    }
+  }
+
+  private async toggleAudio(e: InventoryEntry, button: HTMLButtonElement): Promise<void> {
+    if (this.player?.path === e.path) {
+      if (this.player.audio.paused) await this.player.audio.play().catch(() => undefined);
+      else this.player.audio.pause();
+      return;
+    }
+    this.stopAudio();
+    const url = await this.fetchPreview(e, button);
+    if (!url) return;
+    const audio = new Audio(url);
+    this.player = { path: e.path, audio, url };
+    const refresh = (): void => {
+      const current = this.main.querySelector<HTMLButtonElement>(`.preview-button[data-path="${CSS.escape(e.path)}"]`);
+      current?.replaceWith(this.previewButton(e));
+    };
+    audio.addEventListener('play', refresh);
+    audio.addEventListener('pause', refresh);
+    audio.addEventListener('ended', refresh);
+    await audio.play().catch(() => this.announce(this.t('previewFailed', { name: short(e.path), message: '' })));
+  }
+
+  /** Stops and releases the audio preview. */
+  private stopAudio(): void {
+    if (!this.player) return;
+    const { audio, url } = this.player;
+    this.player = undefined;
+    audio.pause();
+    audio.removeAttribute('src');
+    this.urls.revokeObjectURL(url);
+  }
+
+  /** Shows an image or plays a video in a modal window. */
+  private async openPreview(e: InventoryEntry, button: HTMLButtonElement): Promise<void> {
+    this.stopAudio();
+    const url = await this.fetchPreview(e, button);
+    if (!url) return;
+    const media =
+      e.kind === 'video'
+        ? h('video', { src: url, controls: true, autoplay: true, playsinline: true, className: 'preview-media' })
+        : h('img', { src: url, alt: short(e.path), className: 'preview-media preview-image' });
+    const size = e.image?.width ? `${e.image.width}×${e.image.height ?? '?'} · ` : e.video?.width ? `${e.video.width}×${e.video.height ?? '?'} · ` : '';
+    const dialog = h(
+      'dialog',
+      { className: 'preview-dialog', 'aria-labelledby': 'preview-title' },
+      h(
+        'div',
+        { className: 'preview-header d-flex align-items-start justify-content-between gap-3' },
+        h(
+          'div',
+          { className: 'min-w-0' },
+          h('h2', { id: 'preview-title', className: 'h6 mb-0 text-break', tabindex: -1, autofocus: true }, short(e.path)),
+          h('p', { className: 'small text-body-secondary mb-0' }, `${size}${bytes(e.size, this.lang)}`),
+        ),
+        h('button', { type: 'button', className: 'btn-close flex-none', 'aria-label': this.t('close'), onclick: () => dialog.close() }),
+      ),
+      h('div', { className: 'preview-body' }, media),
+    );
+    dialog.addEventListener('click', (ev) => {
+      if (ev.target === dialog) dialog.close();
+    });
+    dialog.addEventListener('close', () => {
+      if (media instanceof HTMLVideoElement) media.pause();
+      media.removeAttribute('src');
+      this.urls.revokeObjectURL(url);
+      dialog.remove();
+    });
+    this.root.append(dialog);
+    dialog.showModal();
   }
 
   private details(e: InventoryEntry): string {
@@ -811,7 +1035,7 @@ export class App {
         'removeUnused',
         o.removeUnused === 'safe',
         unused.length > 0
-          ? this.t('removeUnusedHelp', {
+          ? this.t(unused.length === 1 ? 'removeUnusedHelpOne' : 'removeUnusedHelp', {
               count: unused.length,
               size: bytes(
                 unused.reduce((s, e) => s + e.size, 0),
@@ -825,7 +1049,7 @@ export class App {
         'deduplicate',
         'deduplicate',
         o.deduplicate === 'exact',
-        a.duplicates.length > 0 ? this.t('deduplicateHelp', { count: a.duplicates.length }) : undefined,
+        a.duplicates.length > 0 ? this.t(a.duplicates.length === 1 ? 'deduplicateHelpOne' : 'deduplicateHelp', { count: a.duplicates.length }) : undefined,
         true,
       ),
       legacy.files > 0 ? check('flatten', 'flatten', o.flatten === 'legacy', this.t('flattenHelp', { files: legacy.files }), true) : false,

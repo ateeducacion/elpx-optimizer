@@ -6,6 +6,7 @@ import type { ProgressEvent } from '../../core/media/engine.js';
 import { normalizeOptions } from '../../core/plan/options.js';
 import { buildOptimizationPlan, type OptimizationPlan } from '../../core/plan/plan.js';
 import { optimizeArchive } from '../../core/optimize/optimize.js';
+import { readEntry } from '../../core/zip/reader.js';
 import { BlobByteSource, BlobOutputTarget, BlobStore } from './blob-io.js';
 import { BrowserMediaEngine, type BrowserEngineOptions } from './browser-media-engine.js';
 import type { FfmpegAssets, ThreadingPreference } from './ffmpeg-loader.js';
@@ -18,6 +19,9 @@ export interface PipelineDeps {
   readonly imageConcurrency?: number;
   readonly engineFactory?: (options: BrowserEngineOptions) => BrowserMediaEngine;
 }
+
+/** Largest compressed entry inflated for a preview (stored entries are sliced without copying). */
+export const PREVIEW_MAX_INFLATE = 256 * 1024 * 1024;
 
 /** Applies a page-requested video size limit, never above the base limit; invalid values are ignored. */
 function withVideoLimit(base: Limits, maxVideoBytes: number | undefined): Limits {
@@ -127,6 +131,31 @@ export function createPipelineHandler(deps: PipelineDeps, post: (m: WorkerMessag
           const options = normalizeOptions(message.options);
           plan = buildOptimizationPlan(analysis, options, await getEngine().info(), limits);
           post({ type: 'plan', id: message.id, plan });
+        } catch (error) {
+          fail(message.id, error);
+        }
+        return;
+      }
+      case 'preview': {
+        try {
+          const archive = analysis?.archive;
+          if (!analysis || !archive || !file) throw new ElpxError('internal', 'Analyze a project first');
+          const info = analysis.result.entries.find((e) => e.path === message.path);
+          const entry = archive.byName.get(message.path);
+          if (!info || !entry || (info.kind !== 'image' && info.kind !== 'video' && info.kind !== 'audio')) {
+            throw new ElpxError('invalid-options', 'Only images, audio and video can be previewed');
+          }
+          let blob: Blob;
+          if (entry.method === 0) {
+            // CRC and sizes were verified during analysis; the stored bytes are the content.
+            blob = file.slice(entry.dataOffset, entry.dataOffset + entry.compressedSize, info.mime);
+          } else {
+            if (entry.uncompressedSize > PREVIEW_MAX_INFLATE) throw new ElpxError('limit-exceeded', 'Too large to preview');
+            const parts: BlobPart[] = [];
+            for await (const chunk of readEntry(archive, entry)) parts.push(chunk.slice());
+            blob = new Blob(parts, { type: info.mime });
+          }
+          post({ type: 'preview', id: message.id, blob });
         } catch (error) {
           fail(message.id, error);
         }

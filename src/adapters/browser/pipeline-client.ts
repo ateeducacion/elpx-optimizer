@@ -101,6 +101,7 @@ export class PipelineClient {
         else if (m.type === 'cancelled') p.reject(new PipelineError('cancelled', 'Cancelled'));
         else if (m.type === 'analysis') p.resolve(m.result);
         else if (m.type === 'plan') p.resolve(m.plan);
+        else if (m.type === 'preview') p.resolve(m.blob);
         else p.resolve({ report: m.report, fileName: m.fileName, ...(m.output ? { output: m.output } : {}) });
       }
     }
@@ -134,6 +135,12 @@ export class PipelineClient {
   async plan(options: OptionsInput): Promise<OptimizationPlan> {
     await this.ensureAnalyzed();
     return this.request((id) => ({ type: 'plan', id, options }));
+  }
+
+  /** Returns an image, audio or video of the analyzed project as a typed Blob, for a local preview. */
+  async preview(path: string): Promise<Blob> {
+    await this.ensureAnalyzed();
+    return this.request((id) => ({ type: 'preview', id, path }));
   }
 
   /** Executes the confirmed plan. */

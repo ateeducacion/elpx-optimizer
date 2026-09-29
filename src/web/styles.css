@@ -477,8 +477,79 @@ details.card[open] > summary.card-header {
   word-break: break-word;
 }
 
-/* ------------------------------------------------------------------ licenses panel */
-.licenses-panel {
+/* ------------------------------------------------------------------ previews */
+.preview-button {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: var(--bs-primary);
+  border: var(--bs-border-width) solid var(--bs-border-color);
+  align-self: center;
+}
+
+.preview-button[aria-pressed='true'] {
+  background: var(--bs-primary);
+  border-color: var(--bs-primary);
+  color: #fff;
+}
+
+.preview-dialog {
+  padding: 0;
+  border: 0;
+  border-radius: var(--bs-border-radius-lg);
+  background: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  width: min(960px, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  box-shadow: 0 24px 64px rgba(10, 14, 32, 0.35);
+}
+
+.preview-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-dialog::backdrop {
+  background: rgba(10, 12, 24, 0.6);
+}
+
+.preview-header {
+  padding: 1rem 1.25rem;
+  border-bottom: var(--bs-border-width) solid var(--bs-border-color);
+}
+
+.preview-body {
+  padding: 1rem;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  /* A checkerboard shows transparent areas of images. */
+  background: repeating-conic-gradient(var(--bs-secondary-bg) 0 25%, var(--bs-body-bg) 0 50%) 0 0 / 20px 20px;
+}
+
+.preview-body:has(video) {
+  background: #000;
+}
+
+.help-panel {
+  width: min(38rem, 100vw);
+}
+
+.preview-media {
+  max-width: 100%;
+  max-height: calc(100dvh - 10rem);
+  display: block;
+}
+
+.min-w-0 {
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ side panels (licenses, help) */
+.side-panel {
   margin: 0 0 0 auto;
   padding: 0;
   width: min(30rem, 100vw);
@@ -493,12 +564,12 @@ details.card[open] > summary.card-header {
   flex-direction: column;
 }
 
-.licenses-panel[open] {
+.side-panel[open] {
   display: flex;
   animation: licenses-in 0.2s ease-out;
 }
 
-.licenses-panel::backdrop {
+.side-panel::backdrop {
   background: rgba(10, 12, 24, 0.5);
 }
 
@@ -508,12 +579,12 @@ details.card[open] > summary.card-header {
   }
 }
 
-.licenses-header {
+.side-panel-header {
   padding: 1rem 1.25rem;
   flex: none;
 }
 
-.licenses-body {
+.side-panel-body {
   padding: 1.25rem;
   overflow: auto;
   flex: 1;
@@ -522,6 +593,34 @@ details.card[open] > summary.card-header {
 .licenses-list .badge {
   white-space: normal;
   text-align: end;
+}
+
+.code-block {
+  position: relative;
+  background: var(--bs-tertiary-bg);
+  border: var(--bs-border-width) solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  margin-bottom: 0.5rem;
+}
+
+.code-block pre {
+  padding: 0.75rem 2.75rem 0.75rem 0.85rem;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.code-block .copy-button {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.15rem 0.4rem;
+  line-height: 1;
+}
+
+.help-steps li::marker {
+  font-weight: 700;
+  color: var(--bs-primary);
 }
 
 .licenses-button {
