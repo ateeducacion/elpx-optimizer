@@ -3,6 +3,8 @@
 [![Cobertura](https://codecov.io/gh/ateeducacion/elpx-optimizer/graph/badge.svg)](https://codecov.io/gh/ateeducacion/elpx-optimizer)
 [![GitHub Pages](https://img.shields.io/github/deployments/ateeducacion/elpx-optimizer/github-pages?label=GitHub%20Pages&logo=github)](https://ateeducacion.github.io/elpx-optimizer/)
 [![ghcr.io](https://img.shields.io/github/v/release/ateeducacion/elpx-optimizer?label=ghcr.io&logo=docker&logoColor=white)](https://github.com/orgs/ateeducacion/packages?repo_name=elpx-optimizer)
+[![npm](https://img.shields.io/npm/v/elpx-optimizer?logo=npm)](https://www.npmjs.com/package/elpx-optimizer)
+[![Docker Hub](https://img.shields.io/docker/pulls/ateeducacion/elpx-optimizer?label=Docker%20Hub%20pulls&logo=docker&logoColor=white)](https://hub.docker.com/r/ateeducacion/elpx-optimizer)
 
 Reduce el tamaño de proyectos de [eXeLearning](https://github.com/exelearning/exelearning) (`.elpx`):
 recomprime vídeos, imágenes, audio y PDF, detecta recursos ausentes, sin uso y duplicados, y genera
