@@ -28,7 +28,7 @@ export default defineConfig({
   webServer: [serve(4173), serve(4174, ['--base', '/tools/elpx/']), serve(4175, ['--isolation'])],
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, grep: /@cross-browser/ },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] }, grep: /@cross-browser/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
 });
