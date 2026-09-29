@@ -30,12 +30,10 @@ instructions to AI agents.
 
 ## Deployment hardening
 
-- Web: any static host. The provided image (`ghcr.io/ateeducacion/elpx-optimizer`) runs nginx as an
-  unprivileged user, allows only GET/HEAD and sends `X-Content-Type-Options`, `Referrer-Policy`,
-  `Cross-Origin-Resource-Policy` and, when `ELPX_ISOLATION=on`, COOP/COEP. Keep the CSP `<meta>` of
-  `index.html` (or send an equivalent header); on hosts that cannot send headers, such as GitHub
-  Pages, the `<meta>` policy still applies.
-- CLI in Docker: run the `cli` image (`ghcr.io/ateeducacion/elpx-optimizer-cli`) as its non-root
+- Web: any static host (the project serves it on GitHub Pages). Allow only GET/HEAD and keep the CSP
+  `<meta>` of `index.html` (or send an equivalent header); on hosts that cannot send headers, such as
+  GitHub Pages, the `<meta>` policy still applies.
+- CLI in Docker: run the image (`ghcr.io/ateeducacion/elpx-optimizer`) as its non-root
   user with `--read-only --tmpfs /tmp --memory --cpus --pids-limit` and mount only the directories
   you need.
 - Dependencies: exact versions in `package.json` and `bun.lock`; Dependabot (`.github/dependabot.yml`)

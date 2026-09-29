@@ -26,8 +26,8 @@ Guidance for AI agents that develop elpx-optimizer (the Agent Skill for _using_ 
 - `docs/upstream-review.md` — verified facts about the eXeLearning format. Read it before changing
   format or reference handling; code beats upstream documentation. `docs/decisions.md` records why
   things are done the way they are.
-- `.github/workflows/release.yml` — on a published release: GHCR images (each architecture on a native
-  runner, then one multi-platform image), GitHub Pages, release assets, and the npm package when
+- `.github/workflows/release.yml` — on a published release: the CLI image on GHCR (each architecture on a
+  native runner, then one multi-platform image), GitHub Pages, release assets, and the npm package when
   `NPM_PUBLISH` is `true` (`docs/npm.md`). Run it by hand with an existing tag to publish that release
   again.
   `.github/dependabot.yml` — weekly updates for Bun (`package.json`, `bun.lock`), Docker and Actions;

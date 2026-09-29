@@ -5,7 +5,7 @@ BUN ?= bun
 NPX ?= npx
 IMAGE ?= elpx-optimizer
 
-.PHONY: help install dev build build-web build-cli build-skill lint format typecheck test test-node test-browser test-bun coverage e2e e2e-install fixtures skill-validate compat check docker docker-web docker-cli clean
+.PHONY: help install dev build build-web build-cli build-skill lint format typecheck test test-node test-browser test-bun coverage e2e e2e-install fixtures skill-validate compat check docker clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -70,13 +70,8 @@ compat: build-cli ## Independent check with eXeLearning's own importer/exporters
 
 check: lint typecheck coverage test-bun skill-validate e2e ## Everything CI runs (except compat and Docker)
 
-docker: docker-web docker-cli ## Build both Docker images
-
-docker-web: ## Static web hosting image (no ffmpeg, no API)
-	docker build --target web -t $(IMAGE)-web .
-
-docker-cli: ## CLI image (Bun, ffmpeg, sharp)
-	docker build --target cli -t $(IMAGE)-cli .
+docker: ## CLI Docker image (Bun, ffmpeg, sharp)
+	docker build --target cli -t $(IMAGE) .
 
 clean: ## Remove build and test outputs
 	rm -rf dist coverage coverage-* test-results playwright-report

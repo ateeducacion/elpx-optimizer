@@ -395,3 +395,13 @@ it) or is added last when the package has none, with `libs/elpx-manifest.js` upd
 verification expects exactly that entry to change or appear. A new thumbnail is a change the user
 asked for, delivered even when the package does not get smaller. `pp_screenshot` in `content.xml`
 (upstream-review §5) is left as it is: eXeLearning never reads it.
+
+## D23. One Docker image, the CLI, named elpx-optimizer
+
+Until v0.1.1 each release published two images: `elpx-optimizer` (the web app on nginx) and
+`elpx-optimizer-cli`. The web app is served from GitHub Pages and nobody deployed the web image, so
+it was dropped with its nginx configuration, and the CLI took the short name, the same as the binary
+and the npm package: `ghcr.io/ateeducacion/elpx-optimizer`. Self-hosting the web app remains possible
+with the `elpx-optimizer-web.tar.gz` release asset on any static host, or `elpx-optimizer serve`. The
+`latest` tag of `elpx-optimizer` moves from the web app to the CLI; the published v0.1.0 and v0.1.1
+tags keep what they were.

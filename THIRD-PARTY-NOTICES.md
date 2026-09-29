@@ -78,13 +78,9 @@ commit in `.cache/` (not distributed).
 
 ## Docker images and release assets
 
-Published on every release as `ghcr.io/ateeducacion/elpx-optimizer` (target `web`) and
-`ghcr.io/ateeducacion/elpx-optimizer-cli` (target `cli`); they redistribute:
-
-- `web`: the web build above on `nginxinc/nginx-unprivileged` (nginx: BSD-2-Clause; Alpine packages
-  under their licenses).
-- `cli`: the CLI bundle, sharp and qpdf-wasm on `oven/bun` (Bun: MIT, with bundled components under
-  their licenses) and Alpine's `ffmpeg` package (GPL build).
+Published on every release as `ghcr.io/ateeducacion/elpx-optimizer` (the CLI); it redistributes the
+CLI bundle, sharp and qpdf-wasm on `oven/bun` (Bun: MIT, with bundled components under their
+licenses) and Alpine's `ffmpeg` package (GPL build).
 
 The release assets `elpx-optimizer-web.tar.gz` (the web build, with `licenses/`),
 `elpx-optimizer-X.Y.Z.tgz` and `elpx-optimizer-skill.zip` (the CLI bundle and `qpdf-runner.mjs`;

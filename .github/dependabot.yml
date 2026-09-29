@@ -59,7 +59,7 @@ updates:
     commit-message:
       prefix: Docker
     groups:
-      # oven/bun (build and CLI stages) and nginx-unprivileged (web stage).
+      # oven/bun (build and CLI stages).
       docker-images:
         patterns: ['*']
 

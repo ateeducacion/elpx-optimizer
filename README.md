@@ -17,8 +17,8 @@ videos, images, audio and PDFs, finds missing, unused and duplicate resources, a
 - **CLI** with Docker (FFmpeg, sharp and qpdf included):
 
   ```bash
-  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/course.elpx --dry-run
-  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/course.elpx
+  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/course.elpx --dry-run
+  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/course.elpx
   ```
 
 - **Web app on your own server**: `docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer`,

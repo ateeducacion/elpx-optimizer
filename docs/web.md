@@ -112,8 +112,8 @@ and works on any static host. The multi-thread core (`@ffmpeg/core-mt`) is used 
 - `SharedArrayBuffer` exists, the device reports ≥ 4 cores (and ≥ 4 GiB of memory when it reports it);
 - the user did not untick "Use multi-thread FFmpeg" (or `?threads=single`).
 
-It then uses `min(4, cores − 1)` encoder threads. `elpx-optimizer serve --isolation` and the Docker
-web image with `ELPX_ISOLATION=on` send the headers. Without them, single-thread is used; video
+It then uses `min(4, cores − 1)` encoder threads. `elpx-optimizer serve --isolation` sends the
+headers. Without them, single-thread is used; video
 compression is never disabled.
 
 ## Browsers
@@ -200,14 +200,6 @@ root or in any subdirectory (tested under `/tools/elpx/`). No CDN is used at run
 
 Ways to deploy it:
 
-- **Docker image** published on every release (`linux/amd64` and `linux/arm64`, tags `latest`,
-  `X.Y.Z`, `X.Y`): nginx as an unprivileged user, static files only.
-
-  ```bash
-  docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer                       # http://localhost:8080
-  docker run --rm -p 8080:8080 -e ELPX_ISOLATION=on ghcr.io/ateeducacion/elpx-optimizer  # + COOP/COEP (multi-thread)
-  ```
-
 - **GitHub Pages**: the release workflow (`.github/workflows/release.yml`) builds the site and
   deploys it to the repository's Pages site on every published release. Pages cannot send the
   COOP/COEP headers, so the page is not cross-origin isolated there and always uses the
@@ -220,7 +212,6 @@ Ways to deploy it:
   bun install --frozen-lockfile
   bun run build:web                                 # → dist/web (~66 MB, two 32 MB FFmpeg cores, 1.3 MB qpdf)
   elpx-optimizer serve --root dist/web --port 8080  # or nginx/Apache/any static host
-  docker build --target web -t elpx-optimizer-web . && docker run -p 8080:8080 elpx-optimizer-web
   ```
 
 Server requirements: serve `.wasm` as `application/wasm` and `.js`/`.mjs` as JavaScript; allow only
