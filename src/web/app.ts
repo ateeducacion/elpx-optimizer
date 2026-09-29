@@ -12,6 +12,7 @@ import { bytes, duration, percent } from './format.js';
 import { translate, type Lang } from './i18n.js';
 import { icon, type IconName } from './icons.js';
 import ateLogo from './assets/ate-logo.png';
+import { COMPONENTS } from './licenses.js';
 
 /** What the UI needs from the pipeline (the real client or a test double). */
 export interface PipelineApi {
@@ -101,6 +102,7 @@ export class App {
   private readonly stepper: HTMLElement;
   private readonly engineLine: HTMLElement;
   private readonly status: HTMLElement;
+  private licensesPanel: HTMLDialogElement | undefined;
 
   constructor(
     private readonly root: HTMLElement,
@@ -155,7 +157,8 @@ export class App {
       ),
     );
     const body = h('div', { className: 'container-lg app-body' }, this.stepper, this.engineLine, this.main, this.status);
-    replace(this.root, header, body, this.renderFooter());
+    this.licensesPanel = this.renderLicenses();
+    replace(this.root, header, body, this.renderFooter(), this.licensesPanel);
     this.renderEngine();
     this.render();
   }
@@ -183,11 +186,88 @@ export class App {
             icon('github', 'fs-5'),
             this.t('sourceCode'),
           ),
-          h('a', { href: 'licenses/THIRD-PARTY-NOTICES.txt' }, this.t('notices')),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-link btn-sm p-0 licenses-button',
+              'aria-haspopup': 'dialog',
+              onclick: () => this.licensesPanel?.showModal(),
+            },
+            this.t('licensesButton'),
+          ),
           h('span', { className: 'text-body-secondary' }, this.t('license')),
         ),
       ),
     );
+  }
+
+  /** Side panel with the licenses of the app and of every bundled component. */
+  private renderLicenses(): HTMLDialogElement {
+    const external = { target: '_blank', rel: 'noopener noreferrer' };
+    const list = h('ul', { className: 'list-group list-group-flush licenses-list' });
+    for (const c of COMPONENTS) {
+      list.append(
+        h(
+          'li',
+          { className: 'list-group-item px-0' },
+          h(
+            'div',
+            { className: 'd-flex justify-content-between align-items-baseline gap-2' },
+            h('strong', {}, c.name),
+            h('span', { className: 'badge rounded-pill bg-primary-subtle text-primary-emphasis flex-none' }, c.license),
+          ),
+          h('div', { className: 'small text-body-secondary' }, this.t(c.role), c.version !== '—' ? ` · ${c.version}` : ''),
+          h(
+            'a',
+            { ...external, href: `licenses/${c.file}`, className: 'small', 'aria-label': this.t('viewLicense', { name: c.name }) },
+            this.t('viewLicenseShort'),
+          ),
+        ),
+      );
+    }
+    const close = (): void => dialog.close();
+    const dialog = h(
+      'dialog',
+      { className: 'licenses-panel', 'aria-labelledby': 'licenses-title' },
+      h(
+        'div',
+        { className: 'licenses-header d-flex align-items-center justify-content-between border-bottom' },
+        h('h2', { id: 'licenses-title', className: 'h5 mb-0', tabindex: -1, autofocus: true }, this.t('licensesTitle')),
+        h('button', { type: 'button', className: 'btn-close', 'aria-label': this.t('close'), onclick: close }),
+      ),
+      h(
+        'div',
+        { className: 'licenses-body' },
+        h('p', {}, this.t('licensesIntro')),
+        h(
+          'div',
+          { className: 'd-flex flex-wrap gap-2 mb-4' },
+          h('a', { ...external, href: 'licenses/elpx-optimizer-AGPL-3.0.txt', className: 'btn btn-sm btn-outline-primary' }, this.t('licensesApp')),
+          h(
+            'a',
+            { ...external, href: REPO_URL, className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1' },
+            icon('github'),
+            this.t('sourceCode'),
+          ),
+        ),
+        h('h3', { className: 'h6' }, this.t('licensesComponents')),
+        list,
+        h('div', { className: 'alert alert-secondary small mt-4', role: 'note' }, this.t('licensesGpl')),
+        h('p', { className: 'small' }, h('a', { ...external, href: 'licenses/THIRD-PARTY-NOTICES.txt' }, this.t('licensesAll'))),
+        h(
+          'p',
+          { className: 'small text-body-secondary d-flex align-items-center gap-2 mb-0' },
+          h('img', { src: ateLogo, alt: '', className: 'ate-logo', width: 28, height: 29 }),
+          this.t('licensesAte'),
+        ),
+      ),
+    );
+    // A click on the backdrop reaches the dialog itself: close, as Bootstrap's offcanvas does.
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) close();
+    });
+    return dialog;
   }
 
   private switchLanguage(): void {

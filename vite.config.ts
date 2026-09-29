@@ -57,6 +57,11 @@ function licensesPlugin(): Plugin {
     ['node_modules/@fontsource/atkinson-hyperlegible/LICENSE', 'atkinson-hyperlegible-OFL-1.1.txt'],
     ['node_modules/bootstrap/LICENSE', 'bootstrap-MIT.txt'],
     ['node_modules/bootstrap-icons/LICENSE', 'bootstrap-icons-MIT.txt'],
+    ['node_modules/fflate/LICENSE', 'fflate-MIT.txt'],
+    ['node_modules/parse5/LICENSE', 'parse5-MIT.txt'],
+    ['node_modules/entities/LICENSE', 'entities-BSD-2-Clause.txt'],
+    ['node_modules/@noble/hashes/LICENSE', 'noble-hashes-MIT.txt'],
+    ['node_modules/wasm-feature-detect/LICENSE', 'wasm-feature-detect-Apache-2.0.txt'],
   ];
   return {
     name: 'elpx-licenses',
