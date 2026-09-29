@@ -37,6 +37,12 @@ async function waitForReview(page: Page): Promise<void> {
   await expect(page.locator('.inventory')).toBeVisible({ timeout: 180_000 });
 }
 
+/** Keeps the original file names (clean names are on by default), for checks that read entries by name. */
+async function keepFileNames(page: Page): Promise<void> {
+  await expect(ui.cleanNames(page)).toBeChecked();
+  await ui.cleanNames(page).uncheck();
+}
+
 type OutputInfo = { outputPath: (n: string) => string };
 
 /** Runs the confirmed plan; returns the downloaded file path. */
@@ -66,6 +72,7 @@ test('recompresses the video in the browser: single-thread, no isolation, no upl
   await expect(page.locator('.inventory')).toContainText('clase 1.mp4');
   await expect(page.locator('.inventory')).toContainText('h264 640×360');
   await expect(page.locator('.engine-line')).toContainText(/un hilo|single-thread/);
+  await keepFileNames(page);
 
   const { path, name } = await planRunDownload(page, testInfo);
   expect(name).toBe('course-video_optimized.elpx');
@@ -105,6 +112,7 @@ test('serves from a subdirectory and loads the WASM engine from there', async ({
   await page.goto('http://127.0.0.1:4174/tools/elpx/');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
+  await keepFileNames(page);
   const { path } = await planRunDownload(page, testInfo);
   expect((await readEntry(path, VIDEO_ENTRY)).length).toBeLessThan((await readEntry(COURSE, VIDEO_ENTRY)).length);
   expect(requests.some((r) => /\/tools\/elpx\/assets\/ffmpeg-core-.*\.wasm$/.test(r.url()))).toBe(true);
@@ -117,6 +125,7 @@ test('merges duplicates and removes unused files with rewritten references', asy
   await waitForReview(page);
   await page.getByLabel(/Quitar archivos sin ninguna referencia|Remove files with no reference/).check();
   await page.getByLabel(/Unificar archivos idénticos|Merge identical files/).check();
+  await keepFileNames(page);
   const { path } = await planRunDownload(page, testInfo);
   const analysis = await analyzeFile(path);
   const names = analysis.entries.map((e) => e.path);
@@ -156,6 +165,7 @@ test('cancelling stops the codec and a second optimization works without reloadi
   await ui.startOver(page).click();
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
+  await keepFileNames(page);
   const { path } = await planRunDownload(page, testInfo);
   expect((await readEntry(path, VIDEO_ENTRY)).length).toBeLessThan((await readEntry(COURSE, VIDEO_ENTRY)).length);
 });
@@ -172,6 +182,7 @@ test('a failing engine load is reported, and a retry works in the same page', as
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
   await expect(page.locator('.inventory')).toContainText('h264 640×360');
+  await keepFileNames(page);
   const { path } = await planRunDownload(page, testInfo);
   expect((await readEntry(path, VIDEO_ENTRY)).length).toBeLessThan((await readEntry(COURSE, VIDEO_ENTRY)).length);
 });
@@ -180,6 +191,7 @@ test('a video above the memory/size limit is kept as original', async ({ page },
   await page.goto('/?maxVideoMiB=1');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
+  await keepFileNames(page);
   await ui.reviewPlan(page).click();
   await expect(page.locator('.plan-skipped')).toContainText('clase 1.mp4');
   await ui.optimize(page).click();
@@ -219,6 +231,7 @@ test('uses the multi-thread core when the server enables cross-origin isolation'
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
   await expect(page.locator('.engine-line')).toContainText(/varios hilos|multi-thread/);
+  await keepFileNames(page);
   const { path } = await planRunDownload(page, testInfo);
   const video = await readEntry(path, VIDEO_ENTRY);
   expect(video.length).toBeLessThan((await readEntry(COURSE, VIDEO_ENTRY)).length / 2);
@@ -262,22 +275,24 @@ test('flattens eXeLearning 3 folders and takes out broken references @cross-brow
   await expect(unlink).not.toBeChecked();
   await flatten.check();
   await unlink.check();
+  // With the default clean names, a second file with the same name becomes name-2 (not name_2).
+  await expect(ui.cleanNames(page)).toBeChecked();
   await ui.reviewPlan(page).click();
   await expect(ui.planHeading(page)).toBeVisible();
   await expect(page.locator('.stepper-item.is-current')).toContainText(/Plan/);
   const plan = page.locator('.plan-ops');
   await expect(plan).toContainText(/Archivos a mover|Files to move/);
-  await expect(plan).toContainText('content/resources/foto_2.jpg');
+  await expect(plan).toContainText('content/resources/foto-2.jpg');
   await expect(plan).toContainText(/Archivos ausentes cuyas referencias se quitan|Missing files whose references are removed/);
   await expect(plan).toContainText('borrada.jpg');
   const { path } = await runDownload(page, testInfo);
-  await expect(page.locator('.op-results')).toContainText('foto_2.jpg');
+  await expect(page.locator('.op-results')).toContainText('foto-2.jpg');
 
   // The downloaded ZIP, read with fflate: no editor folders left, renamed files in place.
   const files = zipEntries(path);
   const names = Object.keys(files);
   expect(names.filter((n) => /^content\/resources\/\d{14}[A-Za-z0-9]{6}\//.test(n))).toEqual([]);
-  expect(names).toContain('content/resources/foto_2.jpg');
+  expect(names).toContain('content/resources/foto-2.jpg');
   expect(names).toContain('content/resources/foto.jpg');
   expect(names).toContain('content/resources/mis fotos/playa.jpg');
   const xml = strFromU8(files['content.xml']!);
@@ -285,7 +300,7 @@ test('flattens eXeLearning 3 folders and takes out broken references @cross-brow
   expect(xml).not.toContain('apuntes.pdf');
   // The link keeps its text.
   expect(xml).toContain('<a>Apuntes</a>');
-  expect(xml).toContain('{{context_path}}/content/resources/foto_2.jpg');
+  expect(xml).toContain('{{context_path}}/content/resources/foto-2.jpg');
   const analysis = await analyzeFile(path);
   expect(analysis.ok).toBe(true);
   expect(analysis.package?.legacyFolders).toEqual({ folders: 0, files: 0 });
@@ -393,4 +408,38 @@ test('re-encodes audio: WAV, FLAC and AIFF become MP3 with their references and 
   const analysis = await analyzeFile(path);
   expect(analysis.ok).toBe(true);
   expect(analysis.diagnostics.filter((d) => d.severity === 'error' || d.code === 'missing-resource')).toEqual([]);
+});
+
+test('cleans file names by default and rewrites every reference @cross-browser', async ({ page }, testInfo) => {
+  const R = 'content/resources';
+  await page.goto('/');
+  await page.setInputFiles('#file-input', COURSE);
+  await waitForReview(page);
+  // On by default, with how many names change and an example.
+  await expect(ui.cleanNames(page)).toBeChecked();
+  await expect(page.locator('form.options')).toContainText(/4 archivos tendrán un nombre limpio|4 files will get a clean name/);
+  await page.getByLabel(/Quitar archivos sin ninguna referencia|Remove files with no reference/).check();
+  await page.getByLabel(/Unificar archivos idénticos|Merge identical files/).check();
+  await ui.reviewPlan(page).click();
+  const plan = page.locator('.plan-ops');
+  await expect(plan).toContainText(/Archivos con nombre limpio|Files with a clean name/);
+  await expect(plan).toContainText('media/clase 1.mp4 → media/clase-1.mp4');
+  await expect(page.locator('.risks')).toContainText(/nombre limpio|clean name/);
+  const { path } = await runDownload(page, testInfo);
+
+  const files = zipEntries(path);
+  const names = Object.keys(files).filter((n) => n.startsWith(`${R}/`) && !n.endsWith('/'));
+  for (const clean of [`${R}/media/clase-1.mp4`, `${R}/media/clase-1.vtt`, `${R}/fotos/foto-paisaje.jpg`]) expect(names).toContain(clean);
+  // Every remaining user file has a clean name.
+  expect(names.filter((n) => /[^a-z0-9._-]/.test(n.slice(n.lastIndexOf('/') + 1)))).toEqual([]);
+  const xml = strFromU8(files['content.xml']!);
+  expect(xml).not.toContain('clase 1.mp4');
+  expect(xml).not.toContain('foto&amp;paisaje.jpg');
+  expect(xml).toContain(`{{context_path}}/${R}/media/clase-1.mp4`);
+  expect(xml).toContain(`{{context_path}}/${R}/media/clase-1.vtt`);
+  const analysis = await analyzeFile(path);
+  expect(analysis.ok).toBe(true);
+  expect(analysis.diagnostics.filter((d) => d.severity === 'error' || d.code === 'missing-resource' || d.code === 'manifest-stale')).toEqual([]);
+  // The video under its new name is still the recompressed one.
+  expect(files[`${R}/media/clase-1.mp4`]!.length).toBeLessThan((await readEntry(COURSE, VIDEO_ENTRY)).length);
 });

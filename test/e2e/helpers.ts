@@ -70,6 +70,8 @@ export const ui = {
   startOver: (page: Page): Locator => page.getByRole('button', { name: /^(Volver a empezar|Start over)$/ }),
   another: (page: Page): Locator => page.getByRole('button', { name: /^(Optimizar otro proyecto|Optimize another project)$/ }),
   planHeading: (page: Page): Locator => page.getByRole('heading', { name: /^(Confirma el plan|Confirm the plan)$/ }),
+  /** "Clean file names": on by default in the web app (the CLI keeps names unless asked). */
+  cleanNames: (page: Page): Locator => page.getByRole('switch', { name: /^(Limpiar nombres de archivo|Clean file names)$/ }),
 };
 
 /** Selects a file through a drag-and-drop on the drop zone (DataTransfer built in the page). */

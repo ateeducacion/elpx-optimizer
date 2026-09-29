@@ -13,7 +13,7 @@ import { FFMPEG_ASSETS } from '../../src/adapters/browser/ffmpeg-assets.js';
 import { PINNED_AUDIO_ENCODERS, PINNED_CORE_ENCODERS, type FfmpegAssets } from '../../src/adapters/browser/ffmpeg-loader.js';
 import type { ImageCodecs } from '../../src/adapters/browser/image-codecs.js';
 import { imageWorkerCount, type ImageRequest, type ImageResponse, type ImageWorkerLike } from '../../src/adapters/browser/image-pool.js';
-import { decideAudio, validateAudioCandidate, type AudioJob } from '../../src/core/media/audio-policy.js';
+import { buildAudioArgs, decideAudio, validateAudioCandidate, type AudioJob } from '../../src/core/media/audio-policy.js';
 import { CancelledError } from '../../src/core/errors.js';
 import { BROWSER_LIMITS } from '../../src/core/limits.js';
 import type { ProgressEvent, StoredResource } from '../../src/core/media/engine.js';
@@ -136,10 +136,9 @@ describe('BrowserMediaEngine with the real ffmpeg.wasm', () => {
     await engine.dispose();
   });
 
-  // Known problem, reported: the pinned core's libopus crashes ("memory access out of bounds") when it
-  // encodes stereo at -compression_level 5 or more (FFmpeg's default is 10); levels 0-4 and mono work.
-  // Remove `.fails` once the audio arguments cap the level for libopus.
-  it.fails('re-encodes stereo Opus in WebM (217 kb/s, re-encoded without forcing)', async () => {
+  // The pinned core's libopus crashes ("memory access out of bounds") when it encodes stereo at
+  // -compression_level 5 or more (FFmpeg's default is 10): the audio arguments cap it at 4.
+  it('re-encodes stereo Opus in WebM (217 kb/s, re-encoded without forcing)', async () => {
     const store = new BlobStore();
     const engine = new BrowserMediaEngine({ store, assets: FFMPEG_ASSETS, threading: 'single' });
     const input = store.adopt(new Blob([(await fixtureBytes(toneOpusUrl)) as Uint8Array<ArrayBuffer>]), 'webm');
@@ -147,6 +146,7 @@ describe('BrowserMediaEngine with the real ffmpeg.wasm', () => {
     const decision = decideAudio({ format: 'webm', size: input.size, probe }, normalizeOptions({}).audio, (await engine.info()).audio!, BROWSER_LIMITS);
     expect(decision).toMatchObject({ action: 'transcode', job: { target: 'webm', encoder: 'libopus', channels: 2 } });
     const job = (decision as { job: AudioJob }).job;
+    expect(buildAudioArgs(job, 'in', 'out').join(' ')).toContain('-compression_level 4');
     try {
       const candidate = await engine.transcodeAudio(input, job, ctx);
       expect((candidate as BlobResource).blob.type).toBe('audio/webm');

@@ -15,6 +15,8 @@ import { analyzeFile, FIXTURES, nativeVideoCheck, readEntry, ROOT, ui } from './
  */
 const COURSE = join(FIXTURES, 'elpx', 'course-video.elpx');
 const VIDEO = 'content/resources/media/clase 1.mp4';
+// Its clean name in both outputs.
+const VIDEO_OUT = 'content/resources/media/clase-1.mp4';
 
 test('CLI and web share plan and rules and give equivalent results', async ({ page }, testInfo) => {
   // CLI run (native ffmpeg + sharp), same options as the web defaults plus cleanup.
@@ -33,6 +35,9 @@ test('CLI and web share plan and rules and give equivalent results', async ({ pa
         'safe',
         '--deduplicate',
         'exact',
+        // The web app cleans file names by default; the CLI only when asked.
+        '--normalize-names',
+        'slug',
         '--output',
         cliOut,
         '--json',
@@ -48,6 +53,7 @@ test('CLI and web share plan and rules and give equivalent results', async ({ pa
     await expect(page.locator('.inventory')).toBeVisible({ timeout: 180_000 });
     await page.getByLabel(/Quitar archivos sin ninguna referencia|Remove files with no reference/).check();
     await page.getByLabel(/Unificar archivos idénticos|Merge identical files/).check();
+    await expect(ui.cleanNames(page)).toBeChecked();
     await ui.reviewPlan(page).click();
     await expect(ui.planHeading(page)).toBeVisible();
     await ui.optimize(page).click();
@@ -74,13 +80,13 @@ test('CLI and web share plan and rules and give equivalent results', async ({ pa
     expect(b.entries.map((e) => e.path)).toEqual(a.entries.map((e) => e.path));
     for (const r of [a, b]) expect(r.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
     // Same video structure (checked independently with native ffprobe/ffmpeg).
-    const [va, vb] = [nativeVideoCheck(await readEntry(cliOut, VIDEO)), nativeVideoCheck(await readEntry(webOut, VIDEO))];
+    const [va, vb] = [nativeVideoCheck(await readEntry(cliOut, VIDEO_OUT)), nativeVideoCheck(await readEntry(webOut, VIDEO_OUT))];
     const shape = (v: ReturnType<typeof nativeVideoCheck>) => v.streams.map((s) => [s.codec_type, s.codec_name, s.width, s.height, s.pix_fmt].join(':'));
     expect(shape(vb)).toEqual(shape(va));
     expect(Math.abs(va.duration - vb.duration)).toBeLessThan(0.25);
     expect(va.decodeErrors + vb.decodeErrors).toBe('');
     // The video operation was applied by both engines.
-    const videoStatus = (r: OptimizationReport) => r.operations.find((o) => o.path === VIDEO)?.status;
+    const videoStatus = (r: OptimizationReport) => r.operations.find((o) => o.op === 'transcode-video' && o.path === VIDEO)?.status;
     expect([videoStatus(cli), videoStatus(web)]).toEqual(['applied', 'applied']);
   } finally {
     rmSync(dir, { recursive: true, force: true });
