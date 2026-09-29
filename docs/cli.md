@@ -4,13 +4,13 @@
 elpx-optimizer <command> [options]
 ```
 
-| Command         | What it does                                                                                                                                          |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `doctor`        | Runtime, ffmpeg/ffprobe (version, video and audio encoders and a real 0.5 s libx264 encode + probe), sharp/libvips (a real encode), static web build. |
-| `inspect FILE`  | Full analysis without changes. Uses ffprobe for videos and audio when available (`--no-probe` to skip); inspecting never requires FFmpeg.             |
-| `validate FILE` | Integrity (ZIP, CRC, `content.xml`), references and download manifest, as a verdict.                                                                  |
-| `optimize FILE` | Builds the plan (`--dry-run` stops there) and runs it, writing `<name>_optimized.elpx`.                                                               |
-| `serve`         | Serves the static web app (`dist/web`). GET/HEAD only: no upload or processing API.                                                                   |
+| Command         | What it does                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `doctor`        | Runtime, ffmpeg/ffprobe (version, video and audio encoders, a real 0.5 s libx264 encode + probe and a separate 0.3 s audio encode + probe, `audio-encode`), sharp/libvips (a real encode), static web build. |
+| `inspect FILE`  | Full analysis without changes. Uses ffprobe for videos and audio when available (`--no-probe` to skip); inspecting never requires FFmpeg.                                                                    |
+| `validate FILE` | Integrity (ZIP, CRC, `content.xml`), references and download manifest, as a verdict.                                                                                                                         |
+| `optimize FILE` | Builds the plan (`--dry-run` stops there) and runs it, writing `<name>_optimized.elpx`.                                                                                                                      |
+| `serve`         | Serves the static web app (`dist/web`). GET/HEAD only: no upload or processing API.                                                                                                                          |
 
 Global options: `--json` (exactly one JSON document on stdout, nothing else), `--quiet` (no
 progress on stderr), `--help`/`-h`, `--version`/`-v`. Progress, messages and errors always go to

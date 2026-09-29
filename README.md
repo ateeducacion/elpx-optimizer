@@ -45,9 +45,12 @@ Three ways to use it, one shared core:
 
 Two real courses, CLI with the balanced preset and no clean-up (before the default image size
 limits existed): 210.7 → 65.5 MiB (−68.9 %) for one whose audio was mostly WAV, and
-128.2 → 91.1 MiB (−28.9 %) for one with 255 Opus voice recordings and large photos. With clean
-file names and the current defaults the first one goes to 64.7 MiB (−69.3 %). The results still
-import and re-export in eXeLearning with no differences.
+128.2 → 91.1 MiB (−28.9 %) for one with 255 Opus voice recordings and large photos. With clean file
+names and the current defaults the first one goes to 64.7 MiB (−69.3 %). In the browser, with the
+web app's defaults, the two courses shrink by 69.3 % and 31.7 % in 96 s and 141 s of processing
+([docs/web.md](docs/web.md#measured-cases)). The CLI results still import and re-export in
+eXeLearning with no differences, and the compatibility check with eXeLearning's own importer and
+exporters passes on all 17 of its cases.
 
 ## Quick start
 

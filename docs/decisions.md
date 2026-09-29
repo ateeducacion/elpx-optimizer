@@ -15,8 +15,8 @@ round trips). In-place editing keeps every unchanged entry byte-for-byte (compre
 and changes only media bytes and, for deduplication, moves, renames and removed broken references,
 the exact bytes of the references involved (and entry names).
 Upstream's importer and exporters are used instead as an **independent check** (`make compat`,
-`test/compat`, 17 cases including flatten, reference-removal and audio runs, all compatible at the
-time of writing): the optimized package must import with the same pages, blocks, components, IDs,
+`test/compat`, 17 cases including flatten, reference-removal and audio runs; 17/17 compatible at
+the time of writing): the optimized package must import with the same pages, blocks, components, IDs,
 texts and properties (asset references normalized to the original content they point to), with no
 new missing assets, and must re-export to ELPX and HTML5.
 
@@ -189,7 +189,14 @@ without a duration; the others at 129–136 kb/s), the CLI with the same options
 (−28.9 %, together with 111 recompressed images) in 106 s.
 
 Both courses' outputs were checked by hand with the `test/compat` harness: eXeLearning's own import,
-ELPX and HTML5 re-export and re-import, with no differences.
+ELPX and HTML5 re-export and re-import, with no differences. The synthetic audio fixture
+(`audio-course.elpx`: WAV, FLAC and AIFF referenced from `<audio src type>`, `<source type>`, a link
+and DataGame data, a high-bitrate MP3, and a WAV named only in a script, which must stay) is part of
+`make compat` and passes.
+
+libopus runs at `-compression_level 4`: the pinned ffmpeg.wasm core crashes on stereo Opus at higher
+levels, and the FFmpeg arguments are built once in the core for both engines, so native runs use the
+same setting.
 
 ## D13. Bootstrap 5.3 compiled locally from Sass, only the parts in use
 
@@ -254,3 +261,16 @@ visible detail. Images used by resolution-sensitive iDevices are still never res
 The web app shows the aggressive preset as "Máximo" / "Maximum", which describes what users choose it
 for. The id stays `aggressive` in options, plans and reports so saved configurations and scripts keep
 working; the CLI accepts `--preset maximum` as an alias.
+
+## D18. A fresh ffmpeg.wasm instance every 60 jobs, and one retry after a memory abort
+
+ffmpeg.wasm does not give all its memory back between runs. With hundreds of small jobs in one
+session (the 128 MB course has 255 voice recordings), the WebAssembly heap eventually ran out: before
+this change, 28 of those 255 recordings failed in the browser from memory exhaustion (their originals
+were kept). Options: (a) a new FFmpeg instance per job; (b) never reload; (c) reload periodically.
+(a) pays the core start-up on every file; (b) fails as above. Chosen (c): the browser engine loads a
+fresh instance every 60 jobs (`JOBS_PER_INSTANCE`; the core files are cached, so a reload is quick),
+and a job whose failure is a memory abort (not the bare `Aborted()` ffmpeg.wasm prints after any
+error) is retried once on a fresh instance before the original is kept. With it, the same course
+optimized in headless Chromium with the single-thread core re-encoded all 255 recordings with no
+failures ([web.md](web.md#measured-cases)).

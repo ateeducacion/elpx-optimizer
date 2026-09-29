@@ -48,10 +48,13 @@ Tres formas de usarlo con un único núcleo compartido:
    limpiado nada), se entrega una copia idéntica (`no-improvement`).
 
 Dos cursos reales, con el CLI en el nivel equilibrado y sin limpieza (antes de que existieran los
-límites de tamaño de imagen por defecto): de 210,7 a 65,5 MiB (−68,9 %) uno con el audio casi todo en
-WAV, y de 128,2 a 91,1 MiB (−28,9 %) otro con 255 grabaciones de voz en Opus y fotos grandes. Con
-nombres limpios y los valores por defecto actuales, el primero queda en 64,7 MiB (−69,3 %). Los
-resultados se siguen importando y reexportando en eXeLearning sin diferencias.
+límites de tamaño de imagen por defecto): de 210,7 a 65,5 MiB (−68,9 %) uno con el audio casi todo
+en WAV, y de 128,2 a 91,1 MiB (−28,9 %) otro con 255 grabaciones de voz en Opus y fotos grandes. Con
+nombres limpios y los valores por defecto actuales, el primero queda en 64,7 MiB (−69,3 %). En el
+navegador, con los valores por defecto de la web, los dos cursos se reducen un 69,3 % y un 31,7 % en
+96 s y 141 s de proceso ([docs/web.md](docs/web.md#measured-cases)). Los resultados del CLI se
+siguen importando y reexportando en eXeLearning sin diferencias, y la comprobación de compatibilidad
+con el importador y los exportadores del propio eXeLearning pasa en sus 17 casos.
 
 ## Inicio rápido
 

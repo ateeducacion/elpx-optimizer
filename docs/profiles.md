@@ -94,8 +94,9 @@ for the same quality).
 - Other formats and codecs (Vorbis, or anything else inside Ogg or WebM) are left unchanged.
 - Channels: mono stays mono; more than two channels are mixed down to stereo. MP3 and AAC keep the
   sample rate when MP3 can carry it, otherwise it is lowered to the next MP3 rate (48, 44.1, 32, 24,
-  22.05, 16, 12, 11.025 or 8 kHz); Opus always runs at 48 kHz. Global tags are copied (ID3v2.3 for
-  MP3).
+  22.05, 16, 12, 11.025 or 8 kHz); Opus always runs at 48 kHz, with libopus at
+  `-compression_level 4` in both engines (the pinned ffmpeg.wasm core crashes on stereo Opus above
+  that level). Global tags are copied (ID3v2.3 for MP3).
 - Skipped with the reason in the plan: files that also hold pictures or video (cover art is not
   carried over), several audio streams, no audio stream, unknown duration (except the recordings
   above), files above the video size or duration limits.

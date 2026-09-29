@@ -96,7 +96,8 @@ in names) are resolved but flagged, and ambiguity is reported, never guessed.
 User resources (`content/resources/**`, legacy `custom/**`) are classified as:
 
 - `used`: at least one explicit, exact reference;
-- `uncertain`: only lenient or dynamic references, or the same file name as a missing reference;
+- `uncertain`: only lenient or dynamic references, or the same file name as a missing reference
+  (including names mentioned in scripts or obfuscated data, even with spaces);
 - `protected`: inside a folder that contains HTML or scripts (an opaque bundle), or in `custom/`;
 - `unreferenced`: nothing refers to it anywhere.
 
@@ -171,6 +172,7 @@ Engines differ in capabilities, and plans and reports say which engine and versi
 | JPEG / PNG / WebP       | sharp 0.35.5 (mozjpeg, libpng, libwebp)                                   | jSquash MozJPEG, OxiPNG, libwebp (WASM)                                  |
 | Playback check          | —                                                                         | detached `<video>` or `<audio>` element, compared with the original      |
 | Cancellation            | process-group SIGTERM/SIGKILL                                             | `FFmpeg.terminate()` (worker killed, reloaded for the next job)          |
+| Memory                  | one process per job                                                       | fresh FFmpeg instance every 60 jobs; one retry after a memory abort      |
 
 Encoders produce different bytes; tests check equivalent semantics (streams, duration, size,
 validity), not identical hashes.
