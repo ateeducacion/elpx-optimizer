@@ -239,7 +239,7 @@ describe('optimizeArchive: audio', () => {
     expect([...cancelled.engine.store.live].every((x) => x.disposed)).toBe(true);
   });
 
-  it('reverts a successful conversion whose rename no longer holds at execution time', async () => {
+  it('keeps the planned names at execution, so a conversion never takes a name that was refused', async () => {
     // tema.flac would take tema.mp3 and capture the broken link, so the plan keeps it and gives tema.wav tema_2.mp3.
     const bytes = buildElpx({
       components: [{ html: `<audio src="${R}/tema.flac"></audio><audio src="${R}/tema.wav"></audio><a href="${R}/tema.mp3">tema</a>` }],
@@ -249,11 +249,12 @@ describe('optimizeArchive: audio', () => {
     expect(r.plan.operations.filter((o) => o.op === 'transcode-audio').map((o) => [o.path, 'to' in o ? o.to : undefined])).toEqual([
       ['content/resources/tema.wav', 'content/resources/tema_2.mp3'],
     ]);
-    // Execution names files again from the conversions that succeeded: tema.wav would now take tema.mp3,
-    // which fails the same check, so the encoded file is dropped and the original kept.
-    expect(audioResults(r)).toEqual([['content/resources/tema.wav', 'reverted', 'its references could not follow the new name; the original was kept']]);
-    expect(r.outcome.report.status).toBe('no-improvement');
-    expect([...r.engine.store.live].filter((x) => x.tag === 'audio' && !x.disposed)).toEqual([]);
+    expect(audioResults(r)).toEqual([['content/resources/tema.wav', 'applied', 'converted to MP3 and renamed to content/resources/tema_2.mp3']]);
+    expect(r.outcome.report.status).toBe('optimized');
+    expect(r.outcome.report.validations.filter((v) => !v.ok)).toEqual([]);
+    // The broken link still points nowhere.
+    expect(text(r, 'content.xml')).toContain(`<audio src="${R}/tema_2.mp3"></audio><a href="${R}/tema.mp3">tema</a>`);
+    expect(r.files.has('content/resources/tema.mp3')).toBe(false);
   });
 
   it('never lets a failing cleanup mask a rejected or failed audio job', async () => {
@@ -281,8 +282,8 @@ describe('optimizeArchive: audio', () => {
     expect(r.outcome.report.status).toBe('no-improvement');
   });
 
-  it('reports the name a conversion really got when an earlier one did not happen', async () => {
-    // Planned: tema.flac → tema.mp3 and tema.wav → tema_2.mp3. The FLAC result is not smaller, so the WAV takes tema.mp3.
+  it('keeps the planned name of a conversion when an earlier one does not happen', async () => {
+    // Planned: tema.flac → tema.mp3 and tema.wav → tema_2.mp3. The FLAC result is not smaller; the WAV keeps its planned name.
     const bytes = buildElpx({
       components: [{ html: `<audio src="${R}/tema.flac"></audio><audio src="${R}/tema.wav"></audio>` }],
       files: { 'content/resources/tema.flac': fakeFlac(50_000, 1), 'content/resources/tema.wav': fakeWav(50_000, 2) },
@@ -296,9 +297,9 @@ describe('optimizeArchive: audio', () => {
     ]);
     expect(audioResults(r).sort()).toEqual([
       ['content/resources/tema.flac', 'reverted', 'not smaller enough (50000 → 60000 bytes)'],
-      ['content/resources/tema.wav', 'applied', 'converted to MP3 and renamed to content/resources/tema.mp3'],
+      ['content/resources/tema.wav', 'applied', 'converted to MP3 and renamed to content/resources/tema_2.mp3'],
     ]);
-    expect([...r.files.keys()].filter((n) => n.startsWith('content/resources/'))).toEqual(['content/resources/tema.flac', 'content/resources/tema.mp3']);
+    expect([...r.files.keys()].filter((n) => n.startsWith('content/resources/'))).toEqual(['content/resources/tema.flac', 'content/resources/tema_2.mp3']);
     expect(r.outcome.report.validations.filter((v) => !v.ok)).toEqual([]);
   });
 

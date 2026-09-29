@@ -157,6 +157,8 @@ describe('decideImage jobs', () => {
     expect(IMAGE_PROFILES.conservative.jpegQuality).toBeGreaterThan(IMAGE_PROFILES.balanced.jpegQuality);
     expect(IMAGE_PROFILES.balanced.jpegQuality).toBeGreaterThan(IMAGE_PROFILES.aggressive.jpegQuality);
     // Stronger presets also downscale further; no preset keeps images larger than 2560 px.
-    expect([IMAGE_PROFILES.conservative.maxDimension, IMAGE_PROFILES.balanced.maxDimension, IMAGE_PROFILES.aggressive.maxDimension]).toEqual([2560, 1920, 1600]);
+    expect([IMAGE_PROFILES.conservative.maxDimension, IMAGE_PROFILES.balanced.maxDimension, IMAGE_PROFILES.aggressive.maxDimension]).toEqual([
+      2560, 1920, 1600,
+    ]);
   });
 });

@@ -408,7 +408,8 @@ describe('flatten: verification of the final paths', () => {
     expect(reasons(plan)).toEqual({
       [`content/resources/${P}/x.png`]: `would change how "${CP}/x.png" resolves`,
       [`content/resources/${P}/${long}`]: `would change how "${upper.slice(0, 80)}…" resolves`,
-      [`content/resources/${P}/z.png`]: 'would change how "content/resources/z.png" resolves',
+      // A name mentioned in a script protects same-named files from the start.
+      [`content/resources/${P}/z.png`]: 'also matched by lenient or dynamic references: file name mentioned in script or obfuscated data',
     });
     // Everything else still moves.
     expect(plan.moves).toEqual([{ from: `content/resources/${P}/ok.png`, to: 'content/resources/ok.png', references: 1 }]);

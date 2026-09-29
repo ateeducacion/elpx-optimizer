@@ -74,13 +74,18 @@ describe('scanPlainText and scanCode', () => {
 
   it('marks strings in code as dynamic, non-rewritable references', () => {
     const { ctx, found } = collect();
-    const code = `var a = "content/resources/x.png"; b = '{{context_path}}/y.jpg'; c = \`foto.JPG\`; d = "not a path"; e = "https://h/z.png"; f = 'with space.png';`;
+    const code =
+      `var a = "content/resources/x.png"; b = '{{context_path}}/y.jpg'; c = \`foto.JPG\`; d = "not a path"; e = "https://h/z.png"; f = 'with space.png';` +
+      ` g = "content/resources/mis fotos/Año 1.png"; h = 'tab\there.png'; i = "content/resources/sin extension";`;
     scanCode(code, ctx);
+    // Names with spaces count too (a false positive only protects a file); tabs and extensionless paths do not.
     expect(found.map((f) => [f.value, f.kind, f.lift, f.via.join('>')])).toEqual([
       ['{{context_path}}/y.jpg', 'dynamic', undefined, 'code'],
       ['content/resources/x.png', 'dynamic', undefined, 'code'],
       ['foto.JPG', 'dynamic', undefined, 'code'],
       ['https://h/z.png', 'dynamic', undefined, 'code'],
+      ['with space.png', 'dynamic', undefined, 'code'],
+      ['content/resources/mis fotos/Año 1.png', 'dynamic', undefined, 'code'],
     ]);
   });
 });
