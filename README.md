@@ -14,16 +14,15 @@ videos, images, audio and PDFs, finds missing, unused and duplicate resources, a
 
 - **Web app**: <https://ateeducacion.github.io/elpx-optimizer/>. Everything runs in your browser;
   the project is never uploaded.
-- **CLI** with Docker (FFmpeg, sharp and qpdf included):
+- **CLI** with Docker (FFmpeg, sharp and qpdf included; also on Docker Hub as `ateeducacion/elpx-optimizer`):
 
   ```bash
   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/course.elpx --dry-run
   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/course.elpx
   ```
 
-- **Web app on your own server**: `docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer`,
-  or the static build from a [release](https://github.com/ateeducacion/elpx-optimizer/releases) on
-  any static host.
+- **Web app on your own server**: the static build from a
+  [release](https://github.com/ateeducacion/elpx-optimizer/releases) on any static host.
 - **Agent Skill**: `elpx-optimizer-skill.zip` from a release lets AI agents inspect and optimize
   projects through the CLI.
 

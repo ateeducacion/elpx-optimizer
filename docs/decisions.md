@@ -405,3 +405,8 @@ and the npm package: `ghcr.io/ateeducacion/elpx-optimizer`. Self-hosting the web
 with the `elpx-optimizer-web.tar.gz` release asset on any static host, or `elpx-optimizer serve`. The
 `latest` tag of `elpx-optimizer` moves from the web app to the CLI; the published v0.1.0 and v0.1.1
 tags keep what they were.
+
+The same image is also published on Docker Hub as `ateeducacion/elpx-optimizer`, where `docker run`
+finds it without a registry prefix. It is not built twice: the release copies the multi-platform
+image from GHCR with `docker buildx imagetools create` (tested by hand: amd64 and arm64 copied in
+16 seconds), and only when the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets exist.

@@ -15,16 +15,16 @@ se modifica nunca.
 
 - **Web**: <https://ateeducacion.github.io/elpx-optimizer/>. Todo se procesa en tu navegador; el
   proyecto no se sube a ningún servidor.
-- **CLI** con Docker (incluye FFmpeg, sharp y qpdf):
+- **CLI** con Docker (incluye FFmpeg, sharp y qpdf; también en Docker Hub como `ateeducacion/elpx-optimizer`):
 
   ```bash
   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx --dry-run
   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx
   ```
 
-- **Web en tu propio servidor**: `docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer`,
-  o la web estática de una [versión publicada](https://github.com/ateeducacion/elpx-optimizer/releases)
-  en cualquier alojamiento estático.
+- **Web en tu propio servidor**: la web estática de una
+  [versión publicada](https://github.com/ateeducacion/elpx-optimizer/releases) en cualquier
+  alojamiento estático.
 - **Agent Skill**: `elpx-optimizer-skill.zip` de una versión publicada permite a agentes de IA
   inspeccionar y optimizar proyectos a través del CLI.
 

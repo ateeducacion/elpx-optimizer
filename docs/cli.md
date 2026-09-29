@@ -187,7 +187,8 @@ platforms. PDFs need no external tool: qpdf comes as WebAssembly in the npm pack
 
 ### Docker (no local dependencies)
 
-Each GitHub release publishes `ghcr.io/ateeducacion/elpx-optimizer` on the GitHub Container Registry,
+Each GitHub release publishes `ghcr.io/ateeducacion/elpx-optimizer` on the GitHub Container Registry
+(and the same image as `ateeducacion/elpx-optimizer` on Docker Hub),
 for `linux/amd64` and `linux/arm64`, tagged `latest`, `X.Y.Z` and `X.Y`: the CLI (Alpine, Bun,
 ffmpeg, sharp, qpdf-wasm), non-root, working directory `/work`. Until v0.1.1 this name held the web
 app and the CLI was `elpx-optimizer-cli`; the web app is now only served from GitHub Pages.
