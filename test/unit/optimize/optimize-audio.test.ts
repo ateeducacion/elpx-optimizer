@@ -368,4 +368,34 @@ describe('optimizeArchive: audio', () => {
     expect(r.outcome.report.status).toBe('optimized');
     expect(r.outcome.report.validations.filter((v) => !v.ok)).toEqual([]);
   });
+
+  it('leaves a file exactly as it was when its planned conversion does not happen, even with clean names on', async () => {
+    const bytes = buildElpx({
+      components: [{ html: `<audio src="${R}/Mi Audio.wav"></audio><a href="${R}/Mi_Audio.wav">x</a><a href="${R}/Otro Nombre.pdf">pdf</a>` }],
+      files: {
+        'content/resources/Mi Audio.wav': fakeWav(50_000, 1),
+        'content/resources/Mi_Audio.wav': fakeWav(60_000, 2),
+        'content/resources/Otro Nombre.pdf': '%PDF-1.4\n',
+      },
+    });
+    const r = await run(bytes, { normalizeNames: 'slug' }, (engine) => {
+      // Never smaller: both conversions are reverted.
+      engine.audioCandidateBytes = () => fakeMp3(90_000);
+    });
+    expect(
+      r.plan.operations.filter((o) => o.op === 'transcode-audio' || o.op === 'rename-resource').map((o) => [o.op, o.path, 'to' in o ? o.to : undefined]),
+    ).toEqual([
+      ['transcode-audio', 'content/resources/Mi Audio.wav', 'content/resources/mi-audio.mp3'],
+      ['transcode-audio', 'content/resources/Mi_Audio.wav', 'content/resources/mi-audio-2.mp3'],
+      ['rename-resource', 'content/resources/Otro Nombre.pdf', 'content/resources/otro-nombre.pdf'],
+    ]);
+    // Only the rename the plan showed happens; the two WAVs keep their names.
+    expect(r.outcome.report.operations.filter((o) => o.op === 'rename-resource').map((o) => o.path)).toEqual(['content/resources/Otro Nombre.pdf']);
+    expect([...r.files.keys()].filter((n) => n.startsWith('content/resources/'))).toEqual([
+      'content/resources/Mi Audio.wav',
+      'content/resources/Mi_Audio.wav',
+      'content/resources/otro-nombre.pdf',
+    ]);
+    expect(r.outcome.report.validations.filter((v) => !v.ok)).toEqual([]);
+  });
 });

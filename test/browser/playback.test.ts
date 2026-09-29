@@ -123,6 +123,14 @@ describe('checkPlayback (main-thread <audio>)', () => {
     expect(await checkPlayback(await blobOf(recordingUrl, 'audio/webm'), 'audio/webm')).toBe('playable');
   });
 
+  it('reports audio types the browser cannot play as unsupported, without creating a URL', async () => {
+    const made = spyElements();
+    const create = vi.spyOn(URL, 'createObjectURL');
+    expect(await checkPlayback(await blobOf(toneOpusUrl, 'audio/webm'), 'audio/x-unknown-codec')).toBe('unsupported');
+    expect(made.map((m) => m.tagName)).toEqual(['AUDIO']);
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('plays MP3 where the browser supports it', async () => {
     const supported = document.createElement('audio').canPlayType('audio/mpeg') !== '';
     expect(await checkPlayback(await blobOf(tone320Url, 'audio/mpeg'), 'audio/mpeg')).toBe(supported ? 'playable' : 'unsupported');

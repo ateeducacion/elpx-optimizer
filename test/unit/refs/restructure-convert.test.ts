@@ -4,6 +4,8 @@ import { applyTextEdits } from '../../../src/core/refs/rewrite.js';
 import type { Analysis, ReferenceInternal } from '../../../src/core/analyze/model.js';
 import { analyzeBytes, buildElpx, odeXml, page } from '../../helpers/core-kit.js';
 import { fakeAiff, fakeFlac, fakeMp3, fakeWav } from '../../helpers/fake-platform.js';
+import { restructurePlan } from '../../../src/core/plan/plan.js';
+import { normalizeOptions } from '../../../src/core/plan/options.js';
 
 /** Format conversions in the restructuring planner: renamed files, followed references and updated `type` attributes. */
 
@@ -251,5 +253,58 @@ describe('convert: verification of the new names', () => {
     expect(convert(analysis, ['content/resources/tema.wav']).skipped).toEqual([
       { path: 'content/resources/tema.wav', kind: 'convert', reason: `would change how "${R}/tema.mp3" resolves` },
     ]);
+  });
+});
+
+describe('convert: names planned earlier', () => {
+  it('keeps the planned name of each conversion, and only moves it on when that name is taken', async () => {
+    const analysis = await analyzeBytes(
+      buildElpx({
+        components: [{ html: `<audio src="${R}/tema.flac"></audio><audio src="${R}/tema.wav"></audio><a href="${R}/otro.mp3">otro</a>` }],
+        files: {
+          'content/resources/tema.flac': fakeFlac(100, 1),
+          'content/resources/tema.wav': fakeWav(100, 2),
+          'content/resources/otro.mp3': fakeMp3(100, 3),
+        },
+      }),
+    );
+    // At execution only tema.wav was converted; the plan had named it tema_2.mp3 (tema.flac held tema.mp3).
+    expect(convert(analysis, ['content/resources/tema.wav']).conversions[0]!.to).toBe('content/resources/tema.mp3');
+    const kept = convert(analysis, ['content/resources/tema.wav'], { convertNames: new Map([['content/resources/tema.wav', 'content/resources/tema_2.mp3']]) });
+    expect(kept.conversions).toEqual([{ from: 'content/resources/tema.wav', to: 'content/resources/tema_2.mp3', references: 1 }]);
+    const taken = convert(analysis, ['content/resources/tema.wav'], { convertNames: new Map([['content/resources/tema.wav', 'content/resources/otro.mp3']]) });
+    expect(taken.conversions[0]!.to).toBe('content/resources/otro_2.mp3');
+  });
+
+  it('leaves frozen files exactly as they are: no move and no clean name', async () => {
+    const analysis = await analyzeBytes(
+      buildElpx({
+        components: [{ html: `<audio src="${CP}/${P}/Voz Uno.wav"></audio><img src="${CP}/${P}/Foto Uno.png"><a href="${R}/Otro Nombre.pdf">pdf</a>` }],
+        files: {
+          [`content/resources/${P}/Voz Uno.wav`]: fakeWav(100, 1),
+          [`content/resources/${P}/Foto Uno.png`]: fakeWav(100, 2),
+          'content/resources/Otro Nombre.pdf': '%PDF-1.4\n',
+        },
+      }),
+    );
+    const options = normalizeOptions({ flatten: 'legacy', normalizeNames: 'slug' });
+    const all = restructurePlan(analysis, options, new Set());
+    expect(Object.fromEntries(all.renames)).toEqual({
+      'content/resources/Otro Nombre.pdf': 'content/resources/otro-nombre.pdf',
+      [`content/resources/${P}/Foto Uno.png`]: 'content/resources/foto-uno.png',
+      [`content/resources/${P}/Voz Uno.wav`]: 'content/resources/voz-uno.wav',
+    });
+    // A file whose planned conversion did not happen is frozen: the plan showed no other change for it.
+    const frozen = restructurePlan(
+      analysis,
+      options,
+      new Set(),
+      new Map(),
+      undefined,
+      new Set([`content/resources/${P}/Voz Uno.wav`, 'content/resources/Otro Nombre.pdf']),
+    );
+    expect(Object.fromEntries(frozen.renames)).toEqual({ [`content/resources/${P}/Foto Uno.png`]: 'content/resources/foto-uno.png' });
+    expect(frozen.skipped).toEqual([]);
+    expect(frozen.emptiedDirectories).toEqual([]);
   });
 });

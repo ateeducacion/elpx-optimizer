@@ -297,3 +297,49 @@ describe('normalizeNames: plan and execution', () => {
     expect(r.names).toContain('content/resources/foto-clase.png');
   });
 });
+
+describe('files named in scripts', () => {
+  // A path with a space, a bare name with a space, and a string with a tab (prose, not a name).
+  const script = `<script>var a = "content/resources/audio/Sonido Raro.mp3"; var b = "Voz Grave.mp3"; var c = "ver:\tNota Final.pdf";</script>`;
+  const named = buildElpx({
+    components: [{ html: script }],
+    files: {
+      'content/resources/audio/Sonido Raro.mp3': png(1),
+      'content/resources/audio/Voz Grave.mp3': png(2),
+      'content/resources/Nota Final.pdf': '%PDF-1.4\n',
+    },
+  });
+
+  it('are protected from clean names and from the unused-file cleanup', async () => {
+    const analysis = await analyzeBytes(named);
+    expect(analysis.result.references.filter((r) => r.kind === 'dynamic').map((r) => [r.value, r.status])).toEqual([
+      ['content/resources/audio/Sonido Raro.mp3', 'resolved'],
+      ['Voz Grave.mp3', 'missing'],
+    ]);
+    const usage = Object.fromEntries(
+      analysis.result.entries.filter((e) => e.path.startsWith('content/resources/')).map((e) => [e.path, [e.usage, e.usageReasons.join('; ')]]),
+    );
+    expect(usage).toEqual({
+      'content/resources/audio/Sonido Raro.mp3': ['uncertain', 'possible reference in script or obfuscated data'],
+      'content/resources/audio/Voz Grave.mp3': ['uncertain', 'file name mentioned in script or obfuscated data'],
+      'content/resources/Nota Final.pdf': ['unreferenced', 'no reference found in content.xml, pages, search index or stylesheets'],
+    });
+    const plan = normalize(analysis);
+    expect(plan.renamed).toEqual([{ from: 'content/resources/Nota Final.pdf', to: 'content/resources/nota-final.pdf', references: 0 }]);
+    expect(plan.skipped).toEqual([
+      { path: 'content/resources/audio/Sonido Raro.mp3', kind: 'rename', reason: 'uncertain references: possible reference in script or obfuscated data' },
+      { path: 'content/resources/audio/Voz Grave.mp3', kind: 'rename', reason: 'uncertain references: file name mentioned in script or obfuscated data' },
+    ]);
+    const cleanup = buildOptimizationPlan(
+      analysis,
+      normalizeOptions({ removeUnused: 'safe', images: { enabled: false }, audio: { enabled: false } }),
+      await fakePlatform().engine.info(),
+      NATIVE_LIMITS,
+    );
+    expect(cleanup.operations.filter((o) => o.op === 'remove-unused').map((o) => o.path)).toEqual(['content/resources/Nota Final.pdf']);
+    expect(cleanup.skipped.filter((x) => x.kind === 'unused').map((x) => [x.path, x.reason])).toEqual([
+      ['content/resources/audio/Sonido Raro.mp3', 'kept'],
+      ['content/resources/audio/Voz Grave.mp3', 'kept'],
+    ]);
+  });
+});

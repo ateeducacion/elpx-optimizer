@@ -279,12 +279,16 @@ describe('FFmpeg arguments for audio', () => {
     const webm = job(decide(probe([audio({ codec: 'opus', bitRate: 256_000 })]), { format: 'webm' }));
     const args = buildAudioArgs(webm, 'in.webm', 'out.webm');
     expect(args.slice(4, 8)).toEqual(['-protocol_whitelist', 'file', '-f', 'matroska']);
-    expect(args.slice(-4)).toEqual(['-f', 'webm', '-y', 'out.webm']);
+    // libopus runs at compression level 4 (the pinned ffmpeg.wasm core crashes on stereo Opus above it).
+    expect(args.slice(-12)).toEqual(['-b:a', '64k', '-ac', '2', '-ar', '48000', '-compression_level', '4', '-f', 'webm', '-y', 'out.webm']);
     expect(args).not.toContain('-xerror');
+    for (const other of [job(decide(probe([audio()]))), job(decide(probe([audio({ codec: 'aac', bitRate: 256_000 })]), { format: 'm4a' }))]) {
+      expect(buildAudioArgs(other, 'in', 'out')).not.toContain('-compression_level');
+    }
     const recording = job(decide(probe([audio({ codec: 'opus' })], { duration: undefined }), { format: 'ogg' }));
     const strict = buildAudioArgs(recording, 'in.ogg', 'out.ogg', { progressPipe: true });
     expect(strict.slice(0, 8)).toEqual(['-hide_banner', '-nostdin', '-loglevel', 'error', '-xerror', '-progress', 'pipe:1', '-nostats']);
-    expect(strict.slice(-4)).toEqual(['-f', 'ogg', '-y', 'out.ogg']);
+    expect(strict.slice(-6)).toEqual(['-compression_level', '4', '-f', 'ogg', '-y', 'out.ogg']);
   });
 });
 
