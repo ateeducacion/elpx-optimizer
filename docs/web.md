@@ -1,7 +1,8 @@
 # Web app
 
 The web app is a static HTML/JavaScript/WebAssembly site (`dist/web`). **It re-encodes videos and
-audio and recompresses images inside the visitor's browser; the project is never uploaded.** The
+audio, recompresses images and rewrites PDFs inside the visitor's browser; the project is never
+uploaded.** The
 server only delivers the app's own static files; there is no API. Visiting it from another
 computer still processes the files in that visitor's browser.
 
@@ -14,23 +15,27 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
    button, Enter). The pipeline worker reads the file locally (ranged `Blob` slices, never the whole
    file at once), analyzes it and, if it has videos or audio that can be re-encoded, loads FFmpeg (a
    separate status line shows the engine loading, about 32 MB the first time) and probes them with
-   ffprobe.wasm.
+   ffprobe.wasm. If it has PDFs, it inspects them (pages, encryption, signatures) with qpdf
+   (WebAssembly, 1.3 MB, in its own worker).
 2. **Options.** On the left, the review: title, variant, pages and size; a size breakdown (video,
    images, audio, other); a notice when files sit in eXeLearning 3 folders or when references point
    to files that do not exist; issues with their location; and a sortable inventory with video,
-   audio and image properties, usage, a preview button and a checkbox per resource to keep it as
+   audio, image and PDF properties (a PDF shows its page count and whether it is encrypted, signed
+   or PDF/A-1), usage, a preview button (not for PDFs) and a checkbox per resource to keep it as
    original. On the right, the options: preset (Conservador/Conservative, Equilibrado/Balanced,
    Máximo/Maximum, which is the `aggressive` preset); maximum image size (by level, 1280, 1600,
    1920, 2560 px or no limit); clean-up switches: remove unused files, merge duplicates, clean file
    names (on by default, with the number of files that would be renamed and one example) and, only
    when the project needs them, "flatten eXeLearning 3 folders" and "remove broken references"; all
-   but clean names are off by default; advanced video, audio and image settings; single/multi-thread
-   FFmpeg.
+   but clean names are off by default; advanced video, audio, image and PDF settings (the PDF ones are
+   "Optimize PDFs" / "Optimizar PDF", on by default, and "PDFs lossless only" / "PDF solo sin
+   pérdida"); single/multi-thread FFmpeg.
 3. **Plan.** The exact operations (grouped by type, including moves, clean names, audio conversions
    and removed references), what stays unchanged and why, risks, and an estimate labelled as such.
 4. **Result.** While optimizing: real progress from the engines (engine load, extraction, processed
-   video or audio time, validation, packaging, verification; indeterminate when a fraction is not
-   reliable, never 100 % before the final validation), with Cancel always available. Then: measured
+   video or audio time, image and PDF optimization, validation, packaging, verification;
+   indeterminate when a fraction is not reliable, never 100 % before the final validation), with
+   Cancel always available. Then: measured
    sizes, applied/discarded/failed operations, download of `name_optimized.elpx` and of the JSON
    report. "Optimize another project" releases the downloads (Object URLs revoked).
 
@@ -71,6 +76,14 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
   exhaustion; with it, none do.
 - Cancelling terminates the FFmpeg worker (the codec really stops); if the pipeline worker does not
   confirm within 3 s it is terminated too and recreated. A new job can start without reloading.
+- PDFs are rewritten by qpdf 12.2.0 compiled to WebAssembly (`@neslinesli93/qpdf-wasm`), in a
+  dedicated worker (`pdf.worker.ts`) that starts on first use. It is the single-thread build: it
+  needs neither `SharedArrayBuffer` nor COOP/COEP, so it works the same on GitHub Pages and with or
+  without the multi-thread FFmpeg option. qpdf keeps global state between runs, so every run
+  instantiates a fresh module (the browser's caches make that quick). One PDF at a time; the file and
+  the result live in the WebAssembly heap. Cancelling, or exceeding the time limit, terminates the
+  worker, which starts again for the next run. Each candidate must pass `qpdf --check` without
+  warnings and keep its page count, or the original stays (see [profiles.md](profiles.md#pdfs)).
 - Images use WebAssembly codecs (jSquash: MozJPEG, OxiPNG, libwebp, resize) in a pool of dedicated
   image workers: one per spare core, at most 4 (1 when the core count is unknown, at most 1 on devices
   reporting ≤ 2 GiB and 2 on ≤ 4 GiB). Workers start on demand and stay loaded for the next job (so
@@ -116,8 +129,9 @@ the UI is responsive and usable at 390 px width.
 ## Limits and memory
 
 Browser defaults (`BROWSER_LIMITS` in `src/core/limits.ts`): archive ≤ 8 GiB, video ≤ 1 GiB,
-≤ 3840×2160, ≤ 2 h, image ≤ 64 MiB and 40 megapixels, text entries ≤ 64 MiB. `?maxVideoMiB=N`
-lowers the video limit (for small devices). Larger videos are kept as they are and the plan says so.
+≤ 3840×2160, ≤ 2 h, image ≤ 64 MiB and 40 megapixels, PDF ≤ 256 MiB, text entries ≤ 64 MiB.
+`?maxVideoMiB=N` lowers the video limit (for small devices). Larger videos and PDFs are kept as they
+are and the plan says so.
 
 The ffmpeg.wasm FAQ mentions a 2 GB input limit; with WORKERFS the input is not copied into the
 WebAssembly heap, but the encoder state and the **output** live in the 32-bit heap, together with
@@ -125,7 +139,8 @@ decoded frames. That is why the default video limit is 1 GiB and resolution is c
 are not promises that any file up to those sizes works on every device. A job that runs out of
 memory is retried once on a fresh FFmpeg instance; if it fails again the error is reported ("the
 browser ran out of memory for this file; the original is kept") and the next job starts on a fresh
-instance too. For larger files use the CLI.
+instance too. For larger files use the CLI. qpdf holds a PDF and its result in a WebAssembly heap,
+which is why PDFs have their own size limit (256 MiB in the browser, 512 MiB in the CLI).
 
 ### Measured cases
 
@@ -191,13 +206,14 @@ Ways to deploy it:
 - **GitHub Pages**: the release workflow (`.github/workflows/release.yml`) builds the site and
   deploys it to the repository's Pages site on every published release. Pages cannot send the
   COOP/COEP headers, so the page is not cross-origin isolated there and always uses the
-  single-thread FFmpeg core (video is still compressed, more slowly).
+  single-thread FFmpeg core (video is still compressed, more slowly). PDFs are unaffected: the qpdf
+  build has no threads.
 - **Any static host** with the `elpx-optimizer-web.tar.gz` asset of a release (the contents of
   `dist/web`), or from a checkout:
 
   ```bash
   bun install --frozen-lockfile
-  bun run build:web                                 # → dist/web (~64 MB, two 32 MB FFmpeg cores)
+  bun run build:web                                 # → dist/web (~66 MB, two 32 MB FFmpeg cores, 1.3 MB qpdf)
   elpx-optimizer serve --root dist/web --port 8080  # or nginx/Apache/any static host
   docker build --target web -t elpx-optimizer-web . && docker run -p 8080:8080 elpx-optimizer-web
   ```

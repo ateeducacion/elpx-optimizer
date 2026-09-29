@@ -19,6 +19,7 @@ import { inspectImage } from '../media/image-inspect.js';
 import { extractMetadata, injectMetadata } from '../media/image-metadata.js';
 import { isWorthReplacing, validateVideoCandidate } from '../media/video-policy.js';
 import { AUDIO_MIME, audioDemuxer, validateAudioCandidate } from '../media/audio-policy.js';
+import { checkPdf, inspectPdf, rewritePdf, validatePdfCandidate } from '../media/pdf-policy.js';
 import { applyTextEdits } from '../refs/rewrite.js';
 import { buildOptimizationPlan, restructurePlan, type OptimizationPlan, type PlanOperation } from '../plan/plan.js';
 import { canonicalJson } from '../plan/options.js';
@@ -160,6 +161,17 @@ export async function optimizeArchive(
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, Math.min(platform.imageConcurrency, imageOps.length)) }, worker));
+    // PDFs, one at a time (qpdf holds the file and its output in memory).
+    const pdfOps = plan.operations.filter((o): o is Extract<PlanOperation, { op: 'optimize-pdf' }> => o.op === 'optimize-pdf');
+    let p = 0;
+    for (const op of pdfOps) {
+      throwIfCancelled(signal);
+      p++;
+      const thresholds = { minSavingsPercent: plan.options.pdf.minSavingsPercent, minSavingsBytes: plan.options.pdf.minSavingsBytes };
+      const r = await runPdf(op, archive.byName.get(op.path)!, analysis, platform, { signal, progress, thresholds, item: p, items: pdfOps.length });
+      results.push(r.result);
+      if (r.candidate) replacements.set(op.path, r.candidate);
+    }
 
     // 3. Cleanup, deduplication and reference rewriting.
     for (const op of plan.operations) {
@@ -476,6 +488,68 @@ async function runAudio(
   } catch (error) {
     await input?.dispose().catch(() => undefined);
     await candidate?.dispose().catch(() => undefined);
+    if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
+    return { result: { ...base, status: 'failed', detail: errorMessage(error) } };
+  }
+}
+
+/**
+ * Runs one PDF job: the image pass (when allowed) and then the lossless pass;
+ * the first candidate that passes qpdf --check without warnings, keeps the
+ * page count and saves enough is used. Otherwise the original is kept.
+ */
+async function runPdf(
+  op: Extract<PlanOperation, { op: 'optimize-pdf' }>,
+  entry: ZipEntry,
+  analysis: Analysis,
+  platform: Platform,
+  step: StepContext,
+): Promise<{ result: OperationResult; candidate?: StoredResource }> {
+  const base = { id: op.id, op: op.op, path: op.path, before: op.size, conversions: op.conversions } as const;
+  const engine = platform.engine;
+  if (!engine.runQpdf) return { result: { ...base, status: 'failed', detail: 'This engine does not process PDFs' } };
+  const runner = { runQpdf: engine.runQpdf.bind(engine) };
+  const ctx = { resourcePath: op.path, timeoutMs: platform.limits.videoTimeoutMs, ...(step.signal ? { signal: step.signal } : {}) };
+  const notes: string[] = [];
+  try {
+    const original = await readEntryBytes(analysis.archive!, entry, platform.limits.maxPdfBytes, step.signal ? { signal: step.signal } : {});
+    const passes: ('images' | 'lossless')[] = op.job.images ? ['images', 'lossless'] : ['lossless'];
+    for (const pass of passes) {
+      throwIfCancelled(step.signal);
+      step.progress({ stage: 'pdf', resource: op.path, ...(step.item ? { item: step.item, items: step.items! } : {}), message: `qpdf, ${pass} pass` });
+      try {
+        const candidate = await rewritePdf(runner, original, op.job, pass, ctx);
+        await checkPdf(runner, candidate, ctx);
+        const info = await inspectPdf(runner, candidate, ctx);
+        const problems = validatePdfCandidate(op.job, info);
+        if (problems.length > 0) {
+          notes.push(`${pass} pass rejected: ${problems.join('; ')}`);
+          continue;
+        }
+        if (!isWorthReplacing(op.size, candidate.length, step.thresholds)) {
+          notes.push(`${pass} pass not smaller enough (${op.size} → ${candidate.length} bytes)`);
+          continue;
+        }
+        const stored = await platform.store.fromBytes(candidate, 'pdf');
+        const checks = ['qpdf --check without warnings', `${info.pages} pages, as in the original`];
+        return {
+          result: {
+            ...base,
+            lossy: pass === 'images',
+            status: 'applied',
+            after: candidate.length,
+            checks,
+            ...(notes.length > 0 ? { detail: `lossless pass kept (${notes.join('; ')})` } : {}),
+          },
+          candidate: stored,
+        };
+      } catch (error) {
+        if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
+        notes.push(`${pass} pass: ${errorMessage(error)}`);
+      }
+    }
+    return { result: { ...base, lossy: false, status: 'reverted', detail: notes.join('; ') } };
+  } catch (error) {
     if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
     return { result: { ...base, status: 'failed', detail: errorMessage(error) } };
   }

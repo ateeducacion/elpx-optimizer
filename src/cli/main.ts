@@ -44,14 +44,14 @@ Exit codes: 0 success, 1 failure, 2 usage error, 3 invalid input,
 const COMMAND_HELP: Record<string, string> = {
   doctor: `Usage: ${TOOL_NAME} doctor [--json] [--ffmpeg PATH] [--ffprobe PATH]
 
-Checks the runtime, FFmpeg/ffprobe (version and encoders), sharp/libvips and
-the static web build. Inspecting projects never requires FFmpeg.
+Checks the runtime, FFmpeg/ffprobe (version and encoders), sharp/libvips, qpdf
+(PDFs) and the static web build. Inspecting projects never requires FFmpeg.
 `,
   inspect: `Usage: ${TOOL_NAME} inspect <file.elpx> [options]
 
 Options:
   --json                Print the analysis as JSON
-  --no-probe            Do not inspect videos with ffprobe
+  --no-probe            Do not inspect media (ffprobe) or PDFs (qpdf)
   --no-references       Omit the reference list from the JSON output
   --ffprobe PATH        ffprobe binary (default: ELPX_OPTIMIZER_FFPROBE or PATH)
   --ffmpeg PATH         ffmpeg binary (default: ELPX_OPTIMIZER_FFMPEG or PATH)
@@ -76,6 +76,9 @@ Selection:
   --no-video                 Do not touch videos
   --no-images                Do not touch images
   --no-audio                 Do not touch audio files
+  --no-pdf                   Do not touch PDF files
+  --pdf-lossless             Rewrite PDFs without converting their images to JPEG
+                             (the conservative preset already does this)
   --remove-unused MODE       off (default) | safe
   --deduplicate MODE         off (default) | exact
   --flatten MODE             off (default) | legacy: move files out of eXeLearning 3
@@ -113,7 +116,7 @@ Audio (WAV, AIFF and FLAC become MP3 with the .mp3 extension; references are rew
 Resources:
   --threads N                FFmpeg encoder threads
   --image-concurrency N      Parallel image jobs
-  --timeout-video SECONDS    Per-video time limit
+  --timeout-video SECONDS    Time limit per video (also per qpdf run)
   --max-archive-size N       Input size limit in bytes
   --max-video-size N         Largest video processed (bytes)
   --temp-dir DIR             Where temporary files are created
@@ -162,6 +165,8 @@ const COMMANDS: Record<string, { options: NonNullable<ParseArgsConfig['options']
       deduplicate: { type: 'string' },
       flatten: { type: 'string' },
       'no-audio': { type: 'boolean' },
+      'no-pdf': { type: 'boolean' },
+      'pdf-lossless': { type: 'boolean' },
       'audio-bitrate': { type: 'string' },
       'audio-force': { type: 'boolean' },
       'missing-references': { type: 'string' },

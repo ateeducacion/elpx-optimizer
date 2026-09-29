@@ -274,3 +274,73 @@ and a job whose failure is a memory abort (not the bare `Aborted()` ffmpeg.wasm 
 error) is retried once on a fresh instance before the original is kept. With it, the same course
 optimized in headless Chromium with the single-thread core re-encoded all 255 recordings with no
 failures ([web.md](web.md#measured-cases)).
+
+## D19. PDFs are rewritten by qpdf compiled to WebAssembly, the same build in both engines
+
+Options: (a) leave PDFs alone; (b) a native tool in the CLI and nothing in the web app; (c) one qpdf
+build compiled to WebAssembly, used by the CLI and by the web app. The web app is served from GitHub
+Pages, which cannot send COOP/COEP (D4), so an engine that needs `SharedArrayBuffer` or threads is
+not an option for it. Chosen (c) with `@neslinesli93/qpdf-wasm` 0.3.0: qpdf 12.2.0, a single-thread
+build with no pthreads, so it runs on any static host. The other WebAssembly build of qpdf that was
+considered, jsscheller's, needs pthreads and would only work under cross-origin isolation. With one
+build, the browser and the CLI rewrite a PDF the same way, the CLI needs nothing installed besides
+its npm dependency (no `qpdf` binary, unlike ffmpeg), and everything that decides what happens
+(eligibility, arguments, inspection, validation) lives once in `core/media/pdf-policy.ts`.
+
+qpdf rewrites the file's objects without rendering it, so text, fonts, links, bookmarks, forms and
+tags are kept. It offers two levers, both used: recompressing streams and packing objects into
+object streams (`--object-streams=generate --compress-streams=y --recompress-flate
+--compression-level=9`, lossless) and `--optimize-images`, which converts images that are not JPEG
+into JPEG where that makes each image smaller (lossy, so it is on in the balanced and aggressive
+presets and off in the conservative one, and `--pdf-lossless` turns it off anywhere).
+
+- **No `--jpeg-quality`.** With it qpdf also re-encodes images that are already JPEG, which inflated
+  files in testing. Without it existing JPEGs are never touched, and there is no PDF quality setting.
+- **Lossless fallback.** The image pass runs first; if it fails, its result is rejected or it does not
+  save enough, the lossless pass is used, and if that does not pay off the original stays.
+- **Never rewritten:** encrypted PDFs; signed PDFs (a signature field), because a signature covers
+  the file's bytes and any rewrite would invalidate it; files qpdf cannot inspect. PDF/A-1 files keep
+  `--object-streams=preserve` (PDF/A-1 does not allow object streams) and linearized files stay
+  linearized.
+- **Verification.** `qpdf --check` must exit 0: a warning (exit 3) counts as failure. The candidate is
+  inspected again: same page count, not encrypted, linearized if the original was. Then the same
+  minimum saving as for the other media applies.
+- **A fresh qpdf instance for every run.** qpdf's command line keeps global state between runs. In the
+  browser the WebAssembly file is fetched once and the browser's caches make instantiating it again
+  cheap; in the CLI each run is a new child process (`qpdf-runner.mjs`, started with the Node or Bun
+  executable that runs the CLI) with a timeout and process-group kill, like FFmpeg.
+- **Standard output through `FS.init`.** The build only accepts a few module options and ignores
+  `print`/`printErr`, so the JSON that inspection needs (and qpdf's messages) are captured by
+  initializing the file system's standard streams in `preRun`. The web app locates the `.wasm` with
+  `locateFile`; under Node the module finds `qpdf.wasm` next to its own file and takes no
+  `wasmBinary`, so the package stays external to the CLI bundle and is a runtime dependency of the CLI
+  package and of the skill's `vendor/`.
+- **Memory.** qpdf holds a file and its output in a WebAssembly heap: PDFs run one at a time, above
+  512 MiB (native) or 256 MiB (browser) they are kept as they are.
+
+The cost is a 1.3 MB `qpdf.wasm` in the web build and its licenses (qpdf: Apache-2.0; zlib;
+libjpeg-turbo; the npm wrapper declares ISC), in `licenses/qpdf-wasm-NOTICES.txt` and
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
+
+## D20. Dependabot with the Bun ecosystem, grouped updates and base images in the FROM lines
+
+GitHub's default Dependabot job (`npm_and_yarn`) failed on `main` because the repository is managed
+by Bun (`bun.lock`, no npm lockfile). `.github/dependabot.yml` uses the `bun` ecosystem for
+`package.json` and `bun.lock`, and also updates the Docker base images and the GitHub Actions, weekly
+on Mondays at 06:00 (Atlantic/Canary). New releases wait a few days (a cooldown of 3 days, 7 for
+minor and 14 for major Bun updates) before an update is proposed; security updates are not delayed.
+
+Packages that have to move together are grouped into one pull request: `ffmpeg-wasm` (`@ffmpeg/*`,
+whose cores and JavaScript API are released together and whose encoders the web app pins), `jsquash`,
+`build-and-test` (Vite, Vitest, Playwright), `typescript`, `lint`, `web-ui` (Bootstrap, icons, Sass,
+fonts), `html-parser` (parse5 and entities), `docker-images` and `github-actions`. The runtime
+components the builds redistribute and that have no group (sharp, fflate, `@noble/hashes`,
+`@neslinesli93/qpdf-wasm`) arrive one by one: each update also means checking its entry in
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) and, for qpdf-wasm, `licenses/qpdf-wasm-NOTICES.txt`
+and `QPDF_VERSION` in `src/adapters/browser/qpdf-version.ts` (a browser test checks it against the
+pinned build).
+
+The `Dockerfile` writes the base images literally in its `FROM` lines (`oven/bun:1.4.0-alpine` for the
+build and CLI stages, `nginxinc/nginx-unprivileged:1.29-alpine` for the web stage) instead of the
+`ARG BUN_IMAGE` and `ARG NGINX_IMAGE` it used before, so that Dependabot's Docker ecosystem can read
+and update the tags.

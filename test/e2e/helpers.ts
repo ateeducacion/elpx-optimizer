@@ -127,6 +127,18 @@ function ffprobeBin(): string {
   return process.env['ELPX_OPTIMIZER_FFPROBE'] ?? (existsSync(local) ? local : 'ffprobe');
 }
 
+/** Runs the CLI's qpdf (WebAssembly in a Node child process) on a PDF: the independent check of the browser's output. */
+export function qpdfCli(bytes: Uint8Array, args: string[]): string {
+  const dir = mkdtempSync(join(tmpdir(), 'elpx-e2e-'));
+  try {
+    const file = join(dir, 'in.pdf');
+    writeFileSync(file, bytes);
+    return execFileSync(process.execPath, [join(ROOT, 'src', 'adapters', 'node', 'qpdf-runner.ts'), file, '-', ...args]).toString();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Independent inspection with NATIVE ffprobe and a full NATIVE decode of a video. */
 export function nativeVideoCheck(bytes: Uint8Array): {
   streams: { codec_type: string; codec_name: string; width?: number; height?: number; pix_fmt?: string; profile?: string }[];

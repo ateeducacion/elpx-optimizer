@@ -24,6 +24,8 @@ export default defineConfig({
       },
       {
         optimizeDeps: {
+          // CommonJS (Emscripten): pre-bundled up front rather than discovered during a run.
+          include: ['@neslinesli93/qpdf-wasm'],
           exclude: [
             '@ffmpeg/ffmpeg',
             '@ffmpeg/util',

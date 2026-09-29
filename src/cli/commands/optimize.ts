@@ -24,12 +24,15 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   const video: NonNullable<OptionsInput['video']> = { ...(base.video ?? {}) };
   const images: NonNullable<OptionsInput['images']> = { ...(base.images ?? {}) };
   const audio: NonNullable<OptionsInput['audio']> = { ...(base.audio ?? {}) };
+  const pdf: NonNullable<OptionsInput['pdf']> = { ...(base.pdf ?? {}) };
   const opts: OptionsInput = { ...base };
   // "maximum" is the name the web app shows for the aggressive preset.
   if (typeof values['preset'] === 'string') opts.preset = (values['preset'] === 'maximum' ? 'aggressive' : values['preset']) as OptionsInput['preset'];
   if (values['no-video']) video.enabled = false;
   if (values['no-images']) images.enabled = false;
   if (values['no-audio']) audio.enabled = false;
+  if (values['no-pdf']) pdf.enabled = false;
+  if (values['pdf-lossless']) pdf.images = false;
   const abr = intFlag(values, 'audio-bitrate', 0, 10000);
   if (abr !== undefined) audio.bitrate = abr;
   if (values['audio-force']) audio.force = true;
@@ -67,6 +70,7 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   if (Object.keys(video).length > 0) opts.video = video;
   if (Object.keys(images).length > 0) opts.images = images;
   if (Object.keys(audio).length > 0) opts.audio = audio;
+  if (Object.keys(pdf).length > 0) opts.pdf = pdf;
   return opts;
 }
 
@@ -200,6 +204,9 @@ export function renderPlan(plan: ReturnType<typeof buildOptimizationPlan>): stri
       case 'transcode-video':
       case 'recompress-image':
         lines.push(`  • ${op.op} ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`);
+        break;
+      case 'optimize-pdf':
+        lines.push(`  • optimize-pdf ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`);
         break;
       case 'transcode-audio':
         lines.push(`  • transcode-audio ${op.path}${op.to ? ` → ${op.to}` : ''} (${formatBytes(op.size)}) [lossy]: ${op.conversions.join('; ')}`);

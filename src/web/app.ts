@@ -43,7 +43,7 @@ const SKILL_URL = `${REPO_URL}/blob/main/skills/elpx-optimizer/SKILL.md`;
 const CLI_DOCS_URL = `${REPO_URL}/blob/main/docs/cli.md`;
 const SKILL_DOCS_URL = `${REPO_URL}/blob/main/docs/skill.md`;
 
-const STAGES = ['engine-load', 'extract', 'transcode', 'encode-image', 'validate', 'package', 'verify'] as const;
+const STAGES = ['engine-load', 'extract', 'transcode', 'encode-image', 'pdf', 'validate', 'package', 'verify'] as const;
 
 /** The stepper position of each view (1-based; 0 hides the current marker). */
 const VIEW_STEP: Record<View, number> = { start: 1, analyzing: 1, review: 2, plan: 3, running: 4, result: 4, error: 0 };
@@ -53,6 +53,7 @@ const OP_ORDER: readonly [PlanOperation['op'], IconName][] = [
   ['transcode-video', 'camera-video'],
   ['recompress-image', 'image'],
   ['transcode-audio', 'music-note-beamed'],
+  ['optimize-pdf', 'file-earmark-pdf'],
   ['remove-unused', 'trash3'],
   ['deduplicate', 'files'],
   ['move-resource', 'folder-symlink'],
@@ -780,7 +781,8 @@ export class App {
     };
     const body = h('tbody');
     for (const e of rows) {
-      const optimizable = e.kind === 'image' || e.kind === 'video' || e.kind === 'audio';
+      const pdf = e.format === 'pdf';
+      const optimizable = e.kind === 'image' || e.kind === 'video' || e.kind === 'audio' || pdf;
       const box = optimizable
         ? h(
             'div',
@@ -798,7 +800,16 @@ export class App {
             }),
           )
         : '';
-      const kindIcon: IconName = e.kind === 'video' ? 'camera-video' : e.kind === 'image' ? 'image' : e.kind === 'audio' ? 'music-note-beamed' : 'file-earmark';
+      const kindIcon: IconName =
+        e.kind === 'video'
+          ? 'camera-video'
+          : e.kind === 'image'
+            ? 'image'
+            : e.kind === 'audio'
+              ? 'music-note-beamed'
+              : pdf
+                ? 'file-earmark-pdf'
+                : 'file-earmark';
       const lead = this.pipeline.preview && (e.kind === 'image' || e.kind === 'video' || e.kind === 'audio') ? this.previewButton(e) : undefined;
       body.append(
         h(
@@ -1006,6 +1017,11 @@ export class App {
       ];
       return `${parts.filter(Boolean).join(' ')}, ${duration(a.duration)}`;
     }
+    if (e.pdf) {
+      const p = e.pdf;
+      const flags = [p.encrypted ? this.t('pdfEncrypted') : '', p.signed ? this.t('pdfSigned') : '', p.pdfA1 ? 'PDF/A-1' : ''];
+      return [this.t(p.pages === 1 ? 'pdfPagesOne' : 'pdfPages', { count: p.pages }), ...flags].filter(Boolean).join(', ');
+    }
     return '';
   }
 
@@ -1088,6 +1104,8 @@ export class App {
         check('png', 'optimizePng', o.images?.png !== false),
         check('stripMetadata', 'stripMetadata', o.images?.stripMetadata === true),
         check('includeScreenshot', 'includeScreenshot', o.images?.includeScreenshot === true),
+        check('pdf', 'pdfEnabled', o.pdf?.enabled !== false),
+        check('pdfLossless', 'pdfLossless', o.pdf?.images === false),
         check('multithread', 'threadsMulti', this.threading !== 'single'),
       ),
     );
@@ -1189,6 +1207,8 @@ export class App {
     if (imageSize === 'none') images.maxDimension = null;
     else if (/^\d+$/.test(imageSize)) images.maxDimension = Number(imageSize);
     const audio: NonNullable<OptionsInput['audio']> = { enabled: on('audio') };
+    // Unchecked, the preset decides whether images inside PDFs are converted.
+    const pdf: NonNullable<OptionsInput['pdf']> = { enabled: on('pdf'), ...(on('pdfLossless') ? { images: false } : {}) };
     const afb = n('audioFilesBitrate');
     if (afb !== undefined) audio.bitrate = afb;
     this.threading = on('multithread') ? 'auto' : 'single';
@@ -1197,6 +1217,7 @@ export class App {
       video,
       images,
       audio,
+      pdf,
       removeUnused: on('removeUnused') ? 'safe' : 'off',
       deduplicate: on('deduplicate') ? 'exact' : 'off',
       flatten: on('flatten') ? 'legacy' : 'off',
@@ -1222,6 +1243,7 @@ export class App {
     switch (op.op) {
       case 'transcode-video':
       case 'recompress-image':
+      case 'optimize-pdf':
         return `${short(op.path)} (${bytes(op.size, this.lang)}): ${op.conversions.join('; ')}`;
       case 'transcode-audio':
         return `${short(op.path)}${op.to ? ` → ${short(op.to)}` : ''} (${bytes(op.size, this.lang)}): ${op.conversions.join('; ')}`;
@@ -1247,6 +1269,7 @@ export class App {
     const notes: string[] = [];
     if (ops.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || (o.op === 'recompress-image' && o.lossy))) notes.push(this.t('risk_lossy'));
     if (ops.some((o) => o.op === 'transcode-audio' && o.to !== undefined)) notes.push(this.t('risk_audioRename'));
+    if (ops.some((o) => o.op === 'optimize-pdf' && o.lossy)) notes.push(this.t('risk_pdfImages'));
     if (ops.some((o) => (o.op === 'transcode-video' && o.job.scale) || (o.op === 'recompress-image' && o.job.resize))) notes.push(this.t('risk_downscale'));
     if (has('remove-unused')) notes.push(this.t('risk_unused'));
     if (has('deduplicate')) notes.push(this.t('risk_dedup'));

@@ -5,8 +5,8 @@ the web app shows the last one as "Máximo" / "Maximum", and the CLI also accept
 `--preset maximum` as an alias (plans and reports always say `aggressive`).
 
 Every lossy operation is marked `lossy` in the plan and the report. When a result is invalid, not
-smaller by at least the configured minimum (5 % and 1 KiB for images and audio, 5 % and 10 KiB for
-videos by default) or fails any check, the original file is kept.
+smaller by at least the configured minimum (5 % and 1 KiB for images, audio and PDFs, 5 % and 10 KiB
+for videos by default) or fails any check, the original file is kept.
 
 ## Video
 
@@ -107,6 +107,42 @@ for the same quality).
   `--image-concurrency`); the browser engine runs them one after another.
 - `--no-audio` (options `audio.enabled: false`) leaves every audio file untouched.
 
+## PDFs
+
+PDFs are rewritten by qpdf 12.2.0 compiled to WebAssembly, the same build in the CLI (in a child
+process) and in the web app (in a dedicated worker). qpdf does not render anything: it re-writes the
+file's objects, so text, fonts, links, bookmarks, forms and tags are kept as they are. Only user
+resources whose content is a PDF are considered, and their names and references never change.
+
+|                                                                        | conservative | balanced | aggressive (Maximum) |
+| ---------------------------------------------------------------------- | ------------ | -------- | -------------------- |
+| Lossless pass: object streams, Flate streams recompressed at level 9   | yes          | yes      | yes                  |
+| Image pass: images that are not JPEG become JPEG where smaller (lossy) | no           | yes      | yes                  |
+
+There is no PDF quality setting. The image pass uses qpdf's `--optimize-images`, which converts an
+image only when the JPEG is smaller than the original stream and never re-encodes an image that is
+already a JPEG (`--jpeg-quality` is not used: it also re-encodes existing JPEGs, which made some
+files bigger). `--pdf-lossless` (options `pdf.images: false`) turns the image pass off in any
+preset, and the web app has the same switch ("PDFs lossless only"). If the image pass fails, is
+rejected or does not save enough, the result of the lossless pass is used instead, and if that does
+not pay off either, the original stays.
+
+- Linearized ("fast web view") files stay linearized. PDF/A-1 files get no object streams
+  generated (`--object-streams=preserve`), because PDF/A-1 does not allow them.
+- **Skipped** (with the reason in the plan): encrypted PDFs (`encrypted`); signed PDFs, that is,
+  with a signature field (`signed`), because rewriting the file would invalidate the signature; PDFs
+  qpdf could not read (`not-inspected`, with a `media-probe-failed` diagnostic); files above the size
+  limit, 512 MiB in the CLI and 256 MiB in the browser (`exceeds-size-limit`); `--no-pdf`
+  (`pdf-disabled`, options `pdf.enabled: false`); excluded files; and an engine without PDF support
+  (`engine-unavailable`).
+- Every candidate is checked before it replaces the original: `qpdf --check` must report no errors
+  and no warnings, the page count must be the same as in the original, the file must not be
+  encrypted and it must still be linearized if the original was. It must also save at least the
+  configured minimum (`--min-savings-percent`, `--min-savings-bytes`).
+- PDFs are processed one at a time, since qpdf holds the file and its output in memory. Each qpdf run
+  is bounded by the video time limit (`--timeout-video`: 2 h by default in the CLI, 3 h in the
+  browser, where hitting it stops the worker); on a timeout the original stays.
+
 ## Clean-up and restructuring
 
 All of these are off by default in the core and the CLI. The web app turns on clean file names by
@@ -203,6 +239,10 @@ This option is an explicit opt-in for authors who prefer a clean package.
 - Flattening and clean names change where files live and what they are called inside the package;
   the project opens in eXeLearning with the new paths. Links to the old names from outside the
   package do not follow.
+- The PDF image pass converts images that are not JPEG into JPEG, which is lossy and can turn a
+  crisp diagram or a screenshot into a slightly softer one; use `--pdf-lossless` (or the conservative
+  preset) for PDFs whose images matter, or `--no-pdf`. PDFs that are signed or encrypted are never
+  touched.
 - Repeated optimization of the same file adds generation loss; efficient sources are skipped to
   limit it, but there is no guarantee of binary idempotence for lossy encoders.
 - The `size` recorded by the file-attachment iDevice becomes stale when a file is recompressed

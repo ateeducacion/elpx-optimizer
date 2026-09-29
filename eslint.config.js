@@ -41,7 +41,10 @@ export default tseslint.config(
               message: 'The core must not import Node modules; use an adapter.',
             },
             { group: ['bun', 'bun:*'], message: 'The core must not import Bun.' },
-            { group: ['sharp', '@ffmpeg/*', '@jsquash/*'], message: 'Media libraries belong to adapters.' },
+            {
+              group: ['sharp', '@ffmpeg/*', '@jsquash/*', '@neslinesli93/qpdf-wasm', '@neslinesli93/qpdf-wasm/*'],
+              message: 'Media libraries belong to adapters.',
+            },
             { group: ['**/adapters/**', '**/cli/**', '**/web/**'], message: 'The core must not import adapters or interfaces.' },
           ],
         },

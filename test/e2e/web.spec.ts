@@ -8,6 +8,7 @@ import {
   E2E_FIXTURES,
   FIXTURES,
   nativeVideoCheck,
+  qpdfCli,
   readEntry,
   recordRequests,
   sha256File,
@@ -140,6 +141,31 @@ test('merges duplicates and removes unused files with rewritten references', asy
   expect(manifest).not.toContain('viejo.webp');
 });
 
+test('optimizes PDFs with qpdf in a worker, keeping signed ones as they are @cross-browser', async ({ page }, testInfo) => {
+  const course = join(E2E_FIXTURES, 'pdf-course.elpx');
+  const requests = recordRequests(page);
+  await page.goto('/');
+  await page.setInputFiles('#file-input', course);
+  await waitForReview(page);
+  await expect(page.locator('.inventory')).toContainText(/2 páginas|2 pages/);
+  await expect(page.locator('.inventory')).toContainText(/firmado|signed/);
+  await ui.reviewPlan(page).click();
+  await expect(page.locator('.plan-group')).toContainText(/PDF a optimizar|PDFs to optimize/);
+  await expect(page.locator('.plan-skipped')).toContainText('firmado.pdf');
+  const { path } = await runDownload(page, testInfo);
+
+  const original = await readEntry(course, 'content/resources/ficha.pdf');
+  const pdf = await readEntry(path, 'content/resources/ficha.pdf');
+  expect(pdf.length).toBeLessThan(original.length / 10);
+  expect(qpdfCli(pdf, ['--check', '/in.pdf'])).toContain('No syntax or stream encoding errors');
+  expect(qpdfCli(pdf, ['--show-npages', '/in.pdf']).trim()).toBe('2');
+  const signed = await readEntry(path, 'content/resources/firmado.pdf');
+  expect(Buffer.from(signed).equals(Buffer.from(await readEntry(course, 'content/resources/firmado.pdf')))).toBe(true);
+  expect((await analyzeFile(path)).diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  expect(requests.some((r) => /\/assets\/qpdf-[^/]*\.wasm$/.test(r.url()))).toBe(true);
+  expect(assertOnlyStaticRequests(requests, 'http://127.0.0.1:4173', '/')).toEqual([]);
+});
+
 test('an input without improvement is delivered byte for byte @cross-browser', async ({ page }, testInfo) => {
   await page.goto('/');
   await page.setInputFiles('#file-input', EFFICIENT);
@@ -203,8 +229,14 @@ test('a video above the memory/size limit is kept as original', async ({ page },
 });
 
 test('keeps working with the network blocked once the components are loaded', async ({ page, context }, testInfo) => {
+  const pdfCourse = join(E2E_FIXTURES, 'pdf-course.elpx');
   await page.goto('/');
   await page.setInputFiles('#file-input', COURSE);
+  await waitForReview(page);
+  await planRunDownload(page, testInfo);
+  // qpdf is loaded by a project with PDFs.
+  await ui.another(page).click();
+  await page.setInputFiles('#file-input', pdfCourse);
   await waitForReview(page);
   await planRunDownload(page, testInfo);
   // Real offline mode (page.route would disable the HTTP cache, which a real offline visit keeps):
@@ -221,6 +253,13 @@ test('keeps working with the network blocked once the components are loaded', as
   await page.setInputFiles('#file-input', EFFICIENT);
   await waitForReview(page);
   await planRunDownload(page, testInfo, /No se ha conseguido|could not be reduced/);
+  // Every qpdf run loads the module again: from the browser's cache.
+  await ui.another(page).click();
+  await page.setInputFiles('#file-input', pdfCourse);
+  await waitForReview(page);
+  await expect(page.locator('.inventory')).toContainText(/2 páginas|2 pages/);
+  const { path } = await planRunDownload(page, testInfo);
+  expect((await readEntry(path, 'content/resources/ficha.pdf')).length).toBeLessThan((await readEntry(pdfCourse, 'content/resources/ficha.pdf')).length / 10);
   expect(failed.filter((u) => !u.startsWith('blob:'))).toEqual([]);
   expect(network).toEqual([]);
 });

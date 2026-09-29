@@ -12,13 +12,13 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 
 ## Commands
 
-| Command                                                | Purpose                                                                                                       | Exit codes                                                                               |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `doctor [--json]`                                      | Runtime, ffmpeg/ffprobe (with a real encode test; `capabilities.video`, `.audio`, `.image`), sharp, web build | 0 all available, 5 something missing                                                     |
-| `inspect FILE [--json] [--no-probe] [--no-references]` | Analysis without changes                                                                                      | 0, 3 invalid input                                                                       |
-| `validate FILE [--json] [--strict]`                    | Integrity, references, manifest                                                                               | 0 valid, 4 errors (warnings with --strict), 3 unusable                                   |
-| `optimize FILE [options]`                              | Plan (`--dry-run`) or run                                                                                     | 0 optimized/no-improvement/dry run, 4 partial, 3 invalid input, 1 failure, 130 cancelled |
-| `serve [--host --port --root --base --isolation]`      | Static web app only (no upload API)                                                                           | 0                                                                                        |
+| Command                                                | Purpose                                                                                                              | Exit codes                                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `doctor [--json]`                                      | Runtime, ffmpeg/ffprobe (real encode test), sharp, qpdf, web build; `capabilities.video`, `.audio`, `.image`, `.pdf` | 0 all available, 5 something missing                                                     |
+| `inspect FILE [--json] [--no-probe] [--no-references]` | Analysis without changes                                                                                             | 0, 3 invalid input                                                                       |
+| `validate FILE [--json] [--strict]`                    | Integrity, references, manifest                                                                                      | 0 valid, 4 errors (warnings with --strict), 3 unusable                                   |
+| `optimize FILE [options]`                              | Plan (`--dry-run`) or run                                                                                            | 0 optimized/no-improvement/dry run, 4 partial, 3 invalid input, 1 failure, 130 cancelled |
+| `serve [--host --port --root --base --isolation]`      | Static web app only (no upload API)                                                                                  | 0                                                                                        |
 
 `--json` prints exactly one JSON document on stdout; progress goes to stderr (`--quiet` silences it).
 
@@ -27,7 +27,7 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 - Output: `--output PATH` (default `<name>_optimized.elpx` next to the input; refuses the input path),
   `--overwrite` (only the output), `--report PATH`, `--dry-run`, `--json`.
 - Selection: `--preset conservative|balanced|aggressive` (`maximum` = `aggressive`, the web app's
-  "Maximum"), `--no-video`, `--no-images`, `--no-audio`, `--remove-unused off|safe`,
+  "Maximum"), `--no-video`, `--no-images`, `--no-audio`, `--no-pdf`, `--remove-unused off|safe`,
   `--deduplicate off|exact`, `--exclude PATH` (repeatable; ZIP paths such as
   `content/resources/video.mp4`), `--config FILE` (JSON with the same keys as the web app).
 - Restructuring (off by default, ask first):
@@ -52,20 +52,31 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
   are re-encoded in place only when their bitrate is ≥ 1.4 × the target. `--audio-bitrate 64-320`
   (MP3/AAC stereo; mono half, at least 64; Opus half of those; default 192/128/96 by preset),
   `--audio-force`.
+- PDFs: rewritten by qpdf (WebAssembly, no external tool) without re-rendering; text, fonts, links,
+  bookmarks, forms and tags are kept and names never change. A lossless pass (object streams, Flate
+  streams recompressed) always runs; the balanced and aggressive presets also convert images that
+  are not JPEG into JPEG where that makes them smaller (lossy; existing JPEGs are not re-encoded).
+  `--pdf-lossless` turns the image conversion off, `--no-pdf` leaves every PDF untouched. Encrypted
+  and signed PDFs, PDFs over 512 MiB and PDFs qpdf cannot read are skipped (`skipped[]`, kind `pdf`,
+  reasons `encrypted`, `signed`, `exceeds-size-limit`, `not-inspected`); a result must pass
+  `qpdf --check` without warnings, keep the page count and save at least the minimum.
 - Thresholds: `--min-savings-percent N`, `--min-savings-bytes N`.
-- Resources: `--threads N`, `--image-concurrency N` (also parallel audio jobs), `--timeout-video SECONDS`,
-  `--max-archive-size BYTES`, `--max-video-size BYTES`, `--temp-dir DIR`, `--ffmpeg PATH`, `--ffprobe PATH`.
+- Resources: `--threads N`, `--image-concurrency N` (also parallel audio jobs), `--timeout-video SECONDS`
+  (also per qpdf run), `--max-archive-size BYTES`, `--max-video-size BYTES`, `--temp-dir DIR`,
+  `--ffmpeg PATH`, `--ffprobe PATH`.
 
 ## JSON documents
 
 - `inspect`: `schema: "elpx-optimizer/analysis"` with `ok`, `package` (variant, title, pages, components,
   `legacyFolders.files`/`.folders`), `totals` (incl. `audioBytes`), `entries[]` (path, size, kind, format,
-  usage `used|uncertain|protected|unreferenced`, image/video/audio properties), `duplicates[]`,
-  `diagnostics[]` (code, severity, message, resource, location).
+  usage `used|uncertain|protected|unreferenced`, image/video/audio properties, and for PDFs `pdf`:
+  `pages`, `encrypted`, `signed`, `pdfA1`, `linearized`), `duplicates[]`, `diagnostics[]` (code,
+  severity, message, resource, location).
 - `optimize --dry-run`: `schema: "elpx-optimizer/dry-run"` with `plan.operations[]` (`op`:
-  `transcode-video`, `recompress-image`, `transcode-audio` with `to` when renamed, `remove-unused`,
-  `deduplicate`, `move-resource` and `rename-resource` with `to`, `remove-missing-reference`,
-  `rewrite-references`, `update-manifest`), `plan.skipped[]` (kind, reason code, detail),
+  `transcode-video`, `recompress-image`, `transcode-audio` with `to` when renamed, `optimize-pdf`,
+  `remove-unused`, `deduplicate`, `move-resource` and `rename-resource` with `to`,
+  `remove-missing-reference`, `rewrite-references`, `update-manifest`), `plan.skipped[]` (kind,
+  reason code, detail),
   `plan.estimate` (an estimate, not a measurement), `plan.risks[]`.
 - `optimize`: `schema: "elpx-optimizer/report"` with `status`, `sizes`, `operations[]` (status
   `applied|reverted|failed`, `before`, `after`, `detail`, `checks`), `validations[]`, `diagnostics`
@@ -78,6 +89,9 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 - ffmpeg/ffprobe (video and audio): Ubuntu `sudo apt install ffmpeg`; macOS `brew install ffmpeg`; or set
   `--ffmpeg/--ffprobe` (or `ELPX_OPTIMIZER_FFMPEG` / `ELPX_OPTIMIZER_FFPROBE`).
 - sharp: `npm install sharp@0.35.5` in the directory that contains the CLI bundle.
+- qpdf (PDFs): `npm install @neslinesli93/qpdf-wasm@0.3.0` in the directory that contains the CLI
+  bundle (`qpdf-runner.mjs` must sit next to `elpx-optimizer.mjs`). It is WebAssembly: no system
+  qpdf is needed or used. In the skill's `vendor/`, a plain `npm install` installs sharp and qpdf.
 - No local installation, or Windows: the published Docker image includes everything
   (`docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx`;
   in PowerShell `-v "${PWD}:/work"`). It is used directly, not through `scripts/run.mjs`.

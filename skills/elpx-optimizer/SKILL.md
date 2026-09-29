@@ -1,8 +1,8 @@
 ---
 name: elpx-optimizer
-description: Analyzes and shrinks eXeLearning projects (.elpx files) by recompressing their videos, images and audio, and reports missing, unused and duplicate resources. Can also move files out of eXeLearning 3 folders and, on request, take out references to missing files. Use when a user wants to reduce the size of an .elpx/eXeLearning project, check it for broken or missing files, find what takes up space, clean unused media or tidy old eXeLearning 3 folders, while keeping it editable in eXeLearning.
+description: Analyzes and shrinks eXeLearning projects (.elpx files) by recompressing their videos, images, audio and PDFs, and reports missing, unused and duplicate resources. Can also move files out of eXeLearning 3 folders and, on request, take out references to missing files. Use when a user wants to reduce the size of an .elpx/eXeLearning project, check it for broken or missing files, find what takes up space, clean unused media or tidy old eXeLearning 3 folders, while keeping it editable in eXeLearning.
 license: AGPL-3.0-or-later (see LICENSE)
-compatibility: Needs Node.js 22+ (or Bun 1.3+) and the elpx-optimizer CLI (installed, configured with ELPX_OPTIMIZER_CLI, or bundled in vendor/). Video and audio optimization need ffmpeg and ffprobe; image optimization needs sharp. Works offline.
+compatibility: Needs Node.js 22+ (or Bun 1.3+) and the elpx-optimizer CLI (installed, configured with ELPX_OPTIMIZER_CLI, or bundled in vendor/). Video and audio optimization need ffmpeg and ffprobe; image optimization needs sharp; PDF optimization needs the qpdf WebAssembly npm package (no other tool). Works offline.
 metadata:
   version: '0.1.0'
   upstream-exelearning: '406a2158623da1862e9f50fdfd5e358b818c9aa8'
@@ -28,9 +28,10 @@ when a result is not valid or not smaller.
 ## Workflow
 
 1. Check the environment: `node scripts/run.mjs doctor --json`.
-   Inspection works without ffmpeg; report which optimizations are unavailable.
+   Inspection works without ffmpeg; report which optimizations are unavailable (`capabilities`:
+   `video`, `audio`, `image`, `pdf`).
 2. Inspect: `node scripts/run.mjs inspect "<file.elpx>" --json`.
-   Summarize the size, the largest videos, images and audio files, and the diagnostics (errors
+   Summarize the size, the largest videos, images, audio files and PDFs, and the diagnostics (errors
    such as `missing-resource` first, with their page/iDevice location). Missing files cannot be
    recovered by this tool; explain them instead of hiding them.
 3. Agree on preferences: preset `conservative`, `balanced` (default) or `aggressive` (called
@@ -41,6 +42,11 @@ when a result is not valid or not smaller.
    references follow).
    - WAV, AIFF and FLAC recordings are converted to MP3 and renamed to `.mp3` (references are
      rewritten). Say so; `--no-audio` keeps them as they are.
+   - PDFs are rewritten by qpdf without re-rendering (text, fonts, links, bookmarks and forms are
+     kept): streams are always recompressed, and, except in the conservative preset, images that are
+     not JPEG may become JPEG where that makes them smaller (lossy; JPEGs are not re-encoded). Say
+     so; `--pdf-lossless` avoids the image conversion and `--no-pdf` leaves PDFs as they are.
+     Encrypted and signed PDFs are never touched.
    - If `inspect` reported `legacy-resource-folders`, suggest `--flatten legacy`: files leave the
      eXeLearning 3 folders `content/resources/<ODE-ID>/` for `content/resources/`, references
      follow, folders the user created are never touched.
@@ -60,8 +66,9 @@ when a result is not valid or not smaller.
 - `status`: `optimized`, `partial` (some operations failed; originals kept for them),
   `no-improvement` (the output is a byte copy of the input), `failed`, `cancelled`, `invalid-input`.
 - Moved or renamed files appear as `move-resource`, `rename-resource` and `transcode-audio`
-  operations whose `detail` gives the new path; `skipped[]` says why a file was left in place or
-  unchanged.
+  operations whose `detail` gives the new path; PDFs are `optimize-pdf` operations (`reverted` when
+  qpdf's result did not pass its checks or did not save enough); `skipped[]` says why a file was
+  left in place or unchanged.
 - Exit codes: 0 success (incl. no-improvement and dry runs), 1 failure, 2 usage error, 3 invalid input
   (not an .elpx, legacy .elp, corrupt or unsafe), 4 partial result or validation errors, 5 missing
   dependency, 130 cancelled.

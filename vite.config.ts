@@ -46,6 +46,7 @@ function licensesPlugin(): Plugin {
     ['THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.txt'],
     ['licenses/GPL-2.0.txt', 'ffmpeg-core-GPL-2.0.txt'],
     ['licenses/ffmpeg.wasm-MIT.txt', 'ffmpeg.wasm-MIT.txt'],
+    ['licenses/qpdf-wasm-NOTICES.txt', 'qpdf-wasm-NOTICES.txt'],
     ['node_modules/@jsquash/jpeg/codec/LICENSE.codec.md', 'mozjpeg-libjpeg-turbo.txt'],
     ['node_modules/@jsquash/webp/codec/LICENSE.codec.md', 'libwebp.txt'],
     ['node_modules/@jsquash/png/codec/LICENSE.codec.md', 'png-codec.txt'],
@@ -80,6 +81,25 @@ function licensesPlugin(): Plugin {
   };
 }
 
+/**
+ * qpdf's Emscripten module requires fs, path and crypto only when it runs
+ * under Node; in the browser build they resolve to an empty module (instead
+ * of Vite's "externalized for browser compatibility" stubs and warnings).
+ */
+function qpdfNodeBuiltinsPlugin(): Plugin {
+  const EMPTY = '\0elpx-empty-node-builtin';
+  return {
+    name: 'elpx-qpdf-node-builtins',
+    enforce: 'pre',
+    resolveId(id, importer) {
+      return importer?.includes('@neslinesli93/qpdf-wasm') && ['fs', 'path', 'crypto'].includes(id) ? EMPTY : null;
+    },
+    load(id) {
+      return id === EMPTY ? 'export default {};' : null;
+    },
+  };
+}
+
 export default defineConfig({
   root: 'src/web',
   base: './',
@@ -97,8 +117,9 @@ export default defineConfig({
     // Bootstrap 5.3's Sass still uses @import and global functions; its deprecation notices are not ours.
     preprocessorOptions: { scss: { quietDeps: true, silenceDeprecations: ['import', 'global-builtin', 'color-functions', 'if-function'] } },
   },
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [qpdfNodeBuiltinsPlugin()] },
   optimizeDeps: {
+    include: ['@neslinesli93/qpdf-wasm'],
     exclude: [
       '@ffmpeg/ffmpeg',
       '@ffmpeg/util',

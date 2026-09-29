@@ -20,6 +20,7 @@ mkdirSync(target, { recursive: true });
 cpSync(join(root, 'skills', 'elpx-optimizer'), target, { recursive: true });
 mkdirSync(join(target, 'vendor'), { recursive: true });
 cpSync(bundle, join(target, 'vendor', 'elpx-optimizer.mjs'));
+cpSync(join(root, 'dist', 'cli', 'qpdf-runner.mjs'), join(target, 'vendor', 'qpdf-runner.mjs'));
 const pkg = JSON.parse(readFileSync(join(root, 'dist', 'cli', 'package.json'), 'utf8')) as { version: string; dependencies: Record<string, string> };
 writeFileSync(
   join(target, 'vendor', 'package.json'),
@@ -27,6 +28,6 @@ writeFileSync(
 );
 writeFileSync(
   join(target, 'vendor', 'README.md'),
-  '# Bundled CLI\n\n`elpx-optimizer.mjs` is the CLI used by `scripts/run.mjs`. For image optimization run `npm install` in this folder (installs sharp). Video needs ffmpeg and ffprobe on PATH.\n',
+  '# Bundled CLI\n\n`elpx-optimizer.mjs` is the CLI used by `scripts/run.mjs` (`qpdf-runner.mjs` rewrites PDFs). For image and PDF optimization run `npm install` in this folder (installs sharp and qpdf-wasm). Video and audio need ffmpeg and ffprobe on PATH.\n',
 );
 console.log(`Skill written to ${target}`);

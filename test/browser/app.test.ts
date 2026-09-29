@@ -91,7 +91,11 @@ const ENTRIES: InventoryEntry[] = [
     image: { animated: true, hasIcc: false, hasExif: false, hasXmp: false },
   }),
   entry('content/resources/fotos/sin-info.png', 'image', { size: 100 }),
-  entry('content/resources/docs/guia.pdf', 'document', { size: 30_000, usage: 'not-applicable' }),
+  entry('content/resources/docs/guia.pdf', 'document', {
+    size: 30_000,
+    usage: 'not-applicable',
+    pdf: { pages: 12, encrypted: false, signed: true, pdfA1: true, linearized: false },
+  }),
   entry('content/resources/audio/voz.mp3', 'audio', {
     size: 3000,
     audio: { codec: 'mp3', channels: 2, sampleRate: 44_100, bitRate: 128_000, duration: 125 },
@@ -726,12 +730,12 @@ describe('analysis', () => {
       'fotos/sin-info.png',
     ]);
     // Each row shows the icon of its kind.
-    const kinds: IconName[] = ['camera-video', 'image', 'music-note-beamed', 'file-earmark'];
+    const kinds: IconName[] = ['camera-video', 'image', 'music-note-beamed', 'file-earmark-pdf', 'file-earmark'];
     const iconOf = (svg: Element): IconName | undefined => kinds.find((k) => icon(k).outerHTML === svg.outerHTML);
     expect($$('.inventory tbody th .kind-icon svg').map(iconOf)).toEqual([
       'camera-video',
       'image',
-      'file-earmark',
+      'file-earmark-pdf',
       'image',
       'camera-video',
       'camera-video',
@@ -743,7 +747,7 @@ describe('analysis', () => {
     expect(details).toEqual([
       'h264 640×360, 1:04, aac es, opus, mp3, 2 subt.',
       '800×600',
-      '',
+      '12 pages, signed, PDF/A-1',
       '300×200',
       'not inspected',
       '? ?×?, —',
@@ -764,9 +768,10 @@ describe('analysis', () => {
     ]);
     expect($('.inventory .usage-unreferenced').classList.contains('bg-secondary-subtle')).toBe(true);
     expect($('.inventory .usage-uncertain').classList.contains('bg-warning-subtle')).toBe(true);
-    // Images, videos and audio can be excluded, with a switch each.
+    // Images, videos, audio and PDFs can be excluded, with a switch each.
     const switches = $$<HTMLInputElement>('.inventory tbody input[type="checkbox"]');
-    expect(switches).toHaveLength(8);
+    expect(switches).toHaveLength(9);
+    expect(switches.map((x) => x.getAttribute('aria-label'))).toContain('Optimize content/resources/docs/guia.pdf');
     expect(switches.map((x) => x.getAttribute('aria-label'))).toContain('Optimize content/resources/audio/voz.mp3');
     expect(switches.every((s) => s.getAttribute('role') === 'switch' && s.checked)).toBe(true);
     expect($('.table-wrap').getAttribute('role')).toBe('region');
@@ -797,6 +802,33 @@ describe('analysis', () => {
     languageButton().click();
     expect(detailsOf()['audio/a.wav']).toBe('pcm_s16le mono 22,05 kHz, —');
     expect(detailsOf()['audio/d.mp3']).toBe('mp3 estéreo 48 kHz, 0:05');
+  });
+
+  it('describes PDFs by pages and what protects them, each with its switch', async () => {
+    const pdf = (name: string, info?: InventoryEntry['pdf']): InventoryEntry =>
+      entry(`content/resources/docs/${name}`, 'document', { size: 1000, ...(info ? { pdf: info } : {}) });
+    await toReview(
+      analysisResult({
+        entries: [
+          pdf('a.pdf', { pages: 1, encrypted: false, signed: false, pdfA1: false, linearized: true }),
+          pdf('b.pdf', { pages: 40, encrypted: true, signed: false, pdfA1: false, linearized: false }),
+          pdf('c.pdf'),
+        ],
+      }),
+    );
+    const rows = (): [string, string, boolean][] =>
+      $$('.inventory tbody tr').map((tr) => [
+        text(tr.querySelector('th')),
+        tr.querySelector('td.details')!.textContent!,
+        tr.querySelector('input[type="checkbox"]') !== null,
+      ]);
+    expect(rows()).toEqual([
+      ['docs/a.pdf', '1 page', true],
+      ['docs/b.pdf', '40 pages, encrypted', true],
+      ['docs/c.pdf', '', true],
+    ]);
+    languageButton().click();
+    expect(rows().map((r) => r[1])).toEqual(['1 página', '40 páginas, cifrado', '']);
   });
 
   it('describes v3 projects without a title and projects without issues', async () => {
@@ -1018,7 +1050,11 @@ describe('options', () => {
     ]);
     expect(size.value).toBe('profile');
     expect(form.querySelector('[name="maxDimension"]')).toBeNull();
-    expect($('form.options .note').textContent).toMatch(/videos, photos and audio/);
+    expect($('form.options .note').textContent).toMatch(/videos, photos, audio and the images inside PDFs/);
+    expect(input('pdf').checked).toBe(true);
+    expect(input('pdfLossless').checked).toBe(false);
+    expect($('label[for="opt-pdf"]').textContent).toBe('Optimize PDFs (signed or encrypted ones are not touched)');
+    expect($('label[for="opt-pdfLossless"]').textContent).toBe('PDFs lossless only (do not convert their images to JPEG)');
     // Clean file names are on by default in the web app.
     expect(input('normalizeNames').checked).toBe(true);
     expect(input('normalizeNames').getAttribute('role')).toBe('switch');
@@ -1027,6 +1063,7 @@ describe('options', () => {
       video: { enabled: true },
       images: { enabled: true, png: true, stripMetadata: false, includeScreenshot: false },
       audio: { enabled: true },
+      pdf: { enabled: true },
       removeUnused: 'off',
       deduplicate: 'off',
       flatten: 'off',
@@ -1052,6 +1089,8 @@ describe('options', () => {
     input('audio').checked = false;
     input('audioFilesBitrate').value = '96';
     input('normalizeNames').checked = false;
+    input('pdf').checked = false;
+    input('pdfLossless').checked = true;
     const boxes = $$<HTMLInputElement>('.inventory tbody input[type="checkbox"]');
     expect(boxes[0]!.getAttribute('aria-label')).toBe('Optimize content/resources/media/clase.mp4');
     boxes[0]!.click();
@@ -1062,6 +1101,7 @@ describe('options', () => {
       video: { enabled: false, maxResolution: '720', crf: 26, audioBitrate: 96 },
       images: { enabled: false, png: false, stripMetadata: true, includeScreenshot: true, jpegQuality: 70, webpQuality: 75, maxDimension: 1920 },
       audio: { enabled: false, bitrate: 96 },
+      pdf: { enabled: false, images: false },
       removeUnused: 'safe',
       deduplicate: 'exact',
       flatten: 'off',
@@ -1084,6 +1124,7 @@ describe('options', () => {
       video: { enabled: false },
       images: { enabled: false, png: false, stripMetadata: false, includeScreenshot: false },
       audio: { enabled: false },
+      pdf: { enabled: false },
       removeUnused: 'off',
       deduplicate: 'off',
       flatten: 'off',
@@ -1216,6 +1257,17 @@ describe('plan', () => {
   const LOSSY = 'Re-encoding videos, audio and photos changes their quality; when a result is not valid or not smaller, the original is kept.';
   const DOWNSCALE = 'Some videos or images will be downscaled.';
   const AUDIO_RENAME = 'WAV, AIFF and FLAC become MP3 with the .mp3 extension; their references are updated.';
+  const PDF_IMAGES = 'In PDFs, images that are not JPEG may become JPEG when that makes them smaller; text, fonts, links and forms are not touched.';
+  const pdfOp = (id: string, lossy: boolean): PlanOperation =>
+    ({
+      id,
+      op: 'optimize-pdf',
+      path: `content/resources/docs/${id}`,
+      size: 2_000_000,
+      lossy,
+      conversions: lossy ? ['streams recompressed', 'images to JPEG'] : ['streams recompressed'],
+      job: {},
+    }) as unknown as PlanOperation;
   const audioOp = (id: string, to?: string): PlanOperation =>
     ({
       id,
@@ -1262,12 +1314,13 @@ describe('plan', () => {
 
   it('shows every kind of operation in a fixed order with its icon', async () => {
     const audio = [audioOp('voz.wav', 'voz.mp3'), audioOp('musica.mp3')];
-    await toPlan(planOf({ operations: [...RESTRUCTURE_OPS, ...audio, ...OPS].reverse(), skipped: [] }), legacyAnalysis());
+    await toPlan(planOf({ operations: [...RESTRUCTURE_OPS, pdfOp('guia.pdf', true), ...audio, ...OPS].reverse(), skipped: [] }), legacyAnalysis());
     expect(planGroups()).toEqual([
       ['Videos to recompress', '1', true, ['media/clase.mp4 (1.9 MB): video: h264 → h264; audio kept']],
       ['Images to recompress', '1', true, ['fotos/foto.jpg (43.9 KB): JPEG q82']],
       // Converted files show their new name.
       ['Audio to recompress', '2', true, ['audio/musica.mp3 (488 KB): MP3 128 kb/s', 'audio/voz.wav → audio/voz.mp3 (488 KB): MP3 128 kb/s']],
+      ['PDFs to optimize', '1', true, ['docs/guia.pdf (1.9 MB): streams recompressed; images to JPEG']],
       ['Unused files to remove', '1', true, ['sin-uso/viejo.webp (21.5 KB)']],
       ['Identical copies to merge', '1', true, ['b.jpg, c.jpg: merged with a.jpg']],
       ['Files to move', '1', true, ['content/resources/20240101120000AAAAAA/foto.jpg → content/resources/foto_2.jpg']],
@@ -1280,6 +1333,7 @@ describe('plan', () => {
       'camera-video',
       'image',
       'music-note-beamed',
+      'file-earmark-pdf',
       'trash3',
       'files',
       'folder-symlink',
@@ -1294,6 +1348,7 @@ describe('plan', () => {
       'op op-recompress-image',
       'op op-transcode-audio',
       'op op-transcode-audio',
+      'op op-optimize-pdf',
       'op op-remove-unused',
       'op op-deduplicate',
       'op op-move-resource',
@@ -1305,6 +1360,7 @@ describe('plan', () => {
     expect(riskNotes()).toEqual([
       LOSSY,
       AUDIO_RENAME,
+      PDF_IMAGES,
       'Files nothing uses will be removed; only files with no reference of any kind are selected.',
       'Identical copies will be merged and their references updated.',
       'Files in eXeLearning 3 folders will be moved to content/resources/ and their references updated.',
@@ -1327,6 +1383,8 @@ describe('plan', () => {
     ['a downscaled video', [video('v', { width: 640, height: 360 })], [LOSSY, DOWNSCALE]],
     ['an audio re-encoding', [audioOp('a.mp3')], [LOSSY]],
     ['an audio conversion to MP3', [audioOp('a.wav', 'a.mp3')], [LOSSY, AUDIO_RENAME]],
+    ['a lossless PDF rewrite', [pdfOp('a.pdf', false)], []],
+    ['a PDF whose images may become JPEG', [pdfOp('a.pdf', true)], [PDF_IMAGES]],
     ['bookkeeping only', RESTRUCTURE_OPS.filter((o) => o.op === 'update-manifest'), []],
     [
       'a move only',
@@ -1386,6 +1444,7 @@ describe('running', () => {
       'Extracting',
       'Re-encoding video',
       'Recompressing images',
+      'Optimizing PDFs',
       'Validating',
       'Packaging',
       'Verifying the result',
@@ -1396,6 +1455,7 @@ describe('running', () => {
       'Extracting+',
       'Re-encoding video*!',
       'Recompressing images',
+      'Optimizing PDFs',
       'Validating',
       'Packaging',
       'Verifying the result',
@@ -1409,7 +1469,10 @@ describe('running', () => {
     expect($('[data-role="progress"] .progress').hasAttribute('aria-valuenow')).toBe(false);
     expect($('[data-role="progress"] .progress-bar').classList.contains('progress-bar-animated')).toBe(true);
     expect($('.progress-text').textContent).toBe('Validating');
-    expect(stages()[4]).toBe('Validating*!');
+    expect(stages()[5]).toBe('Validating*!');
+    pipeline.optimizeProgress!({ stage: 'pdf', resource: 'content/resources/docs/guia.pdf', item: 1, items: 2, message: 'qpdf, images pass' });
+    expect($('.progress-text').textContent).toBe('Optimizing PDFs — 1 of 2 content/resources/docs/guia.pdf');
+    expect(stages()[4]).toBe('Optimizing PDFs*!');
     // Missing totals: no "x of y" detail.
     pipeline.optimizeProgress!({ stage: 'transcode', processedSeconds: 3, totalSeconds: 0 });
     expect($('.progress-text').textContent).toBe('Re-encoding video');

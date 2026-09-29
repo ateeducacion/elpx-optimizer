@@ -4,6 +4,7 @@ import { ElpxError } from '../../../src/core/errors.js';
 import { VIDEO_PROFILES } from '../../../src/core/media/video-policy.js';
 import { IMAGE_PROFILES } from '../../../src/core/media/image-policy.js';
 import { AUDIO_PROFILES } from '../../../src/core/media/audio-policy.js';
+import { PDF_PROFILES } from '../../../src/core/media/pdf-policy.js';
 
 /** Expects normalizeOptions to reject the input with an invalid-options error. */
 function rejects(input: unknown, message: RegExp): void {
@@ -56,6 +57,13 @@ describe('normalizeOptions', () => {
         minSavingsBytes: 1024,
         force: false,
       },
+      pdf: {
+        enabled: true,
+        preset: 'balanced',
+        images: PDF_PROFILES.balanced.images,
+        minSavingsPercent: 5,
+        minSavingsBytes: 1024,
+      },
       removeUnused: 'off',
       deduplicate: 'off',
       flatten: 'off',
@@ -79,6 +87,22 @@ describe('normalizeOptions', () => {
       force: true,
     });
     expect(normalizeOptions({ audio: { bitrate: 64 } }).audio.bitrateKbps).toBe(64);
+  });
+
+  it('fills PDF options from the profile and validates explicit values', () => {
+    // Images inside PDFs become JPEG except in the conservative preset.
+    expect(PDF_PROFILES.balanced.images).toBe(true);
+    expect(normalizeOptions({ preset: 'conservative' }).pdf).toMatchObject({ preset: 'conservative', images: false });
+    expect(normalizeOptions({ preset: 'aggressive' }).pdf).toMatchObject({ preset: 'aggressive', images: true });
+    // Explicit values win over the profile; the shared savings thresholds apply to PDFs too.
+    expect(normalizeOptions({ minSavingsPercent: 0, minSavingsBytes: 0, pdf: { enabled: false, images: false } }).pdf).toEqual({
+      enabled: false,
+      preset: 'balanced',
+      images: false,
+      minSavingsPercent: 0,
+      minSavingsBytes: 0,
+    });
+    expect(normalizeOptions({ preset: 'conservative', pdf: { images: true } }).pdf.images).toBe(true);
   });
 
   it('applies profile defaults and explicit values', () => {
@@ -171,6 +195,10 @@ describe('normalizeOptions', () => {
     [{ audio: { bitrate: '128' } }, /audio\.bitrate/],
     [{ audio: { enabled: 'no' } }, /audio\.enabled must be true or false/],
     [{ audio: { force: 1 } }, /audio\.force/],
+    [{ pdf: 'lossless' }, /pdf must be an object/],
+    [{ pdf: { jpegQuality: 50 } }, /Unknown option pdf\.jpegQuality/],
+    [{ pdf: { enabled: 'no' } }, /pdf\.enabled must be true or false/],
+    [{ pdf: { images: 1 } }, /pdf\.images must be true or false/],
     [{ removeUnused: 'all' }, /removeUnused must be "off" or "safe"/],
     [{ deduplicate: 'fuzzy' }, /deduplicate must be "off" or "exact"/],
     [{ flatten: 'all' }, /flatten must be "off" or "legacy"/],

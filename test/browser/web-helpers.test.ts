@@ -141,6 +141,7 @@ describe('icons', () => {
     'exclamation-triangle-fill': true,
     'file-earmark': true,
     'file-earmark-arrow-up': true,
+    'file-earmark-pdf': true,
     files: true,
     'filetype-json': true,
     'folder-symlink': true,

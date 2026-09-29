@@ -5,6 +5,7 @@ import type { ProbeResult } from './probe.js';
 import type { VideoCapabilities, VideoJob } from './video-policy.js';
 import type { ImageCapabilities, ImageJob } from './image-policy.js';
 import type { AudioCapabilities, AudioJob } from './audio-policy.js';
+import type { PdfCapabilities } from './pdf-policy.js';
 
 /**
  * Contract implemented by NativeMediaEngine (ffmpeg/ffprobe + sharp) and
@@ -33,7 +34,7 @@ export interface ResourceStore {
 
 /** Stages reported to the user; percentages are only given when measurable. */
 export type ProgressStage =
-  'engine-load' | 'read' | 'analyze' | 'extract' | 'probe' | 'transcode' | 'encode-image' | 'validate' | 'package' | 'verify' | 'done';
+  'engine-load' | 'read' | 'analyze' | 'extract' | 'probe' | 'transcode' | 'encode-image' | 'pdf' | 'validate' | 'package' | 'verify' | 'done';
 
 export interface ProgressEvent {
   readonly stage: ProgressStage;
@@ -68,7 +69,17 @@ export interface EngineInfo {
   readonly image: ImageCapabilities;
   /** Absent for engines without audio support (treated as unavailable). */
   readonly audio?: AudioCapabilities;
+  /** Absent for engines without PDF support (treated as unavailable). */
+  readonly pdf?: PdfCapabilities;
   readonly notes: readonly string[];
+}
+
+/** One run of qpdf: its exit code, output and the file it wrote at PDF_OUTPUT, if any. */
+export interface QpdfResult {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly output?: Uint8Array;
 }
 
 /** Result of decoding two images and comparing them. */
@@ -94,6 +105,11 @@ export interface MediaEngine {
   decodeCheck(resource: StoredResource, job: Pick<VideoJob, 'demuxer'>, ctx: JobContext): Promise<void>;
   /** Optional browser playback check of a candidate (and whether the original played). */
   playbackCheck?(resource: StoredResource, mime: string, ctx: JobContext): Promise<'playable' | 'not-playable' | 'unsupported'>;
+  /**
+   * Runs qpdf (WebAssembly, the same build in both engines) with `input` at
+   * PDF_INPUT; arguments come from the shared PDF policy only.
+   */
+  runQpdf?(args: readonly string[], input: Uint8Array, ctx: JobContext): Promise<QpdfResult>;
   /** Encodes image pixels (metadata stripped; the core re-injects preserved metadata). */
   encodeImage(input: Uint8Array, job: ImageJob, ctx: JobContext): Promise<Uint8Array>;
   /** Decodes original and candidate and compares them. */

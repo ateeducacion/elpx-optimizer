@@ -1,7 +1,7 @@
 import { FFmpeg, FFFSType } from '@ffmpeg/ffmpeg';
 import { CancelledError, ElpxError, errorMessage } from '../../core/errors.js';
 import { onCancel, throwIfCancelled } from '../../core/cancel.js';
-import type { EngineInfo, ImageVerification, JobContext, MediaEngine, ProgressListener, StoredResource } from '../../core/media/engine.js';
+import type { EngineInfo, ImageVerification, JobContext, MediaEngine, ProgressListener, QpdfResult, StoredResource } from '../../core/media/engine.js';
 import type { ImageJob } from '../../core/media/image-policy.js';
 import { FFPROBE_ARGS, parseProbeJson, type ProbeResult } from '../../core/media/probe.js';
 import { buildDecodeCheckArgs, buildVideoArgs, type VideoJob } from '../../core/media/video-policy.js';
@@ -19,6 +19,15 @@ import {
 } from './ffmpeg-loader.js';
 import { CODEC_VERSIONS, verifyWithCodecs, type ImageCodecs } from './image-codecs.js';
 import { ImagePool, imageWorkerCount, type ImageWorkerLike } from './image-pool.js';
+import { QPDF_VERSION } from './qpdf-version.js';
+
+/** The subset of a Worker used for the qpdf worker (a fake in tests). */
+export interface PdfWorkerLike {
+  postMessage(message: { id: number; args: readonly string[]; input: Uint8Array }, transfer?: Transferable[]): void;
+  terminate(): void;
+  onmessage: ((e: { data: { id: number; result?: QpdfResult; error?: string } }) => void) | null;
+  onerror: ((e: { message?: string }) => void) | null;
+}
 
 /** FFmpeg runs per instance before a fresh one is loaded (the core is cached, so a reload is quick). */
 export const JOBS_PER_INSTANCE = 60;
@@ -52,6 +61,8 @@ export interface BrowserEngineOptions {
   /** Number of image workers (default: from the device's core count). */
   readonly imageWorkers?: number;
   readonly createFfmpeg?: () => FfmpegLike;
+  /** Starts the qpdf worker (injectable for tests). */
+  readonly createPdfWorker?: () => PdfWorkerLike;
   /** Engine-load progress (separate from transcoding progress). */
   readonly onLoad?: ProgressListener;
   /** FFmpeg could not be loaded (the failure is not cached: the next job tries again). */
@@ -108,6 +119,9 @@ export class BrowserMediaEngine implements MediaEngine {
       audio: wasm
         ? { available: true, encoders: [...PINNED_AUDIO_ENCODERS] }
         : { available: false, encoders: [], reason: 'WebAssembly or Web Workers are not available' },
+      pdf: wasm
+        ? { available: true, engine: `qpdf ${QPDF_VERSION} (WebAssembly)` }
+        : { available: false, reason: 'WebAssembly or Web Workers are not available' },
       notes: [`FFmpeg core: ${this.threading.mode}-thread (${this.threading.reason})`],
     });
   }
@@ -352,6 +366,61 @@ export class BrowserMediaEngine implements MediaEngine {
     return verifyWithCodecs(this.codecs, original, candidate, job, (p) => withTimeout(p, ctx.timeoutMs));
   }
 
+  private pdfWorker: PdfWorkerLike | undefined;
+  private pdfCounter = 0;
+  private readonly pdfPending = new Map<number, { resolve: (r: QpdfResult) => void; reject: (e: Error) => void }>();
+
+  /** Stops the qpdf worker, failing its pending runs with `error`. */
+  private stopPdfWorker(error: Error): void {
+    this.pdfWorker?.terminate();
+    this.pdfWorker = undefined;
+    for (const p of this.pdfPending.values()) p.reject(error);
+    this.pdfPending.clear();
+  }
+
+  /** The qpdf worker, started on first use. */
+  private pdf(): PdfWorkerLike {
+    if (this.pdfWorker) return this.pdfWorker;
+    const worker = (this.options.createPdfWorker ?? startPdfWorker)();
+    worker.onmessage = (e) => {
+      const pending = this.pdfPending.get(e.data.id);
+      if (!pending) return;
+      this.pdfPending.delete(e.data.id);
+      if (e.data.result) pending.resolve(e.data.result);
+      else pending.reject(new ElpxError('media-failed', `qpdf could not run: ${e.data.error ?? 'unknown error'}`));
+    };
+    worker.onerror = (e) => this.stopPdfWorker(new ElpxError('media-failed', `qpdf worker failed: ${e.message ?? 'unknown error'}`));
+    this.pdfWorker = worker;
+    return worker;
+  }
+
+  /** Runs qpdf in its worker; a timeout or a cancellation terminates the worker (it restarts on the next run). */
+  async runQpdf(args: readonly string[], input: Uint8Array, ctx: JobContext): Promise<QpdfResult> {
+    throwIfCancelled(ctx.signal);
+    const worker = this.pdf();
+    const id = ++this.pdfCounter;
+    return new Promise<QpdfResult>((resolve, reject) => {
+      const timer = setTimeout(() => this.stopPdfWorker(new ElpxError('media-failed', 'qpdf exceeded the time limit in the browser')), ctx.timeoutMs);
+      const disposeCancel = onCancel(ctx.signal, () => this.stopPdfWorker(new CancelledError()));
+      const settle = (): void => {
+        clearTimeout(timer);
+        disposeCancel();
+      };
+      this.pdfPending.set(id, {
+        resolve: (r) => {
+          settle();
+          resolve(r);
+        },
+        reject: (e) => {
+          settle();
+          reject(e);
+        },
+      });
+      const copy = input.slice();
+      worker.postMessage({ id, args, input: copy }, [copy.buffer]);
+    });
+  }
+
   /** Stops the image workers, releasing their memory; they are started again when needed. */
   releaseImageWorkers(): void {
     this.pool?.dispose();
@@ -361,7 +430,13 @@ export class BrowserMediaEngine implements MediaEngine {
   async dispose(): Promise<void> {
     this.reset();
     this.releaseImageWorkers();
+    this.stopPdfWorker(new CancelledError());
   }
+}
+
+/** Starts the qpdf worker (emitted by Vite as its own module worker). */
+function startPdfWorker(): PdfWorkerLike {
+  return new Worker(new URL('./pdf.worker.ts', import.meta.url), { type: 'module', name: 'elpx-pdf' }) as unknown as PdfWorkerLike;
 }
 
 /** Starts one image worker (emitted by Vite as its own module worker). */

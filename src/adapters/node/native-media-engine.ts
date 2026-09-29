@@ -1,9 +1,12 @@
-import { stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import type { SharpConstructor } from 'sharp';
 import { cpus } from 'node:os';
 import { ElpxError } from '../../core/errors.js';
 import { throwIfCancelled } from '../../core/cancel.js';
-import type { EngineInfo, ImageVerification, JobContext, MediaEngine, StoredResource } from '../../core/media/engine.js';
+import type { EngineInfo, ImageVerification, JobContext, MediaEngine, QpdfResult, StoredResource } from '../../core/media/engine.js';
+import type { PdfCapabilities } from '../../core/media/pdf-policy.js';
 import type { ImageCapabilities, ImageJob } from '../../core/media/image-policy.js';
 import { FFPROBE_ARGS, parseProbeJson, type ProbeResult } from '../../core/media/probe.js';
 import { buildDecodeCheckArgs, buildVideoArgs, type VideoCapabilities, type VideoJob } from '../../core/media/video-policy.js';
@@ -23,6 +26,20 @@ export interface NativeEngineOptions {
   maxImagePixels?: number;
   /** Override for loading sharp (tests). */
   loadSharp?: () => Promise<Sharp>;
+  /** Override for the qpdf runner script (tests); undefined means "next to this module". */
+  qpdfRunner?: string | null;
+}
+
+/**
+ * The qpdf runner next to this module: qpdf-runner.mjs in the bundled CLI,
+ * qpdf-runner.ts when run from source (Node strips the types, Bun runs it).
+ */
+export function qpdfRunnerPath(base: string | URL = import.meta.url): string | undefined {
+  for (const name of ['qpdf-runner.mjs', 'qpdf-runner.ts']) {
+    const path = fileURLToPath(new URL(`./${name}`, base));
+    if (existsSync(path)) return path;
+  }
+  return undefined;
 }
 
 /** Loads sharp lazily so inspecting projects never requires it. */
@@ -39,6 +56,7 @@ async function defaultLoadSharp(): Promise<Sharp> {
  */
 export class NativeMediaEngine implements MediaEngine {
   private infoPromise: Promise<EngineInfo> | undefined;
+  private qpdfRunner: string | undefined;
   private sharp: Sharp | undefined;
   private ffmpeg: string | undefined;
   private ffprobe: string | undefined;
@@ -102,7 +120,20 @@ export class NativeMediaEngine implements MediaEngine {
     } catch (error) {
       notes.push(`sharp unavailable: ${(error as Error).message.split('\n')[0]}`);
     }
-    return { engine: 'native', versions, video, image, audio, notes };
+    const pdf = await this.detectPdf(versions);
+    return { engine: 'native', versions, video, image, audio, pdf, notes };
+  }
+
+  /** qpdf (WebAssembly) through the runner: available when it starts and reports its version. */
+  private async detectPdf(versions: Record<string, string>): Promise<PdfCapabilities> {
+    const runner = this.options.qpdfRunner === undefined ? qpdfRunnerPath() : this.options.qpdfRunner;
+    if (!runner) return { available: false, reason: 'the qpdf runner is not installed next to the CLI' };
+    this.qpdfRunner = runner;
+    const r = await runProcess(process.execPath, [runner, '-', '-', '--version'], { cwd: this.store.dir, timeoutMs: 30_000 }).catch(() => undefined);
+    const version = r?.code === 0 ? /version (\d+\.\d+\.\d+)/.exec(r.stdout)?.[1] : undefined;
+    if (!version) return { available: false, reason: `qpdf (WebAssembly) could not be started: ${firstLine(r?.stderr ?? '') || 'no output'}` };
+    versions['qpdf'] = `${version} (WebAssembly)`;
+    return { available: true, engine: `qpdf ${version} (WebAssembly)` };
   }
 
   /** Resolved ffmpeg path (after info()), for diagnostics and the doctor smoke test. */
@@ -223,6 +254,32 @@ export class NativeMediaEngine implements MediaEngine {
     });
     if (result.code !== 0 || result.stderr.trim() !== '') {
       throw new ElpxError('media-failed', `decode check failed: ${firstLine(result.stderr) || `exit ${result.code}`}`);
+    }
+  }
+
+  async runQpdf(args: readonly string[], input: Uint8Array, ctx: JobContext): Promise<QpdfResult> {
+    const info = await this.info();
+    if (!info.pdf?.available || !this.qpdfRunner) throw new ElpxError('media-engine-unavailable', info.pdf?.reason ?? 'qpdf is not available');
+    await this.store.ensureSpace(input.length * 3);
+    const inPath = this.store.newPath('pdf').path;
+    const outPath = this.store.newPath('pdf').path;
+    try {
+      await writeFile(inPath, input);
+      const r = await runProcess(process.execPath, [this.qpdfRunner, inPath, outPath, ...args], {
+        cwd: this.store.dir,
+        timeoutMs: ctx.timeoutMs,
+        // JSON inspection of long documents can be several megabytes.
+        maxCaptureBytes: 64 * 1024 * 1024,
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      });
+      const output = await readFile(outPath).then(
+        (b) => new Uint8Array(b.buffer, b.byteOffset, b.byteLength),
+        () => undefined,
+      );
+      return { code: r.code ?? 2, stdout: r.stdout, stderr: r.stderr, ...(output ? { output } : {}) };
+    } finally {
+      await rm(inPath, { force: true });
+      await rm(outPath, { force: true });
     }
   }
 

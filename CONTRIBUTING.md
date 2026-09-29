@@ -8,7 +8,8 @@ exists in Spanish and English (`src/web/i18n.ts`).
 ```bash
 bun install --frozen-lockfile        # Bun ≥ 1.3, Node ≥ 22
 npx playwright install chromium      # browser tests and E2E
-# ffmpeg and ffprobe with libx264 on PATH for native media tests
+# ffmpeg and ffprobe with libx264 on PATH for native media tests (PDF tests need nothing extra:
+# qpdf comes from npm as WebAssembly)
 make help
 ```
 
@@ -25,9 +26,9 @@ make compat                # when touching format, reference or restructuring co
 
 ## Rules
 
-- `src/core` stays portable: no `node:*`, Bun, DOM globals, sharp or ffmpeg.wasm imports. Put runtime
-  code in `src/adapters/*` behind the interfaces in `src/core/media/engine.ts`, `src/core/io/*` and
-  `src/core/optimize/optimize.ts`.
+- `src/core` stays portable: no `node:*`, Bun, DOM globals, sharp, ffmpeg.wasm or qpdf-wasm imports.
+  Put runtime code in `src/adapters/*` behind the interfaces in `src/core/media/engine.ts`,
+  `src/core/io/*` and `src/core/optimize/optimize.ts`.
 - Never loosen a safety rule to make a test pass: missing files are reported, not hidden (taking out
   their references stays an explicit opt-in); unknown or ambiguous references protect files from
   removal, moves and renames; originals are kept on any doubt.
@@ -40,5 +41,11 @@ make compat                # when touching format, reference or restructuring co
   add private projects.
 - Document every function with a short comment before it. Keep diagnostics codes stable and
   regenerate `docs/diagnostics.md` (`bun scripts/generate-diagnostics-doc.ts`) when adding one.
+- Dependencies are pinned to exact versions. Dependabot (`.github/dependabot.yml`) opens grouped
+  weekly pull requests for Bun (`package.json`, `bun.lock`), the Docker base images and the GitHub
+  Actions. When a component the builds redistribute changes (sharp, ffmpeg.wasm, jSquash, fflate,
+  `@noble/hashes`, `@neslinesli93/qpdf-wasm`), update its entry in `THIRD-PARTY-NOTICES.md` (and
+  `licenses/qpdf-wasm-NOTICES.txt` and `QPDF_VERSION` for qpdf). Keep the `Dockerfile` base images
+  as literal `FROM` lines, without `ARG`s, so Dependabot can update them.
 - Updating eXeLearning compatibility: bump the SHA in `scripts/fetch-upstream.sh`,
   `src/core/version.ts` and `docs/upstream-review.md`, then run `make compat`.

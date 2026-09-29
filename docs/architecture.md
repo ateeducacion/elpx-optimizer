@@ -12,14 +12,15 @@ no DOM or Node types) and ESLint `no-restricted-imports`/`no-restricted-globals`
                                    │                                  │
   adapters/browser: BlobByteSource, BlobStore,        adapters/node: FileByteSource, AtomicFileSink,
   BlobOutputTarget, BrowserMediaEngine                NodeResourceStore, NativeMediaEngine
-  (ffmpeg.wasm nested worker, jSquash codecs)         (ffmpeg/ffprobe processes, sharp)
+  (ffmpeg.wasm nested worker, jSquash codecs,         (ffmpeg/ffprobe processes, sharp,
+   qpdf.wasm worker)                                   qpdf.wasm child process)
                                    │                                  │
                                    └──────────────┬───────────────────┘
                                           src/core (portable)
      zip/ reader+writer · format/ detect, content.xml, manifest, DataGame, legacy-folders ·
      parse/ xml, json, html, css, uri, text-map · refs/ scan, resolve, rewrite, restructure, slug ·
      analyze/ · plan/ · optimize/ · validate/ · report/ · media/ sniff, image-inspect,
-     image-metadata, probe, video-policy, image-policy, audio-policy, engine
+     image-metadata, probe, video-policy, image-policy, audio-policy, pdf-policy, engine
 ```
 
 ## Public operations
@@ -33,7 +34,7 @@ no DOM or Node types) and ESLint `no-restricted-imports`/`no-restricted-globals`
 
 Adapters are injected through small interfaces: `ByteSource`/`ByteSink` (bytes), `ResourceStore`
 (temporary media: files natively, Blobs in the browser), `MediaEngine` (probe, video and audio
-transcode, decode check, playback check, image encode/verify, capabilities) and `OutputTarget`
+transcode, decode check, playback check, image encode/verify, qpdf runs, capabilities) and `OutputTarget`
 (atomic file or Blob).
 
 ## Reading archives safely
@@ -160,19 +161,26 @@ produce the same metadata; pixels are never rotated (the EXIF orientation is kep
 `core/media/audio-policy.ts` decides audio jobs (WAV/AIFF/FLAC to MP3 with a rename, MP3/M4A/Opus
 re-encoded in place only far above the target), builds their FFmpeg arguments under the same rules
 and validates candidates (one audio stream, codec, channels, sample rate, duration tolerance).
+`core/media/pdf-policy.ts` decides PDF jobs (encrypted, signed, over-the-limit or unreadable files
+are skipped; PDF/A-1 keeps its object streams; linearized files stay linearized), builds the qpdf
+arguments for the two passes (lossless, and lossless plus `--optimize-images`), reads qpdf's JSON
+inspection and validates candidates (`qpdf --check` without warnings, same page count, not
+encrypted, still linearized). Both engines expose the same `runQpdf(args, input)` and the policy
+alone chooses the arguments.
 
 Engines differ in capabilities, and plans and reports say which engine and versions were used:
 
-|                         | NativeMediaEngine (CLI, skill)                                            | BrowserMediaEngine (web)                                                 |
-| ----------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Video                   | ffmpeg/ffprobe processes (libx264, aac, libvpx-vp9, libopus when present) | ffmpeg.wasm 0.12.15, core 0.12.10 (single-thread; core-mt when isolated) |
-| x264 preset per profile | slow / medium / medium                                                    | faster / veryfast / veryfast                                             |
-| VP9 (WebM)              | yes                                                                       | too slow; skipped unless forced                                          |
-| Audio files             | ffmpeg processes (libmp3lame, aac, libopus), several at once              | the same ffmpeg.wasm core (LAME, AAC, libopus), one at a time            |
-| JPEG / PNG / WebP       | sharp 0.35.5 (mozjpeg, libpng, libwebp)                                   | jSquash MozJPEG, OxiPNG, libwebp (WASM)                                  |
-| Playback check          | —                                                                         | detached `<video>` or `<audio>` element, compared with the original      |
-| Cancellation            | process-group SIGTERM/SIGKILL                                             | `FFmpeg.terminate()` (worker killed, reloaded for the next job)          |
-| Memory                  | one process per job                                                       | fresh FFmpeg instance every 60 jobs; one retry after a memory abort      |
+|                         | NativeMediaEngine (CLI, skill)                                            | BrowserMediaEngine (web)                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Video                   | ffmpeg/ffprobe processes (libx264, aac, libvpx-vp9, libopus when present) | ffmpeg.wasm 0.12.15, core 0.12.10 (single-thread; core-mt when isolated)                                                     |
+| x264 preset per profile | slow / medium / medium                                                    | faster / veryfast / veryfast                                                                                                 |
+| VP9 (WebM)              | yes                                                                       | too slow; skipped unless forced                                                                                              |
+| Audio files             | ffmpeg processes (libmp3lame, aac, libopus), several at once              | the same ffmpeg.wasm core (LAME, AAC, libopus), one at a time                                                                |
+| JPEG / PNG / WebP       | sharp 0.35.5 (mozjpeg, libpng, libwebp)                                   | jSquash MozJPEG, OxiPNG, libwebp (WASM)                                                                                      |
+| PDF                     | qpdf 12.2.0 (WebAssembly) in a child process of the same Node/Bun         | the same qpdf 12.2.0 build in a dedicated worker                                                                             |
+| Playback check          | —                                                                         | detached `<video>` or `<audio>` element, compared with the original                                                          |
+| Cancellation            | process-group SIGTERM/SIGKILL                                             | `FFmpeg.terminate()` (worker killed, reloaded for the next job); the qpdf worker is terminated and restarted on the next PDF |
+| Memory                  | one process per job                                                       | fresh FFmpeg instance every 60 jobs; one retry after a memory abort                                                          |
 
 Encoders produce different bytes; tests check equivalent semantics (streams, duration, size,
 validity), not identical hashes.
@@ -185,9 +193,9 @@ unchanged with stable reason codes, risks and an estimate labelled as such. Exec
 plan from the analysis and refuses to run if any hash differs.
 
 Videos run one at a time; audio files and images run with bounded concurrency natively (the
-browser engine queues FFmpeg jobs). Each candidate is validated (probe + full decode + playback in
-the browser) and must save at least the configured minimum; otherwise the original is kept and the
-reason recorded. The restructuring is then replayed with the conversions that succeeded, so a
+browser engine queues FFmpeg jobs); PDFs run one at a time. Each candidate is validated (probe +
+full decode + playback in the browser; `qpdf --check` and a page count for PDFs) and must save at
+least the configured minimum; otherwise the original is kept and the reason recorded. The restructuring is then replayed with the conversions that succeeded, so a
 recording that was not converted keeps its name and its references, and converted files keep the
 names the plan showed. The output is written to a
 temporary file next to the destination (CLI) or to a Blob (web), then reopened and analyzed from
@@ -205,7 +213,9 @@ The page (`src/web`) only renders and talks to a module worker (`pipeline.worker
 reads the File with ranged Blob slices, runs the core, encodes images with WASM codecs and drives
 FFmpeg, which runs in its own nested worker created by `@ffmpeg/ffmpeg`. FFmpeg inputs are mounted
 with WORKERFS (read from the Blob on demand) and outputs are read from MEMFS and deleted
-immediately. All JavaScript, workers and WASM are emitted by Vite into `dist/web/assets` and
+immediately. PDFs go to qpdf (WebAssembly) in a dedicated worker (`pdf.worker.ts`) that the engine
+starts on first use and terminates on cancellation or timeout; every run uses a fresh qpdf
+instance. All JavaScript, workers and WASM are emitted by Vite into `dist/web/assets` and
 loaded from the same origin with relative URLs; a Content-Security-Policy restricts scripts,
 workers and connections to the same origin. See [web.md](web.md).
 
