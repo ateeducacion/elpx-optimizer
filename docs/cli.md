@@ -176,18 +176,20 @@ Each GitHub release publishes two images on the GitHub Container Registry, for `
 - `ghcr.io/ateeducacion/elpx-optimizer`: the static web app on nginx (port 8080, see [web.md](web.md)).
 
 ```bash
-docker run --rm -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli doctor
-docker run --rm -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli inspect /work/curso.elpx
-docker run --rm -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx --dry-run
-docker run --rm -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx \
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli doctor
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli inspect /work/curso.elpx
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx --dry-run
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx \
   --remove-unused safe --deduplicate exact
 ```
 
-The output (`curso_optimized.elpx`) is written next to the input in the mounted folder. Recommended
-limits for untrusted projects:
+The output (`curso_optimized.elpx`) is written next to the input in the mounted folder. The image
+runs as a non-root user; `--user "$(id -u):$(id -g)"` runs it as you, so it can write to a folder you
+own and the output belongs to you (without it, writing fails on Linux). On Windows (PowerShell), drop
+`--user` and mount `"${PWD}:/work"`. Recommended limits for untrusted projects:
 
 ```bash
-docker run --rm --read-only --tmpfs /tmp --memory 2g --cpus 2 --pids-limit 256 \
+docker run --rm --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp --memory 2g --cpus 2 --pids-limit 256 \
   -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx --report /work/informe.json
 ```
 

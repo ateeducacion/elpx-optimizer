@@ -323,7 +323,7 @@ export class App {
   private renderHelp(): HTMLDialogElement {
     const external = { target: '_blank', rel: 'noopener noreferrer' };
     const cli = 'node dist/cli/elpx-optimizer.mjs';
-    const docker = 'docker run --rm -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli';
+    const docker = 'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli';
     const step = (title: string, code?: string, note?: string): HTMLElement =>
       h(
         'li',

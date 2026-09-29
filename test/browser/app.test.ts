@@ -1710,7 +1710,9 @@ describe('side panels', () => {
     const titles = (list: Element): (string | null)[] => [...list.querySelectorAll(':scope > li .fw-bold')].map((x) => x.textContent);
     expect(titles(docker!)).toEqual(['Review a project without changing anything', 'See the plan before applying it', 'Optimize']);
     expect(
-      [...docker!.querySelectorAll('code')].every((c) => c.textContent!.startsWith('docker run --rm -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli ')),
+      [...docker!.querySelectorAll('code')].every((c) =>
+        c.textContent!.startsWith('docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli '),
+      ),
     ).toBe(true);
     expect(titles(local!)).toEqual([
       'Install FFmpeg (and Node.js 22 or Bun)',

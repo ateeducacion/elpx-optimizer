@@ -180,5 +180,6 @@ jobs:
           docker stop web
       - name: CLI image optimizes a project
         run: |
-          docker run --rm --memory 2g --cpus 2 --pids-limit 256 -v "$PWD/test/fixtures/elpx:/in:ro" -v "$RUNNER_TEMP:/work" elpx-optimizer-cli optimize "/in/course-video.elpx" --output /work/out.elpx --json > report.json
+          # The image runs as a non-root user: run it as the runner's user so it can write to the mounted folder.
+          docker run --rm --user "$(id -u):$(id -g)" --memory 2g --cpus 2 --pids-limit 256 -v "$PWD/test/fixtures/elpx:/in:ro" -v "$RUNNER_TEMP:/work" elpx-optimizer-cli optimize "/in/course-video.elpx" --output /work/out.elpx --json > report.json
           node -e "const r=require('./report.json'); if (r.status!=='optimized') process.exit(1)"
