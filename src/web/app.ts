@@ -1795,6 +1795,12 @@ export class App {
     // The media card's switch turns every kind off; without it (a bare form) each kind decides.
     if (form.elements.namedItem('recompress')) this.recompress = on('recompress');
     const media = (k: string): boolean => this.recompress && on(k);
+    // A card is shown only when the project needs it: without its switch, the choice made before stays.
+    const kept = <K extends 'removeUnused' | 'deduplicate' | 'flatten' | 'missingReferences'>(
+      k: K,
+      yes: NonNullable<OptionsInput[K]>,
+      no: NonNullable<OptionsInput[K]>,
+    ): NonNullable<OptionsInput[K]> => (form.elements.namedItem(k) ? (on(k) ? yes : no) : (this.options[k] ?? no));
     const video: NonNullable<OptionsInput['video']> = { enabled: media('video') };
     const res = String(data.get('maxResolution') ?? '');
     if (res && res !== 'profile') video.maxResolution = res;
@@ -1827,10 +1833,10 @@ export class App {
       images,
       audio,
       pdf,
-      removeUnused: on('removeUnused') ? 'safe' : 'off',
-      deduplicate: on('deduplicate') ? 'exact' : 'off',
-      flatten: on('flatten') ? 'legacy' : 'off',
-      missingReferences: on('missingReferences') ? 'remove' : 'keep',
+      removeUnused: kept('removeUnused', 'safe', 'off'),
+      deduplicate: kept('deduplicate', 'exact', 'off'),
+      flatten: kept('flatten', 'legacy', 'off'),
+      missingReferences: kept('missingReferences', 'remove', 'keep'),
       // Read from the switch itself: it stays checked, but disabled (so absent from FormData), when names are already clean.
       normalizeNames: form.querySelector<HTMLInputElement>('input[name="normalizeNames"]')?.checked ? 'slug' : 'off',
       exclude: [...this.excluded],

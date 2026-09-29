@@ -219,6 +219,8 @@ jobs:
         with: { node-version: '${{ env.NODE_VERSION }}', registry-url: 'https://registry.npmjs.org' }
       - run: bun install --frozen-lockfile
       - run: bun run build:cli
+      # Trusted publishing (OIDC) needs npm 11.5.1 or newer.
+      - run: npm install -g npm@11
       - name: The package version is the release tag
         run: test "v$(node -p "require('./dist/cli/package.json').version")" = "${{ github.event.release.tag_name }}"
       - run: npm publish --provenance --access public

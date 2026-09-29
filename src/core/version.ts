@@ -1,6 +1,6 @@
 /** Tool identity and schema versions for plans and reports. */
 export const TOOL_NAME = 'elpx-optimizer';
-export const TOOL_VERSION = '0.1.2';
+export const TOOL_VERSION = '0.1.3';
 export const ANALYSIS_SCHEMA_VERSION = 1;
 export const PLAN_SCHEMA_VERSION = 1;
 export const REPORT_SCHEMA_VERSION = 1;

@@ -1167,7 +1167,8 @@ describe('options', () => {
       images: { enabled: false, png: false, stripMetadata: false, includeScreenshot: false },
       audio: { enabled: false },
       pdf: { enabled: false },
-      removeUnused: 'off',
+      // Clean-ups without a switch keep the choice so far (on by default for unused files).
+      removeUnused: 'safe',
       deduplicate: 'off',
       flatten: 'off',
       missingReferences: 'keep',
@@ -1207,8 +1208,9 @@ describe('options', () => {
     });
     expect(card('removeUnused')).toEqual(['Remove 4 files that are not used', 'They appear on no page: sin-probar.webm, foto.jpg, anim.gif….', '−53.1 KB']);
     expect(card('deduplicate')).toEqual(['Merge 2 repeated files', 'One copy of a1.jpg, a2.jpg is kept and the references are updated.', '−20 B']);
-    // Both start off, as in the CLI.
-    expect($<HTMLInputElement>('input[name="removeUnused"]').checked).toBe(false);
+    // Removing unused files starts on in the web app, merging repeated files off (as in the CLI);
+    // a project without unused files does not turn the first one off for the next.
+    expect($<HTMLInputElement>('input[name="removeUnused"]').checked).toBe(true);
     expect($<HTMLInputElement>('input[name="deduplicate"]').checked).toBe(false);
   });
 
