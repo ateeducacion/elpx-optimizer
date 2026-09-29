@@ -15,6 +15,9 @@ import ateLogo from './assets/ate-logo.png';
 import { COMPONENTS } from './licenses.js';
 import { cleanFileName } from '../core/refs/slug.js';
 import { TOOL_VERSION } from '../core/version.js';
+import { screenshotProblem } from '../core/format/screenshot.js';
+import { sha256Hex } from '../core/io/hash.js';
+import { renderFirstPage, ScreenshotError, thumbnailFromImage } from './screenshot.js';
 
 /** What the UI needs from the pipeline (the real client or a test double). */
 export interface PipelineApi {
@@ -22,7 +25,9 @@ export interface PipelineApi {
   plan(options: OptionsInput): Promise<OptimizationPlan>;
   /** Returns an image, audio or video of the analyzed project for a local preview (optional). */
   preview?(path: string): Promise<Blob>;
-  optimize(planHash: string, onProgress?: (e: ProgressEvent) => void): Promise<OptimizeResult>;
+  /** Returns any file of the analyzed project as untyped bytes, to draw a new thumbnail (optional). */
+  read?(path: string): Promise<Blob | undefined>;
+  optimize(planHash: string, onProgress?: (e: ProgressEvent) => void, screenshot?: Blob): Promise<OptimizeResult>;
   cancel(): Promise<void>;
   onEngineStatus: ((s: EngineStatus) => void) | undefined;
 }
@@ -62,6 +67,7 @@ const OP_ORDER: readonly [PlanOperation['op'], IconName][] = [
   ['remove-missing-reference', 'eraser'],
   ['rewrite-references', 'pencil-square'],
   ['update-manifest', 'file-earmark'],
+  ['replace-screenshot', 'image'],
 ];
 
 const USAGE_BADGE: Record<InventoryEntry['usage'], string> = {
@@ -109,6 +115,8 @@ export class App {
   private threading: ThreadingPreference;
   private cancelling = false;
   private objectUrls: string[] = [];
+  /** The new screenshot.png chosen in the options. */
+  private screenshot: { readonly blob: Blob; readonly url: string; readonly sha256: string; readonly size: number } | undefined;
   private readonly main: HTMLElement;
   private readonly stepper: HTMLElement;
   private readonly engineLine: HTMLElement;
@@ -580,6 +588,7 @@ export class App {
     this.result = undefined;
     this.excluded.clear();
     this.revokeUrls();
+    this.dropScreenshot();
     this.progress = undefined;
     this.go('analyzing');
     try {
@@ -1159,6 +1168,7 @@ export class App {
       imageSize,
       h('p', { className: 'note small text-body-secondary' }, this.t('lossyNote')),
       cleanup,
+      this.renderScreenshot(),
       advanced,
       h('button', { type: 'submit', className: 'btn btn-primary btn-lg w-100 mt-3' }, this.t('reviewPlan')),
     );
@@ -1171,6 +1181,104 @@ export class App {
       { className: 'panel card options-card', 'aria-labelledby': 'h-step3' },
       h('div', { className: 'card-body' }, h('h2', { id: 'h-step3', tabindex: -1, className: 'h5 mb-3' }, this.t('step3')), form),
     );
+  }
+
+  /**
+   * The project thumbnail: a new screenshot.png drawn from the first page or chosen by the user
+   * (the current one is previewed from its row in the contents).
+   */
+  private renderScreenshot(): HTMLElement {
+    const box = h('fieldset', { className: 'screenshot mb-2' });
+    const status = h('p', { className: 'screenshot-status small mb-0', 'aria-live': 'polite' });
+    const fill = (): void => {
+      const a = this.analysis!;
+      const preview = this.screenshot
+        ? h('img', {
+            className: 'screenshot-preview img-fluid border rounded mb-2',
+            src: this.screenshot.url,
+            alt: this.t('screenshotNew'),
+            width: 1280,
+            height: 720,
+          })
+        : h('p', { className: 'small text-body-secondary mb-2' }, this.t(a.package?.hasScreenshot ? 'screenshotCurrent' : 'screenshotNone'));
+      const buttons: HTMLButtonElement[] = [];
+      const make = async (task: () => Promise<Blob>): Promise<void> => {
+        for (const b of buttons) b.disabled = true;
+        status.textContent = this.t('screenshotWorking');
+        try {
+          const blob = await task();
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          const problem = screenshotProblem(bytes);
+          if (problem) throw new ScreenshotError('render', problem);
+          this.dropScreenshot();
+          this.screenshot = { blob, url: this.urls.createObjectURL(blob), sha256: sha256Hex(bytes), size: bytes.length };
+          fill();
+          status.textContent = this.t('screenshotReady');
+        } catch (error) {
+          for (const b of buttons) b.disabled = false;
+          const code = error instanceof ScreenshotError ? error.code : 'render';
+          status.textContent = this.t(`screenshotError_${code}`, { message: (error as Error).message });
+        }
+      };
+      const read = this.pipeline.read?.bind(this.pipeline);
+      if (read && a.entries.some((e) => e.path === 'index.html')) {
+        buttons.push(
+          h(
+            'button',
+            { type: 'button', className: 'btn btn-sm btn-outline-primary screenshot-regenerate', onclick: () => void make(() => renderFirstPage(read)) },
+            icon('arrow-repeat'),
+            ` ${this.t('screenshotRegenerate')}`,
+          ),
+        );
+      }
+      const file = h('input', {
+        type: 'file',
+        accept: 'image/png,image/jpeg,image/webp,image/gif',
+        className: 'screenshot-file visually-hidden',
+        tabindex: -1,
+        'aria-hidden': 'true',
+      });
+      file.addEventListener('change', () => {
+        const chosen = file.files?.[0];
+        if (chosen) void make(() => thumbnailFromImage(chosen));
+      });
+      buttons.push(
+        h(
+          'button',
+          { type: 'button', className: 'btn btn-sm btn-outline-primary screenshot-upload', onclick: () => file.click() },
+          icon('file-earmark-arrow-up'),
+          ` ${this.t('screenshotUpload')}`,
+        ),
+      );
+      if (this.screenshot) {
+        buttons.push(
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-sm btn-link screenshot-discard',
+              onclick: () => {
+                this.dropScreenshot();
+                fill();
+                status.textContent = '';
+              },
+            },
+            this.t('screenshotDiscard'),
+          ),
+        );
+      }
+      replace(
+        box,
+        h('legend', { className: 'form-label fw-bold fs-6' }, this.t('screenshot')),
+        preview,
+        h('div', { className: 'd-flex flex-wrap gap-2 mb-1' }, ...buttons),
+        file,
+        h('div', { className: 'form-text mt-0 mb-1' }, this.t('screenshotHelp')),
+        status,
+      );
+    };
+    fill();
+    return box;
   }
 
   /** The clean-names switch, with how many files would get a new name and one example. */
@@ -1235,6 +1343,7 @@ export class App {
       missingReferences: on('missingReferences') ? 'remove' : 'keep',
       normalizeNames: on('normalizeNames') ? 'slug' : 'off',
       exclude: [...this.excluded],
+      ...(this.screenshot ? { screenshot: { sha256: this.screenshot.sha256, size: this.screenshot.size } } : {}),
     };
   }
 
@@ -1268,6 +1377,8 @@ export class App {
         return `${short(op.path)} → ${short(op.to)}`;
       case 'remove-missing-reference':
         return `${short(op.path)}: ${this.t('unlinkCount', { count: op.references })}`;
+      case 'replace-screenshot':
+        return `${op.path} (${this.t(op.added ? 'screenshotAdded' : 'screenshotReplaced', { size: bytes(op.after, this.lang) })})`;
       default:
         return op.path;
     }
@@ -1391,7 +1502,8 @@ export class App {
     this.progress = undefined;
     this.go('running');
     try {
-      this.result = await this.pipeline.optimize(plan.planHash, (e) => this.onProgress(e));
+      const screenshot = plan.operations.some((o) => o.op === 'replace-screenshot') ? this.screenshot?.blob : undefined;
+      this.result = await this.pipeline.optimize(plan.planHash, (e) => this.onProgress(e), screenshot);
       this.announce(this.t(`status_${this.result.report.status}`));
       this.go('result');
     } catch (error) {
@@ -1569,9 +1681,16 @@ export class App {
     this.objectUrls = [];
   }
 
+  /** Forgets the new thumbnail. */
+  private dropScreenshot(): void {
+    if (this.screenshot) this.urls.revokeObjectURL(this.screenshot.url);
+    this.screenshot = undefined;
+  }
+
   /** Returns to the first step, releasing downloads. */
   reset(): void {
     this.revokeUrls();
+    this.dropScreenshot();
     this.file = undefined;
     this.analysis = undefined;
     this.plan = undefined;

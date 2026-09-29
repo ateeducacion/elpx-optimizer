@@ -1,6 +1,8 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { ElpxError } from '../../core/errors.js';
+import { sha256Hex } from '../../core/io/hash.js';
+import { SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH, screenshotRatioOk } from '../../core/format/screenshot.js';
 import { analyzeArchive } from '../../core/analyze/analyze.js';
 import { buildOptimizationPlan } from '../../core/plan/plan.js';
 import { normalizeOptions, type OptionsInput } from '../../core/plan/options.js';
@@ -74,6 +76,26 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   return opts;
 }
 
+/**
+ * Reads --screenshot the way eXeLearning takes an uploaded thumbnail: any image sharp decodes,
+ * 16:9 and at least 600 px wide, scaled down to fit 1280×720 and saved as PNG.
+ */
+export async function screenshotFromFile(path: string): Promise<Uint8Array> {
+  const { default: sharp } = await import('sharp');
+  let width: number | undefined;
+  let height: number | undefined;
+  try {
+    ({ width, height } = await sharp(path).metadata());
+  } catch (error) {
+    throw new ElpxError('invalid-options', `Cannot read --screenshot: ${(error as Error).message}`);
+  }
+  if (!width || !height || !screenshotRatioOk(width, height)) {
+    throw new ElpxError('invalid-options', `--screenshot must be a 16:9 image at least 600 px wide (got ${width ?? '?'}×${height ?? '?'})`);
+  }
+  const png = await sharp(path).resize(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, { fit: 'inside', withoutEnlargement: true }).png().toBuffer();
+  return new Uint8Array(png);
+}
+
 /** Exit code for a run status. */
 export function exitForStatus(status: OptimizationReport['status']): ExitCode {
   switch (status) {
@@ -94,7 +116,10 @@ export function exitForStatus(status: OptimizationReport['status']): ExitCode {
 
 /** optimize: plan, execute, verify and write the result atomically. */
 export async function runOptimize(positionals: string[], values: Record<string, unknown>, io: CliIO): Promise<ExitCode> {
-  const options = normalizeOptions(await optionsFromFlags(values, io));
+  const input = await optionsFromFlags(values, io);
+  const screenshot = typeof values['screenshot'] === 'string' ? await screenshotFromFile(resolve(io.cwd, values['screenshot'])) : undefined;
+  if (screenshot) input.screenshot = { sha256: sha256Hex(screenshot), size: screenshot.length };
+  const options = normalizeOptions(input);
   const limits = limitsFromFlags(values);
   const json = values['json'] === true;
   const quiet = values['quiet'] === true || (json && !io.interactive);
@@ -173,6 +198,7 @@ export async function runOptimize(positionals: string[], values: Record<string, 
       const outcome = await optimizeArchive(source, analysis, plan, platform, {
         outputName: basename(outputPath),
         onProgress,
+        ...(screenshot ? { screenshot } : {}),
         ...(io.signal ? { signal: io.signal } : {}),
       });
       const report = outcome.report;
@@ -225,6 +251,9 @@ export function renderPlan(plan: ReturnType<typeof buildOptimizationPlan>): stri
         break;
       case 'remove-missing-reference':
         lines.push(`  • take out ${op.references} ${op.references === 1 ? 'reference' : 'references'} to missing ${op.path} (in ${op.entries.join(', ')})`);
+        break;
+      case 'replace-screenshot':
+        lines.push(`  • ${op.added ? 'add' : 'replace'} ${op.path} (${formatBytes(op.after)})`);
         break;
       default:
         lines.push(`  • ${op.op} ${op.path}: ${op.reason ?? ''}`);

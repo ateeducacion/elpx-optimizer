@@ -3,6 +3,7 @@ import { IMAGE_PROFILES, type ImageOptions } from '../media/image-policy.js';
 import { RESOLUTION_CAPS, VIDEO_PROFILES, X264_PRESETS, type Preset, type ResolutionCap, type VideoOptions } from '../media/video-policy.js';
 import { AUDIO_PROFILES, type AudioOptions } from '../media/audio-policy.js';
 import { PDF_PROFILES, type PdfOptions } from '../media/pdf-policy.js';
+import { SCREENSHOT_MAX_BYTES } from '../format/screenshot.js';
 
 /**
  * User-facing options and their normalization. The CLI flags, the web form
@@ -56,6 +57,14 @@ export interface OptionsInput {
   minSavingsBytes?: number;
   /** ZIP paths that must be left untouched. */
   exclude?: string[];
+  /** A new screenshot.png; its bytes are given when the plan runs and must match this hash and size. */
+  screenshot?: ScreenshotReplacement;
+}
+
+/** Identifies the PNG that replaces (or adds) screenshot.png. */
+export interface ScreenshotReplacement {
+  readonly sha256: string;
+  readonly size: number;
 }
 
 export interface NormalizedOptions {
@@ -70,6 +79,7 @@ export interface NormalizedOptions {
   readonly missingReferences: 'keep' | 'remove';
   readonly normalizeNames: 'off' | 'slug';
   readonly exclude: readonly string[];
+  readonly screenshot?: ScreenshotReplacement;
 }
 
 const PRESETS: readonly Preset[] = ['conservative', 'balanced', 'aggressive'];
@@ -119,6 +129,7 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
       'minSavingsPercent',
       'minSavingsBytes',
       'exclude',
+      'screenshot',
     ],
     '',
   );
@@ -197,7 +208,28 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (normalizeNames !== 'off' && normalizeNames !== 'slug') invalid('normalizeNames must be "off" or "slug"');
   const exclude = input.exclude ?? [];
   if (!Array.isArray(exclude) || !exclude.every((p) => typeof p === 'string')) invalid('exclude must be a list of paths');
-  return { preset, video, images, audio, pdf, removeUnused, deduplicate, flatten, missingReferences, normalizeNames, exclude: [...new Set(exclude)].sort() };
+  const s = input.screenshot;
+  let screenshot: ScreenshotReplacement | undefined;
+  if (s !== undefined) {
+    if (typeof s !== 'object' || s === null) invalid('screenshot must be an object');
+    checkKeys(s, ['sha256', 'size'], 'screenshot.');
+    if (typeof s.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(s.sha256)) invalid('screenshot.sha256 must be a lower-case SHA-256 hex digest');
+    screenshot = { sha256: s.sha256, size: intIn(s.size, 1, SCREENSHOT_MAX_BYTES, 'screenshot.size') };
+  }
+  return {
+    preset,
+    video,
+    images,
+    audio,
+    pdf,
+    removeUnused,
+    deduplicate,
+    flatten,
+    missingReferences,
+    normalizeNames,
+    exclude: [...new Set(exclude)].sort(),
+    ...(screenshot ? { screenshot } : {}),
+  };
 }
 
 /** Canonical JSON (sorted keys) used for hashing plans and options. */

@@ -50,6 +50,11 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
   and pauses inline from its row. The worker extracts only that entry (a zero-copy slice for stored
   entries) and the page shows it through a `blob:` URL; the project's HTML and JavaScript are still
   never rendered (D15).
+- Project thumbnail: the options can replace `screenshot.png` (or add one), either redrawn from the
+  first page, as eXeLearning does, or from an image the user chooses (16:9, at least 600 px wide, up
+  to 2 MB). The page is drawn as an SVG image, with its style sheets, images and fonts inlined from
+  the package, so its scripts never run and nothing is fetched (D22). The current thumbnail is
+  previewed from its row in the contents.
 - Side panels (native `<dialog>` elements): licenses of the app and of every bundled component, with
   the texts served from `licenses/` on the same site; and how to use the CLI (the ghcr.io Docker
   images first, then a local installation) and the Agent Skill. The header links to `SKILL.md` on

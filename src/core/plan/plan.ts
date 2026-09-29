@@ -13,6 +13,7 @@ import { extname } from '../zip/names.js';
 import { planRestructure, type RestructurePlan } from '../refs/restructure.js';
 import { PLAN_SCHEMA_VERSION, TOOL_NAME, TOOL_VERSION } from '../version.js';
 import { canonicalJson, type NormalizedOptions } from './options.js';
+import { SCREENSHOT_PATH } from '../format/screenshot.js';
 
 /**
  * The optimization plan: an explicit, versioned list of operations derived
@@ -100,7 +101,16 @@ export type PlanOperation =
       readonly entries: readonly string[];
     }
   | { readonly id: string; readonly op: 'rewrite-references'; readonly path: string; readonly edits: number; readonly reason: string }
-  | { readonly id: string; readonly op: 'update-manifest'; readonly path: string; readonly reason: string };
+  | { readonly id: string; readonly op: 'update-manifest'; readonly path: string; readonly reason: string }
+  | {
+      readonly id: string;
+      readonly op: 'replace-screenshot';
+      readonly path: string;
+      /** Size of the current screenshot.png (0 when the package has none and it is added). */
+      readonly size: number;
+      readonly after: number;
+      readonly added: boolean;
+    };
 
 export interface SkippedResource {
   readonly path: string;
@@ -224,7 +234,7 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
     for (const e of result.entries) {
       if (e.isDirectory) continue;
       const isScreenshot = e.path === 'screenshot.png';
-      if (e.role !== 'user-asset' && !(isScreenshot && options.images.includeScreenshot)) continue;
+      if (e.role !== 'user-asset' && !(isScreenshot && options.images.includeScreenshot && !options.screenshot)) continue;
       if (e.kind !== 'video' && e.kind !== 'image') continue;
       if (removedPaths.has(e.path)) continue;
       if (excluded.has(e.path)) {
@@ -257,13 +267,27 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
         estimatedBytes: Math.round(e.size * (decision.job.images ? 0.8 : 0.95)),
       });
     }
+    if (options.screenshot) {
+      const current = result.entries.find((e) => e.path === SCREENSHOT_PATH);
+      if (excluded.has(SCREENSHOT_PATH)) skipped.push({ path: SCREENSHOT_PATH, kind: 'image', reason: 'excluded', detail: 'Kept as original by request' });
+      else
+        operations.push({
+          id: `screenshot:${SCREENSHOT_PATH}`,
+          op: 'replace-screenshot',
+          path: SCREENSHOT_PATH,
+          size: current?.size ?? 0,
+          after: options.screenshot.size,
+          added: current === undefined,
+        });
+    }
     const removals = operations.some(
       (o) =>
         o.op === 'remove-unused' ||
         o.op === 'deduplicate' ||
         o.op === 'move-resource' ||
         o.op === 'rename-resource' ||
-        (o.op === 'transcode-audio' && o.to !== undefined),
+        (o.op === 'transcode-audio' && o.to !== undefined) ||
+        (o.op === 'replace-screenshot' && o.added),
     );
     if (removals && analysis.manifest) {
       operations.push({ id: `manifest:${MANIFEST_PATH}`, op: 'update-manifest', path: MANIFEST_PATH, reason: 'list the final set of entries' });

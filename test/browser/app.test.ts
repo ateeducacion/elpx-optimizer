@@ -2176,3 +2176,106 @@ describe('resource previews', () => {
     expect(live.created.length - live.revoked.length).toBe(1);
   });
 });
+
+describe('project thumbnail', () => {
+  /** Pipeline double that previews the current thumbnail, reads the first page and records the new one. */
+  class ThumbnailPipeline extends PreviewPipeline {
+    readonly files = new Map<string, Blob>();
+    readonly screenshots: (Blob | undefined)[] = [];
+
+    read(path: string): Promise<Blob | undefined> {
+      return Promise.resolve(this.files.get(path));
+    }
+
+    override optimize(planHash: string, onProgress?: (e: ProgressEvent) => void, screenshot?: Blob): Promise<OptimizeResult> {
+      this.screenshots.push(screenshot);
+      return super.optimize(planHash, onProgress);
+    }
+  }
+
+  let thumbs: ThumbnailPipeline;
+  const WITH_PAGE = [...ENTRIES, entry('index.html', 'text', { role: 'runtime' })];
+
+  beforeEach(async () => {
+    root.replaceChildren();
+    thumbs = new ThumbnailPipeline();
+    thumbs.answer = () => smallPng();
+    thumbs.files.set('index.html', new Blob(['<!DOCTYPE html><html><body style="background:#fc0"><h1>Tema 1</h1></body></html>']));
+    pipeline = thumbs;
+    app = new App(root, thumbs, 'en', new LiveUrls());
+    app.mount();
+  });
+
+  function status(): string {
+    return text($('.screenshot .screenshot-status'));
+  }
+
+  async function upload(blob: Blob, name = 'foto.png'): Promise<void> {
+    const input = $<HTMLInputElement>('.screenshot input[type="file"]');
+    const files = new DataTransfer();
+    files.items.add(new File([blob], name, { type: blob.type }));
+    input.files = files.files;
+    input.dispatchEvent(new Event('change'));
+  }
+
+  async function png(width: number, height: number): Promise<Blob> {
+    const canvas = new OffscreenCanvas(width, height);
+    canvas.getContext('2d')!.fillRect(0, 0, width, height);
+    return canvas.convertToBlob({ type: 'image/png' });
+  }
+
+  it('points to the current thumbnail, regenerates it from the first page and can discard the new one', async () => {
+    await toReview(analysisResult({ entries: WITH_PAGE }));
+    expect(text($('.screenshot legend'))).toBe('Project thumbnail (screenshot.png)');
+    const current = 'The project already has a thumbnail: view it from its row in the contents.';
+    expect(text($('.screenshot'))).toContain(current);
+    // The current one is previewed from the contents.
+    expect(root.querySelector('.preview-button[data-path="screenshot.png"]')).not.toBeNull();
+    expect(app.readOptions($<HTMLFormElement>('form.options'))).not.toHaveProperty('screenshot');
+
+    button('Regenerate from the first page').click();
+    await waitFor(() => status().startsWith('New thumbnail ready'), 5000, 'regenerated');
+    expect($('.screenshot img').getAttribute('alt')).toBe('New project thumbnail');
+    const options = app.readOptions($<HTMLFormElement>('form.options'));
+    expect(options.screenshot).toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) as string, size: expect.any(Number) as number });
+
+    button('Discard the new one').click();
+    expect(root.querySelector('.screenshot img')).toBeNull();
+    expect(text($('.screenshot'))).toContain(current);
+    expect(app.readOptions($<HTMLFormElement>('form.options'))).not.toHaveProperty('screenshot');
+  });
+
+  it('offers no regeneration without a first page, and says when there is no thumbnail', async () => {
+    const base = analysisResult();
+    await toReview(analysisResult({ package: { ...base.package!, hasScreenshot: false } }));
+    expect(text($('.screenshot'))).toContain('This project has no thumbnail.');
+    expect($$('.screenshot button').map((b) => text(b))).toEqual(['Upload image…']);
+  });
+
+  it('takes an uploaded 16:9 image and refuses other shapes, in the interface language', async () => {
+    await toReview(analysisResult({ entries: WITH_PAGE }));
+    await upload(await png(1000, 1000));
+    await waitFor(() => status() !== 'Preparing the thumbnail…' && status() !== '', 5000, 'refused');
+    expect(status()).toBe('The image must be 16:9 and at least 600 px wide.');
+    await upload(await png(1920, 1080));
+    await waitFor(() => status().startsWith('New thumbnail ready'), 5000, 'uploaded');
+    expect(app.readOptions($<HTMLFormElement>('form.options')).screenshot?.size).toBeGreaterThan(0);
+  });
+
+  it('sends the new thumbnail with the plan that names it', async () => {
+    await toReview(analysisResult({ entries: WITH_PAGE }));
+    await upload(await png(1280, 720));
+    await waitFor(() => status().startsWith('New thumbnail ready'), 5000, 'uploaded');
+    const options = app.readOptions($<HTMLFormElement>('form.options'));
+    $<HTMLFormElement>('form.options').requestSubmit();
+    expect(thumbs.planCalls.at(-1)?.screenshot).toEqual(options.screenshot);
+    const op = { id: 's', op: 'replace-screenshot', path: 'screenshot.png', size: 13_917, after: options.screenshot!.size, added: false } as PlanOperation;
+    thumbs.plans.resolve(planOf({ operations: [op] }));
+    await waitFor(() => app.currentView === 'plan', 2000, 'plan');
+    expect(planGroups().map(([title]) => title)).toContain('Project thumbnail');
+    expect(text($('.op-replace-screenshot'))).toMatch(/^screenshot\.png \(replaced, [\d.,]+ [kK]?B\)$/);
+    button('Optimize').click();
+    await waitFor(() => thumbs.screenshots.length === 1, 2000, 'optimize');
+    expect(thumbs.screenshots[0]?.size).toBe(options.screenshot!.size);
+  });
+});

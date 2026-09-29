@@ -204,8 +204,12 @@ identical CRC and size (moved files compared under their original name), no new
 missing/ambiguous/structural diagnostics, every previously resolved reference still resolving,
 same pages and component IDs, and a manifest matching the entries. Only then is the file committed
 (renamed into place) or offered for download. If the final ZIP is not smaller than the input, a
-byte-for-byte copy of the input is delivered with status `no-improvement`, unless files were moved
-or broken references taken out: those are changes the user asked for.
+byte-for-byte copy of the input is delivered with status `no-improvement`, unless files were moved,
+broken references taken out or a new thumbnail given: those are changes the user asked for.
+
+A new `screenshot.png` (`options.screenshot`, plan op `replace-screenshot`) is named in the options by
+its SHA-256 and size and its bytes are passed to the run, which checks them against the plan and
+eXeLearning's rules (PNG, 16:9, at most 1280×720, `core/format/screenshot.ts`) before writing it.
 
 ## Web runtime
 
@@ -225,4 +229,8 @@ page to run, and `preview`. A preview request names one image, audio or video
 entry of the analyzed project; the worker answers with a Blob typed with the entry's MIME type (a
 zero-copy slice of the input File for stored entries, inflated for deflated ones up to 256 MiB),
 which the page shows in an `<img>`, `<video>` or `<audio>` element through a `blob:` URL and
-revokes afterwards. Other entries are refused, so the project's HTML and scripts are never rendered.
+revokes afterwards. Other entries are refused. A `read` request returns any entry as untyped bytes;
+the page uses it only to draw a new thumbnail from the first page (`src/web/screenshot.ts`): the
+HTML is parsed inertly, its style sheets, images and fonts are inlined, and the result is drawn as an
+SVG image, where scripts never run and nothing is fetched (decisions D22). The chosen PNG goes back
+with `optimize`.

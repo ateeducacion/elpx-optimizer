@@ -24,6 +24,7 @@ import { applyTextEdits } from '../refs/rewrite.js';
 import { buildOptimizationPlan, restructurePlan, type OptimizationPlan, type PlanOperation } from '../plan/plan.js';
 import { canonicalJson } from '../plan/options.js';
 import { sha256Hex } from '../io/hash.js';
+import { SCREENSHOT_PATH, screenshotProblem } from '../format/screenshot.js';
 import { buildReport, type OperationResult, type OptimizationReport, type Validation } from '../report/report.js';
 
 /** Where the optimized archive is written. */
@@ -51,6 +52,8 @@ export interface OptimizeRunOptions {
   readonly onProgress?: ProgressListener;
   /** Output name used in the report (display only). */
   readonly outputName: string;
+  /** The PNG named by options.screenshot, when the plan replaces screenshot.png. */
+  readonly screenshot?: Uint8Array;
 }
 
 export interface OptimizeOutcome {
@@ -100,8 +103,34 @@ export async function optimizeArchive(
   const replacements = new Map<string, StoredResource>();
   const removed = new Set<string>();
   const newTexts = new Map<string, string>();
+  // Whole new contents given by the user (screenshot.png), and entries that did not exist before.
+  const newBinaries = new Map<string, Uint8Array>();
+  const added: string[] = [];
   let target: OutputTarget | undefined;
   try {
+    // 1b. The new thumbnail must be the one the plan names, and one eXeLearning accepts.
+    const shotOp = plan.operations.find((o): o is Extract<PlanOperation, { op: 'replace-screenshot' }> => o.op === 'replace-screenshot');
+    if (shotOp) {
+      const bytes = run.screenshot;
+      if (!bytes || bytes.length !== shotOp.after || sha256Hex(bytes) !== plan.options.screenshot?.sha256) {
+        throw new ElpxError('plan-mismatch', 'The plan replaces screenshot.png, but the image given is not the one it names');
+      }
+      const problem = screenshotProblem(bytes);
+      if (problem) throw new ElpxError('invalid-options', `The new screenshot.png cannot be used: ${problem}`);
+      newBinaries.set(SCREENSHOT_PATH, bytes);
+      if (shotOp.added) added.push(SCREENSHOT_PATH);
+      results.push({
+        id: shotOp.id,
+        op: shotOp.op,
+        path: shotOp.path,
+        status: 'applied',
+        before: shotOp.size,
+        after: shotOp.after,
+        detail: shotOp.added ? 'thumbnail added' : 'thumbnail replaced',
+      });
+      validations.push({ name: 'screenshot-valid', ok: true, detail: 'PNG, 16:9, within 1280×720' });
+    }
+
     // 2. Media.
     const videoOps = plan.operations.filter((o): o is Extract<PlanOperation, { op: 'transcode-video' }> => o.op === 'transcode-video');
     const imageOps = plan.operations.filter((o): o is Extract<PlanOperation, { op: 'recompress-image' }> => o.op === 'recompress-image');
@@ -257,9 +286,9 @@ export async function optimizeArchive(
       parseContentXml(xml, platform.limits.maxXmlDepth);
       validations.push({ name: 'content-xml-well-formed-after-rewrite', ok: true });
     }
-    const finalNames = archive.entries.filter((e) => !e.isDirectory && !removed.has(e.name)).map((e) => renames.get(e.name) ?? e.name);
+    const finalNames = [...archive.entries.filter((e) => !e.isDirectory && !removed.has(e.name)).map((e) => renames.get(e.name) ?? e.name), ...added];
     // The manifest lists files only: dropping empty directory entries does not change it (nor does the plan list it).
-    const filesChanged = renames.size > 0 || [...removed].some((p) => !p.endsWith('/'));
+    const filesChanged = renames.size > 0 || added.length > 0 || [...removed].some((p) => !p.endsWith('/'));
     if (filesChanged && analysis.manifest) {
       newTexts.set(MANIFEST_PATH, renderManifest(analysis.manifest, finalNames));
       results.push({
@@ -281,9 +310,13 @@ export async function optimizeArchive(
       if (removed.has(entry.name)) continue;
       const replacement = replacements.get(entry.name);
       const text = newTexts.get(entry.name);
+      const binary = newBinaries.get(entry.name);
       const newName = renames.get(entry.name);
       const meta = newName === undefined ? metaFromEntry(entry) : renamedMeta(entry, newName);
-      if (replacement) {
+      if (binary) {
+        // PNG is stored, as eXeLearning's exporter does.
+        await writer.addBytes(meta, binary, 0);
+      } else if (replacement) {
         const data = await replacement.open();
         try {
           await writer.addStoredSource(meta, data);
@@ -304,6 +337,12 @@ export async function optimizeArchive(
         fraction: Math.min(0.99, written / Math.max(1, finalNames.length)),
       });
     }
+    // New entries go last, with the timestamps and attributes of content.xml.
+    for (const name of added) {
+      const model = archive.byName.get('content.xml')!;
+      await writer.addBytes(renamedMeta(model, name), newBinaries.get(name)!, 0);
+      written++;
+    }
     await writer.finish();
     const outSource = await target.finish();
     validations.push({ name: 'zip-written', ok: true, detail: `${written} entries, ${outSource.size} bytes` });
@@ -311,7 +350,7 @@ export async function optimizeArchive(
     // 5. Verify the packaged result from scratch.
     progress({ stage: 'verify', message: 'Re-opening and validating the result' });
     const check = await analyzeArchive(outSource, { limits: platform.limits, inputName: run.outputName, ...(signal ? { signal } : {}) });
-    const verification = compareWithBaseline(analysis, check, removed, renames, replacements, newTexts);
+    const verification = compareWithBaseline(analysis, check, removed, renames, replacements, newTexts, newBinaries, added);
     validations.push(...verification);
     const failed = verification.filter((v) => !v.ok);
     if (failed.length > 0) {
@@ -324,7 +363,9 @@ export async function optimizeArchive(
     // the package does not get smaller.
     const applied = results.filter((r) => r.status === 'applied');
     const sizeAfter = outSource.size;
-    const structural = applied.some((r) => r.op === 'move-resource' || r.op === 'rename-resource' || r.op === 'remove-missing-reference');
+    const structural = applied.some(
+      (r) => r.op === 'move-resource' || r.op === 'rename-resource' || r.op === 'remove-missing-reference' || r.op === 'replace-screenshot',
+    );
     if (applied.length === 0 || (sizeAfter >= source.size && !structural)) {
       const copy = await target.useOriginal(source);
       const outSha = await hashSource(copy, signal);
@@ -621,6 +662,8 @@ function compareWithBaseline(
   renames: ReadonlyMap<string, string>,
   replaced: ReadonlyMap<string, StoredResource>,
   texts: ReadonlyMap<string, string>,
+  binaries: ReadonlyMap<string, Uint8Array>,
+  added: readonly string[],
 ): Validation[] {
   const out: Validation[] = [];
   out.push({
@@ -631,12 +674,12 @@ function compareWithBaseline(
       : (after.result.diagnostics.find((d) => d.severity === 'fatal')?.message ?? 'fatal'),
   });
   if (!after.result.ok) return out;
-  const expected = before.result.entries.filter((e) => !removed.has(e.path)).map((e) => renames.get(e.path) ?? e.path);
+  const expected = [...before.result.entries.filter((e) => !removed.has(e.path)).map((e) => renames.get(e.path) ?? e.path), ...added];
   const actual = after.result.entries.map((e) => e.path);
   out.push({
     name: 'entry-set',
     ok: expected.length === actual.length && expected.every((p, i) => p === actual[i]),
-    detail: `${actual.length} entries (${removed.size} removed, ${renames.size} moved)`,
+    detail: `${actual.length} entries (${removed.size} removed, ${renames.size} moved${added.length > 0 ? `, ${added.length} added` : ''})`,
   });
   const originalName = new Map([...renames].map(([from, to]) => [to, from]));
   const beforeEntries = new Map(before.archive!.entries.map((e) => [e.name, e]));
@@ -647,7 +690,7 @@ function compareWithBaseline(
     const b = beforeEntries.get(name);
     if (!b) continue;
     const same = b.crc32 === e.crc32 && b.uncompressedSize === e.uncompressedSize;
-    const shouldChange = replaced.has(name) || texts.has(name);
+    const shouldChange = replaced.has(name) || texts.has(name) || binaries.has(name);
     if (!same) changed++;
     if (!same && !shouldChange) unexpected++;
   }
