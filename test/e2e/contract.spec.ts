@@ -1,10 +1,16 @@
 import { expect, test } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OptimizationReport } from '../../src/core/report/report.js';
 import { analyzeFile, FIXTURES, nativeVideoCheck, readEntry, ROOT, ui } from './helpers.js';
+
+/** The CLI's environment: ffprobe from PATH, or the project-local copy when there is one (see test/helpers/native.ts). */
+function cliEnv(): NodeJS.ProcessEnv {
+  const local = join(ROOT, '.tools', 'bin', 'ffprobe');
+  return process.env['ELPX_OPTIMIZER_FFPROBE'] || !existsSync(local) ? process.env : { ...process.env, ELPX_OPTIMIZER_FFPROBE: local };
+}
 
 /**
  * Contract between the CLI (native engine) and the web app (browser engine):
@@ -43,7 +49,7 @@ test('CLI and web share plan and rules and give equivalent results', async ({ pa
         '--json',
         '--quiet',
       ],
-      { env: { ...process.env, ELPX_OPTIMIZER_FFPROBE: process.env['ELPX_OPTIMIZER_FFPROBE'] ?? join(ROOT, '.tools', 'bin', 'ffprobe') } },
+      { env: cliEnv() },
     ).toString();
     const cli = JSON.parse(cliJson) as OptimizationReport;
 
