@@ -128,10 +128,11 @@ describe('renderFirstPage', () => {
     expect(await pixel(png, 640, 360)).toEqual([0, 255, 0, 255]);
   });
 
-  it('inlines the images of inline SVG (href and xlink:href)', async () => {
+  it('inlines the images of inline SVG (href and xlink:href) and drops those not in the package', async () => {
     const html = `<html><body style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="720">
       <image href="content/resources/a b.png" x="0" y="0" width="640" height="720"/>
-      <image xlink:href="content/resources/a%20b.png" x="640" y="0" width="640" height="720"/></svg></body></html>`;
+      <image xlink:href="content/resources/a%20b.png" x="640" y="0" width="640" height="720"/>
+      <image href="content/resources/gone.png" x="0" y="0" width="10" height="10"/></svg></body></html>`;
     const png = await renderFirstPage(reader({ 'index.html': html, 'content/resources/a b.png': await solidPng(8, 8, '#ff0000') }));
     expect(await pixel(png, 320, 360)).toEqual([255, 0, 0, 255]);
     expect(await pixel(png, 960, 360)).toEqual([255, 0, 0, 255]);
