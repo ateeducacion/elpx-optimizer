@@ -13,6 +13,7 @@ import { translate, type Lang } from './i18n.js';
 import { icon, type IconName } from './icons.js';
 import ateLogo from './assets/ate-logo.png';
 import { COMPONENTS } from './licenses.js';
+import { cleanFileName } from '../core/refs/slug.js';
 
 /** What the UI needs from the pipeline (the real client or a test double). */
 export interface PipelineApi {
@@ -55,6 +56,7 @@ const OP_ORDER: readonly [PlanOperation['op'], IconName][] = [
   ['remove-unused', 'trash3'],
   ['deduplicate', 'files'],
   ['move-resource', 'folder-symlink'],
+  ['rename-resource', 'pencil-square'],
   ['remove-missing-reference', 'eraser'],
   ['rewrite-references', 'pencil-square'],
   ['update-manifest', 'file-earmark'],
@@ -100,7 +102,8 @@ export class App {
   private progress: ProgressEvent | undefined;
   private readonly excluded = new Set<string>();
   private sort: { key: SortKey; dir: 1 | -1 } = { key: 'size', dir: -1 };
-  private options: OptionsInput = { preset: 'balanced' };
+  // Clean file names are on by default in the web app (the CLI keeps names unless asked).
+  private options: OptionsInput = { preset: 'balanced', normalizeNames: 'slug' };
   private threading: ThreadingPreference;
   private cancelling = false;
   private objectUrls: string[] = [];
@@ -1034,6 +1037,18 @@ export class App {
       );
     }
     presets.append(group);
+    const current = o.images?.maxDimension;
+    const size = h('select', { name: 'imageSize', id: 'opt-imageSize', className: 'form-select' });
+    size.append(h('option', { value: 'profile', selected: current === undefined }, this.t('imageSizeProfile')));
+    for (const px of [1280, 1600, 1920, 2560]) size.append(h('option', { value: px, selected: current === px }, `${px} px`));
+    size.append(h('option', { value: 'none', selected: current === null }, this.t('imageSizeNone')));
+    const imageSize = h(
+      'div',
+      { className: 'mb-3' },
+      h('label', { className: 'form-label fw-bold fs-6', for: 'opt-imageSize' }, this.t('imageSize')),
+      size,
+      h('div', { className: 'form-text' }, this.t('imageSizeHelp')),
+    );
     const num = (name: string, label: string, min: number, max: number, value: number | undefined): HTMLElement =>
       h(
         'div',
@@ -1070,7 +1085,6 @@ export class App {
         check('images', 'imagesEnabled', o.images?.enabled !== false),
         num('jpegQuality', 'jpegQuality', 30, 100, o.images?.jpegQuality),
         num('webpQuality', 'webpQuality', 30, 100, o.images?.webpQuality),
-        num('maxDimension', 'maxDimension', 64, 20000, o.images?.maxDimension ?? undefined),
         check('png', 'optimizePng', o.images?.png !== false),
         check('stripMetadata', 'stripMetadata', o.images?.stripMetadata === true),
         check('includeScreenshot', 'includeScreenshot', o.images?.includeScreenshot === true),
@@ -1105,6 +1119,7 @@ export class App {
         a.duplicates.length > 0 ? this.t(a.duplicates.length === 1 ? 'deduplicateHelpOne' : 'deduplicateHelp', { count: a.duplicates.length }) : undefined,
         true,
       ),
+      this.namesCheck(check, o.normalizeNames !== 'off'),
       legacy.files > 0 ? check('flatten', 'flatten', o.flatten === 'legacy', this.t('flattenHelp', { files: legacy.files }), true) : false,
       brokenCount > 0
         ? check('missingReferences', 'missingRefs', o.missingReferences === 'remove', this.t('missingRefsHelp', { count: brokenCount }), true)
@@ -1112,6 +1127,7 @@ export class App {
     );
     form.append(
       presets,
+      imageSize,
       h('p', { className: 'note small text-body-secondary' }, this.t('lossyNote')),
       cleanup,
       advanced,
@@ -1126,6 +1142,22 @@ export class App {
       { className: 'panel card options-card', 'aria-labelledby': 'h-step3' },
       h('div', { className: 'card-body' }, h('h2', { id: 'h-step3', tabindex: -1, className: 'h5 mb-3' }, this.t('step3')), form),
     );
+  }
+
+  /** The clean-names switch, with how many files would get a new name and one example. */
+  private namesCheck(check: (name: string, label: string, checked: boolean, help?: string, isSwitch?: boolean) => HTMLElement, checked: boolean): HTMLElement {
+    const changes = this.analysis!.entries.filter((e) => !e.isDirectory && e.role === 'user-asset' && !e.path.startsWith('custom/'))
+      .map((e) => e.path.slice(e.path.lastIndexOf('/') + 1))
+      .filter((name) => cleanFileName(name) !== name);
+    const help =
+      changes.length === 0
+        ? this.t('normalizeNamesClean')
+        : this.t(changes.length === 1 ? 'normalizeNamesHelpOne' : 'normalizeNamesHelp', {
+            count: changes.length,
+            from: changes[0]!,
+            to: cleanFileName(changes[0]!),
+          });
+    return check('normalizeNames', 'normalizeNames', checked, help, true);
   }
 
   /** Reads the options form into OptionsInput. */
@@ -1153,8 +1185,9 @@ export class App {
     if (jq !== undefined) images.jpegQuality = jq;
     const wq = n('webpQuality');
     if (wq !== undefined) images.webpQuality = wq;
-    const md = n('maxDimension');
-    if (md !== undefined) images.maxDimension = md;
+    const imageSize = String(data.get('imageSize') ?? 'profile');
+    if (imageSize === 'none') images.maxDimension = null;
+    else if (/^\d+$/.test(imageSize)) images.maxDimension = Number(imageSize);
     const audio: NonNullable<OptionsInput['audio']> = { enabled: on('audio') };
     const afb = n('audioFilesBitrate');
     if (afb !== undefined) audio.bitrate = afb;
@@ -1168,6 +1201,7 @@ export class App {
       deduplicate: on('deduplicate') ? 'exact' : 'off',
       flatten: on('flatten') ? 'legacy' : 'off',
       missingReferences: on('missingReferences') ? 'remove' : 'keep',
+      normalizeNames: on('normalizeNames') ? 'slug' : 'off',
       exclude: [...this.excluded],
     };
   }
@@ -1197,6 +1231,8 @@ export class App {
         return `${op.remove.map(short).join(', ')}: ${this.t('mergedInto', { keep: short(op.keep) })}`;
       case 'move-resource':
         return `${op.path} → ${op.to}`;
+      case 'rename-resource':
+        return `${short(op.path)} → ${short(op.to)}`;
       case 'remove-missing-reference':
         return `${short(op.path)}: ${this.t('unlinkCount', { count: op.references })}`;
       default:
@@ -1215,6 +1251,7 @@ export class App {
     if (has('remove-unused')) notes.push(this.t('risk_unused'));
     if (has('deduplicate')) notes.push(this.t('risk_dedup'));
     if (has('move-resource')) notes.push(this.t('risk_move'));
+    if (has('rename-resource')) notes.push(this.t('risk_rename'));
     if (has('remove-missing-reference')) notes.push(this.t('risk_unlink'));
     return notes;
   }
