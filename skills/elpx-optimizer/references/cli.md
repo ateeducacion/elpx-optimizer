@@ -96,7 +96,7 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
   bundle (`qpdf-runner.mjs` must sit next to `elpx-optimizer.mjs`). It is WebAssembly: no system
   qpdf is needed or used. In the skill's `vendor/`, a plain `npm install` installs sharp and qpdf.
 - No local installation, or Windows: the published Docker image includes everything
-  (`docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx`;
+  (`docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx`;
   in PowerShell `-v "${PWD}:/work"`). It is used directly, not through `scripts/run.mjs`.
 - The CLI package (`elpx-optimizer-X.Y.Z.tgz`) and this skill (`elpx-optimizer-skill.zip`) are
   attached to every release at https://github.com/ateeducacion/elpx-optimizer/releases.

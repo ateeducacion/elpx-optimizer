@@ -109,7 +109,6 @@ const es = {
   helpDocker: 'Solo necesitas Docker: la imagen publicada en ghcr.io ya incluye FFmpeg y todo lo demás. Ejecútalo en la carpeta donde está tu proyecto:',
   helpDockerWindows:
     '--user hace que el resultado sea tuyo y que el contenedor pueda escribir en la carpeta. En Windows (PowerShell), quita --user y usa -v "${PWD}:/work".',
-  helpDockerWeb: 'La propia web también está publicada como imagen; esto la sirve en http://localhost:8080:',
   helpLocalTitle: 'Sin Docker, desde el código',
   helpCliDocs: 'Todas las opciones y códigos de salida (docs/cli.md)',
   helpSkillTitle: 'Agent Skill para asistentes de IA',
@@ -386,7 +385,6 @@ const en: Record<keyof typeof es, string> = {
   helpDocker: 'You only need Docker: the image published on ghcr.io already includes FFmpeg and everything else. Run it in the folder that holds your project:',
   helpDockerWindows:
     '--user makes the result yours and lets the container write to the folder. On Windows (PowerShell), drop --user and use -v "${PWD}:/work".',
-  helpDockerWeb: 'This web app is published as an image too; this serves it at http://localhost:8080:',
   helpLocalTitle: 'Without Docker, from the source code',
   helpCliDocs: 'Every option and exit code (docs/cli.md)',
   helpSkillTitle: 'Agent Skill for AI assistants',

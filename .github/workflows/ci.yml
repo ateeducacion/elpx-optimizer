@@ -186,7 +186,7 @@ jobs:
           path: test-results/compat/
 
   docker:
-    name: Docker images (${{ matrix.arch }})
+    name: Docker image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -199,18 +199,9 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
-      - run: docker build --target web -t elpx-optimizer-web .
-      - run: docker build --target cli -t elpx-optimizer-cli .
-      - name: Web image serves static files only
-        run: |
-          docker run -d --rm --name web -p 8080:8080 --read-only --tmpfs /tmp --tmpfs /var/cache/nginx elpx-optimizer-web
-          sleep 3
-          curl -fsS http://127.0.0.1:8080/ > /dev/null
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/)" = "403"
-          curl -sI http://127.0.0.1:8080/ | grep -qi "x-content-type-options"
-          docker stop web
+      - run: docker build --target cli -t elpx-optimizer .
       - name: CLI image optimizes a project
         run: |
           # The image runs as a non-root user: run it as the runner's user so it can write to the mounted folder.
-          docker run --rm --user "$(id -u):$(id -g)" --memory 2g --cpus 2 --pids-limit 256 -v "$PWD/test/fixtures/elpx:/in:ro" -v "$RUNNER_TEMP:/work" elpx-optimizer-cli optimize "/in/course-video.elpx" --output /work/out.elpx --json > report.json
+          docker run --rm --user "$(id -u):$(id -g)" --memory 2g --cpus 2 --pids-limit 256 -v "$PWD/test/fixtures/elpx:/in:ro" -v "$RUNNER_TEMP:/work" elpx-optimizer optimize "/in/course-video.elpx" --output /work/out.elpx --json > report.json
           node -e "const r=require('./report.json'); if (r.status!=='optimized') process.exit(1)"

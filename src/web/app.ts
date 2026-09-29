@@ -343,7 +343,7 @@ export class App {
   private renderHelp(): HTMLDialogElement {
     const external = { target: '_blank', rel: 'noopener noreferrer' };
     const cli = 'node dist/cli/elpx-optimizer.mjs';
-    const docker = 'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli';
+    const docker = 'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer';
     const step = (title: string, code?: string, note?: string): HTMLElement =>
       h(
         'li',
@@ -367,8 +367,6 @@ export class App {
         step(this.t('helpStep6'), `${docker} optimize /work/curso.elpx \\\n  --remove-unused safe --deduplicate exact`, this.t('helpStep6Note')),
       ),
       h('p', { className: 'small text-body-secondary' }, this.t('helpDockerWindows')),
-      h('p', { className: 'small' }, this.t('helpDockerWeb')),
-      this.codeBlock('docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer'),
       h('h4', { className: 'h6 mt-4' }, this.t('helpLocalTitle')),
       h(
         'ol',

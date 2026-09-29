@@ -41,7 +41,7 @@ course into 1.1 MB (−62 %). The first run, including the download of sharp, to
 | PDFs                         | Always: qpdf compiled to WebAssembly, run in a child process (`qpdf-runner.mjs`).                                                                                                                                                                                |
 | Images                       | sharp installs a prebuilt libvips for the platform through optional dependencies (`@img/sharp-*`), with no build and no install script. Where no prebuilt binary exists, sharp is loaded lazily, so the rest keeps working and `doctor` says why images are off. |
 | Video and audio              | Only when `ffmpeg` and `ffprobe` are on `PATH` (or given with `--ffmpeg`/`--ffprobe` or `ELPX_OPTIMIZER_FFMPEG`/`FFPROBE`). Otherwise the plan leaves them unchanged with the reason `engine-unavailable`, and `doctor` says so.                                 |
-| `serve` (the static web app) | Not included: `dist/web` weighs tens of megabytes because of the ffmpeg.wasm cores. The web app is on GitHub Pages and in the Docker image.                                                                                                                      |
+| `serve` (the static web app) | Not included: `dist/web` weighs tens of megabytes because of the ffmpeg.wasm cores. The web app is on GitHub Pages.                                                                                                                                              |
 
 ### FFmpeg is not bundled
 
@@ -49,7 +49,7 @@ course into 1.1 MB (−62 %). The first run, including the download of sharp, to
 postinstall script. That is blocked by `--ignore-scripts` and by many corporate proxies, adds a
 binary this project cannot rebuild or verify, and changes the licensing of what is distributed. The
 native engine already detects FFmpeg and explains its absence, the Docker image
-(`ghcr.io/ateeducacion/elpx-optimizer-cli`) carries it, and the web app has ffmpeg.wasm. Not
+(`ghcr.io/ateeducacion/elpx-optimizer`) carries it, and the web app has ffmpeg.wasm. Not
 recommended.
 
 ### Node version

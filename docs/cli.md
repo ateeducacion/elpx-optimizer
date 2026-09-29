@@ -187,18 +187,16 @@ platforms. PDFs need no external tool: qpdf comes as WebAssembly in the npm pack
 
 ### Docker (no local dependencies)
 
-Each GitHub release publishes two images on the GitHub Container Registry, for `linux/amd64` and
-`linux/arm64`, tagged `latest`, `X.Y.Z` and `X.Y`:
-
-- `ghcr.io/ateeducacion/elpx-optimizer-cli`: the CLI (Alpine, Bun, ffmpeg, sharp, qpdf-wasm), non-root,
-  working directory `/work`;
-- `ghcr.io/ateeducacion/elpx-optimizer`: the static web app on nginx (port 8080, see [web.md](web.md)).
+Each GitHub release publishes `ghcr.io/ateeducacion/elpx-optimizer` on the GitHub Container Registry,
+for `linux/amd64` and `linux/arm64`, tagged `latest`, `X.Y.Z` and `X.Y`: the CLI (Alpine, Bun,
+ffmpeg, sharp, qpdf-wasm), non-root, working directory `/work`. Until v0.1.1 this name held the web
+app and the CLI was `elpx-optimizer-cli`; the web app is now only served from GitHub Pages.
 
 ```bash
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli doctor
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli inspect /work/curso.elpx
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx --dry-run
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx \
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer doctor
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer inspect /work/curso.elpx
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx --dry-run
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx \
   --remove-unused safe --deduplicate exact
 ```
 
@@ -209,10 +207,10 @@ own and the output belongs to you (without it, writing fails on Linux). On Windo
 
 ```bash
 docker run --rm --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp --memory 2g --cpus 2 --pids-limit 256 \
-  -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx --report /work/informe.json
+  -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx --report /work/informe.json
 ```
 
-To build the same image from a checkout: `docker build --target cli -t elpx-optimizer-cli .`.
+To build the same image from a checkout: `docker build -t elpx-optimizer .` (or `make docker`).
 
 ### From a release
 
@@ -255,7 +253,7 @@ elpx-optimizer doctor
 Native Windows has not been tested. Use Docker (Docker Desktop), from PowerShell:
 
 ```powershell
-docker run --rm -v "${PWD}:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx
+docker run --rm -v "${PWD}:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx
 ```
 
 ## Security notes

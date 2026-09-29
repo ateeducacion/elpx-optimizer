@@ -18,8 +18,8 @@ se modifica nunca.
 - **CLI** con Docker (incluye FFmpeg, sharp y qpdf):
 
   ```bash
-  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx --dry-run
-  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimize /work/curso.elpx
+  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx --dry-run
+  docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer optimize /work/curso.elpx
   ```
 
 - **Web en tu propio servidor**: `docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer`,

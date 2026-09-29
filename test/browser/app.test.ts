@@ -1780,7 +1780,7 @@ describe('side panels', () => {
     expect(titles(docker!)).toEqual(['Review a project without changing anything', 'See the plan before applying it', 'Optimize']);
     expect(
       [...docker!.querySelectorAll('code')].every((c) =>
-        c.textContent!.startsWith('docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli '),
+        c.textContent!.startsWith('docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer '),
       ),
     ).toBe(true);
     expect(titles(local!)).toEqual([
@@ -1797,7 +1797,6 @@ describe('side panels', () => {
     expect(notes(docker!)).toEqual([false, false, true]);
     expect(notes(local!)).toEqual([true, false, false, false, false, true]);
     const codes = [...dialog.querySelectorAll('.code-block code')].map((c) => c.textContent!);
-    expect(codes).toContain('docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer');
     expect(codes).toContain('node dist/cli/elpx-optimizer.mjs doctor');
     expect(codes.some((c) => c.includes('--flatten legacy --missing-references remove'))).toBe(true);
     expect(dialog.textContent).toContain('On Windows (PowerShell), drop --user and use -v "${PWD}:/work".');
@@ -1824,7 +1823,7 @@ describe('side panels', () => {
     expect($('[role="status"]').textContent).toBe('Copied to the clipboard');
     // A refused copy changes nothing.
     write.mockImplementation(() => Promise.reject(new Error('denied')));
-    const other = copyOf('docker run --rm -p 8080:8080 ghcr.io/ateeducacion/elpx-optimizer');
+    const other = copyOf(codes.find((c) => c.endsWith('inspect /work/curso.elpx'))!);
     const otherBefore = other.innerHTML;
     other.click();
     await settle();

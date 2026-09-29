@@ -1,10 +1,11 @@
 name: Release
 
-# On every published GitHub release: the Docker images are pushed to GHCR as
-# `latest` and with the release version, the web app is deployed to GitHub
-# Pages, and the CLI, the Agent Skill and the static web build are attached
-# to the release. Each image architecture is built on a native runner (no
-# emulation) and the two are joined into one multi-platform image. The CLI is
+# On every published GitHub release: the CLI Docker image is pushed to GHCR
+# (ghcr.io/ateeducacion/elpx-optimizer) as `latest` and with the release
+# version, the web app is deployed to GitHub Pages, and the CLI, the Agent
+# Skill and the static web build are attached to the release. Each image
+# architecture is built on a native runner (no emulation) and the two are
+# joined into one multi-platform image. The CLI is
 # published on npm when the repository variable NPM_PUBLISH is "true"
 # (docs/npm.md).
 #
@@ -35,12 +36,14 @@ concurrency:
 env:
   BUN_VERSION: 1.4.0
   NODE_VERSION: 24
+  # The Docker image (the CLI; the web app is on GitHub Pages).
+  IMAGE: elpx-optimizer
   # The tag being published: the release's, or the one given by hand.
   RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   images:
-    name: Docker image (${{ matrix.target }}, ${{ matrix.arch }})
+    name: Docker image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
@@ -49,17 +52,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [web, cli]
-        arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-latest
           - arch: arm64
             runner: ubuntu-24.04-arm
-          - target: web
-            image: elpx-optimizer
-          - target: cli
-            image: elpx-optimizer-cli
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,23 +70,23 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE }}
           labels: |
-            org.opencontainers.image.title=${{ matrix.image }}
-            org.opencontainers.image.description=eXeLearning project optimizer (${{ matrix.target }})
+            org.opencontainers.image.title=${{ env.IMAGE }}
+            org.opencontainers.image.description=eXeLearning project optimizer (command line)
             org.opencontainers.image.licenses=AGPL-3.0-or-later
       # Pushed by digest only; the manifests job gives the tags to both architectures at once.
       - id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          target: ${{ matrix.target }}
+          target: cli
           platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
-          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE }}
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=cli-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=cli-${{ matrix.arch }}
       - name: Export the digest
         run: |
           mkdir -p "$RUNNER_TEMP/digests"
@@ -97,31 +94,24 @@ jobs:
           touch "$RUNNER_TEMP/digests/${digest#sha256:}"
       - uses: actions/upload-artifact@v7
         with:
-          name: digests-${{ matrix.target }}-${{ matrix.arch }}
+          name: digests-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
 
   manifests:
-    name: Docker image (${{ matrix.target }})
+    name: Docker image (multi-platform)
     needs: images
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        include:
-          - target: web
-            image: elpx-optimizer
-          - target: cli
-            image: elpx-optimizer-cli
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ matrix.target }}-*
+          pattern: digests-*
           merge-multiple: true
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -132,7 +122,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'release' || inputs.latest }}
             type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
@@ -141,9 +131,9 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@sha256:%s ' *)
+            $(printf 'ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE }}@sha256:%s ' *)
       - name: Inspect
-        run: docker buildx imagetools inspect 'ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}'
+        run: docker buildx imagetools inspect 'ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE }}:${{ steps.meta.outputs.version }}'
 
   pages:
     name: Web app on GitHub Pages
