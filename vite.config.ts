@@ -37,6 +37,8 @@ function licensesPlugin(): Plugin {
     ['node_modules/@jsquash/resize/lib/magic-kernel/LICENSE.codec.md', 'magic-kernel.txt'],
     ['node_modules/@jsquash/jpeg/LICENSE', 'jsquash-Apache-2.0.txt'],
     ['node_modules/@fontsource/atkinson-hyperlegible/LICENSE', 'atkinson-hyperlegible-OFL-1.1.txt'],
+    ['node_modules/bootstrap/LICENSE', 'bootstrap-MIT.txt'],
+    ['node_modules/bootstrap-icons/LICENSE', 'bootstrap-icons-MIT.txt'],
   ];
   return {
     name: 'elpx-licenses',
@@ -67,6 +69,10 @@ export default defineConfig({
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 2048,
     sourcemap: false,
+  },
+  css: {
+    // Bootstrap 5.3's Sass still uses @import and global functions; its deprecation notices are not ours.
+    preprocessorOptions: { scss: { quietDeps: true, silenceDeprecations: ['import', 'global-builtin', 'color-functions', 'if-function'] } },
   },
   worker: { format: 'es' },
   optimizeDeps: {

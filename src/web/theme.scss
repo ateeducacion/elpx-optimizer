@@ -1,0 +1,61 @@
+// Bootstrap 5.3, compiled locally with the app's theme. Only the parts the
+// interface uses are included; nothing is loaded from a CDN (the page's
+// Content-Security-Policy allows same-origin styles only).
+
+// Indigo of the Área de Tecnología Educativa logo.
+$primary: #3f4c8a;
+$success: #1c7c5c;
+$info: #2f6f9f;
+$danger: #b02a37;
+$body-color: #1d2233;
+$font-family-sans-serif:
+  'Atkinson Hyperlegible',
+  system-ui,
+  -apple-system,
+  'Segoe UI',
+  Roboto,
+  'Helvetica Neue',
+  Arial,
+  sans-serif;
+$headings-font-weight: 700;
+$border-radius: 0.5rem;
+$border-radius-sm: 0.375rem;
+$border-radius-lg: 0.75rem;
+$card-border-color: rgba(#3f4c8a, 0.14);
+$card-cap-bg: transparent;
+$progress-height: 0.75rem;
+$min-contrast-ratio: 4.5;
+$enable-shadows: false;
+$enable-gradients: false;
+$body-bg-dark: #1a1e2b;
+$body-secondary-bg-dark: #242938;
+$body-tertiary-bg-dark: #1f2331;
+
+@import 'bootstrap/scss/functions';
+@import 'bootstrap/scss/variables';
+@import 'bootstrap/scss/variables-dark';
+@import 'bootstrap/scss/maps';
+@import 'bootstrap/scss/mixins';
+@import 'bootstrap/scss/utilities';
+@import 'bootstrap/scss/root';
+@import 'bootstrap/scss/reboot';
+@import 'bootstrap/scss/type';
+@import 'bootstrap/scss/images';
+@import 'bootstrap/scss/containers';
+@import 'bootstrap/scss/grid';
+@import 'bootstrap/scss/tables';
+@import 'bootstrap/scss/forms';
+@import 'bootstrap/scss/buttons';
+@import 'bootstrap/scss/transitions';
+@import 'bootstrap/scss/button-group';
+@import 'bootstrap/scss/nav';
+@import 'bootstrap/scss/navbar';
+@import 'bootstrap/scss/card';
+@import 'bootstrap/scss/badge';
+@import 'bootstrap/scss/alert';
+@import 'bootstrap/scss/progress';
+@import 'bootstrap/scss/list-group';
+@import 'bootstrap/scss/close';
+@import 'bootstrap/scss/spinners';
+@import 'bootstrap/scss/helpers';
+@import 'bootstrap/scss/utilities/api';

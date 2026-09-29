@@ -1,5 +1,6 @@
 import '@fontsource/atkinson-hyperlegible/latin-400.css';
 import '@fontsource/atkinson-hyperlegible/latin-700.css';
+import './theme.scss';
 import './styles.css';
 import { PipelineClient, type WorkerLike } from '../adapters/browser/pipeline-client.js';
 import { checkPlayback } from '../adapters/browser/playback.js';
@@ -7,10 +8,20 @@ import { App } from './app.js';
 import { detectLang } from './i18n.js';
 import { readUrlSettings } from './url-settings.js';
 
+/** Follows the system colour scheme with Bootstrap's data-bs-theme (exported for tests). */
+export function followColorScheme(target: HTMLElement = document.documentElement, media = window.matchMedia('(prefers-color-scheme: dark)')): void {
+  const apply = (): void => {
+    target.dataset['bsTheme'] = media.matches ? 'dark' : 'light';
+  };
+  apply();
+  media.addEventListener('change', apply);
+}
+
 /** Boots the application: the pipeline worker and the UI (exported for tests). */
 export function boot(search = location.search): void {
   const root = document.getElementById('app');
   if (!root) return;
+  followColorScheme();
   const settings = readUrlSettings(search);
   const client = new PipelineClient(
     () => new Worker(new URL('../adapters/browser/pipeline.worker.ts', import.meta.url), { type: 'module', name: 'elpx-pipeline' }) as unknown as WorkerLike,
