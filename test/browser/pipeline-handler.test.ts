@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { unzipSync, zipSync, type Zippable } from 'fflate';
 import courseUrl from '../fixtures/elpx/course-video.elpx?url';
 import efficientUrl from '../fixtures/elpx/efficient.elpx?url';
 import legacyUrl from '../fixtures/upstream/verdaderofalso.elp?url';
@@ -7,7 +8,7 @@ import { BrowserMediaEngine, type BrowserEngineOptions } from '../../src/adapter
 import { FFMPEG_ASSETS } from '../../src/adapters/browser/ffmpeg-assets.js';
 import type { FfmpegAssets } from '../../src/adapters/browser/ffmpeg-loader.js';
 import type { ImageWorkerLike } from '../../src/adapters/browser/image-pool.js';
-import { createPipelineHandler, type PipelineDeps } from '../../src/adapters/browser/pipeline-handler.js';
+import { createPipelineHandler, PREVIEW_MAX_INFLATE, type PipelineDeps } from '../../src/adapters/browser/pipeline-handler.js';
 import { checkPlayback } from '../../src/adapters/browser/playback.js';
 import type { ClientMessage, EngineStatus, WorkerMessage } from '../../src/adapters/browser/protocol.js';
 import { analyzeArchive } from '../../src/core/analyze/analyze.js';
@@ -59,6 +60,7 @@ function harness(deps: Partial<PipelineDeps> = {}, answerPlayback = true) {
       (await send((id) => ({ type: 'analyze', id, file, ...(threading ? { threading } : {}) }))) as Of<'analysis'> | Of<'error'> | Of<'cancelled'>,
     plan: async (options: OptionsInput) => (await send((id) => ({ type: 'plan', id, options }))) as Of<'plan'> | Of<'error'>,
     optimize: async (planHash: string) => (await send((id) => ({ type: 'optimize', id, planHash }))) as Of<'result'> | Of<'error'> | Of<'cancelled'>,
+    preview: async (path: string) => (await send((id) => ({ type: 'preview', id, path }))) as Of<'preview'> | Of<'error'>,
     analyzeLimited: async (file: File, maxVideoBytes: number) => (await send((id) => ({ type: 'analyze', id, file, maxVideoBytes }))) as Of<'analysis'>,
     engineStatuses: (): EngineStatus[] => messages.filter((m): m is Of<'engine'> => m.type === 'engine').map((m) => m.status),
   };
@@ -374,5 +376,80 @@ describe('pipeline handler protocol', () => {
     const result = expectType(await h.analyze(await fixtureFile(efficientUrl, 'e.elpx')), 'analysis').result;
     expect(result.ok).toBe(false);
     expect(result.diagnostics[0]).toMatchObject({ severity: 'fatal' });
+  });
+});
+
+/** Rewrites a package with every entry deflated (eXeLearning stores media; other tools may not). */
+function deflateAll(bytes: Uint8Array): Uint8Array {
+  const z: Zippable = {};
+  for (const [path, data] of Object.entries(unzipSync(bytes))) z[path] = [data, { level: 6 }];
+  return zipSync(z);
+}
+
+describe('pipeline handler previews', () => {
+  it('requires an analysis first', async () => {
+    const h = harness();
+    expect(await h.preview(VIDEO)).toEqual({ type: 'error', id: 1, code: 'internal', message: 'Analyze a project first' });
+  });
+
+  it('returns a stored video or image as a typed Blob with the original bytes', async () => {
+    const h = harness();
+    const file = await fixtureFile(courseUrl, 'c.elpx');
+    expectType(await h.analyze(file), 'analysis');
+    const original = unzipSync(new Uint8Array(await file.arrayBuffer()));
+    for (const [path, type] of [
+      [VIDEO, 'video/mp4'],
+      ['content/resources/fotos/foto&paisaje.jpg', 'image/jpeg'],
+      ['content/resources/juego/leon.png', 'image/png'],
+    ] as const) {
+      const blob = expectType(await h.preview(path), 'preview').blob;
+      expect(blob.type, path).toBe(type);
+      expect(new Uint8Array(await blob.arrayBuffer()), path).toEqual(original[path]);
+    }
+  });
+
+  it('inflates a deflated resource', async () => {
+    const h = harness();
+    const source = new Uint8Array(await (await fixtureFile(efficientUrl, 'e.elpx')).arrayBuffer());
+    const deflated = deflateAll(source);
+    const archive = await openZip(new BlobByteSource(new Blob([deflated as Uint8Array<ArrayBuffer>])), BROWSER_LIMITS);
+    expect(archive.byName.get('content/resources/icono.png')!.method).toBe(8);
+    expectType(await h.analyze(new File([deflated as Uint8Array<ArrayBuffer>], 'deflated.elpx')), 'analysis');
+    const original = unzipSync(source);
+    for (const path of ['content/resources/icono.png', 'content/resources/clip.mp4']) {
+      const blob = expectType(await h.preview(path), 'preview').blob;
+      expect(new Uint8Array(await blob.arrayBuffer()), path).toEqual(original[path]);
+    }
+    expect(expectType(await h.preview('content/resources/clip.mp4'), 'preview').blob.type).toBe('video/mp4');
+  });
+
+  it('refuses anything that is not an image, audio or video of the project', async () => {
+    const h = harness();
+    expectType(await h.analyze(await fixtureFile(efficientUrl, 'e.elpx')), 'analysis');
+    const refused = { type: 'error', code: 'invalid-options', message: 'Only images, audio and video can be previewed' };
+    expect(await h.preview('content.xml')).toMatchObject(refused);
+    expect(await h.preview('content/resources/no-such.png')).toMatchObject(refused);
+    expect(await h.preview('../outside.png')).toMatchObject(refused);
+  });
+
+  it('does not inflate a compressed resource larger than the preview limit', async () => {
+    // An MP4 header followed by zeros: tiny once deflated, over the limit once inflated.
+    const video = new Uint8Array(PREVIEW_MAX_INFLATE + 1);
+    video.set([0, 0, 0, 24, ...new TextEncoder().encode('ftypisom'), 0, 0, 2, 0, ...new TextEncoder().encode('isommp41')]);
+    const efficient = unzipSync(new Uint8Array(await (await fixtureFile(efficientUrl, 'e.elpx')).arrayBuffer()));
+    const z: Zippable = {};
+    for (const [path, data] of Object.entries(efficient)) z[path] = [data, { level: 0 }];
+    z['content/resources/enorme.mp4'] = [video, { level: 1 }];
+    const bytes = zipSync(z);
+    expect(bytes.length).toBeLessThan(2 * MiB);
+    // The ZIP-bomb ratio check is a separate guard; relaxed here to reach the preview limit.
+    const h = harness({ limits: { ...BROWSER_LIMITS, maxCompressionRatio: 1e6 } });
+    // Not probed (above the page limit): the analysis only lists it.
+    const result = expectType(await h.analyzeLimited(new File([bytes as Uint8Array<ArrayBuffer>], 'big.elpx'), MiB), 'analysis').result;
+    expect(result.ok).toBe(true);
+    expect(result.entries.find((e) => e.path === 'content/resources/enorme.mp4')).toMatchObject({ kind: 'video', size: PREVIEW_MAX_INFLATE + 1 });
+    expect(await h.preview('content/resources/enorme.mp4')).toMatchObject({ type: 'error', code: 'limit-exceeded', message: 'Too large to preview' });
+    // Smaller stored media of the same project are still available.
+    expectType(await h.preview('content/resources/clip.mp4'), 'preview');
   });
 });

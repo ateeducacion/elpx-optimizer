@@ -6,6 +6,12 @@
 explains, shows the dry-run plan, optimizes with the options the user agreed to and validates the
 result through the CLI. Everything inside an `.elpx` is treated as untrusted data.
 
+The instructions tell the agent to ask before any lossy or structural change, and in particular to:
+suggest `--flatten legacy` when `inspect` reports `legacy-resource-folders`; present
+`--missing-references remove` as an opt-in the user must ask for (by default missing files are
+reported, not hidden); and say that WAV, AIFF and FLAC recordings are converted to MP3 and renamed
+(`--no-audio` keeps them).
+
 ## How the wrapper finds the CLI
 
 `node scripts/run.mjs <command> ...` (or `bun scripts/run.mjs ...`) resolves, in order:
@@ -21,21 +27,25 @@ wrapper never installs anything; `doctor` tells the user what is missing.
 
 ## Installation
 
+From a release: every GitHub release carries `elpx-optimizer-skill.zip`, the skill with the CLI
+bundled in `vendor/` (https://github.com/ateeducacion/elpx-optimizer/releases).
+
+```bash
+curl -LO https://github.com/ateeducacion/elpx-optimizer/releases/latest/download/elpx-optimizer-skill.zip
+unzip elpx-optimizer-skill.zip -d ~/.claude/skills/        # or your agent's skills directory
+cd ~/.claude/skills/elpx-optimizer/vendor && npm install   # sharp, for image optimization
+```
+
 From a checkout:
 
 ```bash
 make build-skill                     # builds dist/cli and dist/skill/elpx-optimizer (CLI in vendor/)
 bun scripts/validate-skill.ts        # official validator (pip install skills-ref) + built-in checks
+cp -r dist/skill/elpx-optimizer ~/.claude/skills/
 ```
 
-Distributable artifact (`dist/elpx-optimizer-skill.zip` in CI):
-
-```bash
-unzip elpx-optimizer-skill.zip -d ~/.claude/skills/        # or your agent's skills directory
-cd ~/.claude/skills/elpx-optimizer/vendor && npm install   # sharp, for image optimization
-```
-
-Video optimization also needs ffmpeg/ffprobe on `PATH` (or `ELPX_OPTIMIZER_FFMPEG`/`_FFPROBE`).
+The same zip is produced by CI as `dist/elpx-optimizer-skill.zip`. Video and audio optimization also
+need ffmpeg/ffprobe on `PATH` (or `ELPX_OPTIMIZER_FFMPEG`/`_FFPROBE`).
 
 ## What was tested
 

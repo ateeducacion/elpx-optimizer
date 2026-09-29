@@ -18,8 +18,9 @@ a real defect (for example a missing file); \`warning\` — something that may n
 \`info\` — facts worth knowing. Pre-existing problems never block optimization unless fatal; the
 result must not add new ones.
 
-A missing resource is never "repaired" by deleting its reference, and an unchecked external link is
-not a missing file.
+By default a missing resource is reported, not "repaired" by deleting its references;
+\`--missing-references remove\` (option \`missingReferences: "remove"\`) takes them out only when asked.
+An unchecked external link is not a missing file.
 
 | Code | Default severity | Category | Meaning |
 | --- | --- | --- | --- |
@@ -37,6 +38,13 @@ Images: \`images-disabled\`, \`engine-unavailable\`, \`engine-capability\`, \`un
 \`vector-image\`, \`animated\`, \`multi-image\`, \`corrupt\`, \`extension-mismatch\`, \`cmyk\`,
 \`high-bit-depth\`, \`exceeds-size-limit\`, \`exceeds-resolution-limit\`, \`already-efficient\`,
 \`png-disabled\`, \`excluded\`, \`kept\`.
+
+Audio: \`audio-disabled\`, \`engine-unavailable\`, \`engine-capability\`, \`unsupported-format\`,
+\`no-audio-stream\`, \`multiple-audio-streams\`, \`has-video\`, \`unknown-duration\`, \`exceeds-size-limit\`,
+\`exceeds-duration-limit\`, \`already-efficient\`, \`not-probed\`, \`excluded\`, \`kept\`.
+
+Clean-up and restructuring (\`unused\`, \`duplicate\`, \`flatten\`, \`rename\`, \`missing-reference\`, and
+audio that cannot be renamed) use the reason \`kept\`, with the cause in \`detail\`.
 `;
 writeFileSync(join(import.meta.dir, '..', 'docs', 'diagnostics.md'), text);
 console.log('docs/diagnostics.md written');

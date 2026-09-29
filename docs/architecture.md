@@ -16,9 +16,10 @@ no DOM or Node types) and ESLint `no-restricted-imports`/`no-restricted-globals`
                                    │                                  │
                                    └──────────────┬───────────────────┘
                                           src/core (portable)
-     zip/ reader+writer · format/ detect, content.xml, manifest, DataGame · parse/ xml, json, html,
-     css, uri, text-map · refs/ scan, resolve, rewrite · analyze/ · plan/ · optimize/ · validate/ ·
-     report/ · media/ sniff, image-inspect, image-metadata, probe, video-policy, image-policy, engine
+     zip/ reader+writer · format/ detect, content.xml, manifest, DataGame, legacy-folders ·
+     parse/ xml, json, html, css, uri, text-map · refs/ scan, resolve, rewrite, restructure, slug ·
+     analyze/ · plan/ · optimize/ · validate/ · report/ · media/ sniff, image-inspect,
+     image-metadata, probe, video-policy, image-policy, audio-policy, engine
 ```
 
 ## Public operations
@@ -31,8 +32,9 @@ no DOM or Node types) and ESLint `no-restricted-imports`/`no-restricted-globals`
 | `validateArchive(source, options)`                             | `core/validate/validate.ts` | Analysis summarized as a verdict.                                                                         |
 
 Adapters are injected through small interfaces: `ByteSource`/`ByteSink` (bytes), `ResourceStore`
-(temporary media: files natively, Blobs in the browser), `MediaEngine` (probe, transcode, decode
-check, playback check, image encode/verify, capabilities) and `OutputTarget` (atomic file or Blob).
+(temporary media: files natively, Blobs in the browser), `MediaEngine` (probe, video and audio
+transcode, decode check, playback check, image encode/verify, capabilities) and `OutputTarget`
+(atomic file or Blob).
 
 ## Reading archives safely
 
@@ -104,8 +106,44 @@ User resources (`content/resources/**`, legacy `custom/**`) are classified as:
 (size + CRC → SHA-256 → byte comparison, same format and extension, binary media only) removes a
 copy only when every reference to it is explicit, exact and rewritable and the rewritten reference
 re-resolves exactly to the kept file; otherwise both are kept with the reason in the plan. After
-any removal, `libs/elpx-manifest.js` is regenerated to list exactly the final entries (manifest
-last), as the download-source-file iDevice expects.
+any removal, move or rename, `libs/elpx-manifest.js` is regenerated to list exactly the final
+entries (manifest last), as the download-source-file iDevice expects.
+
+## Restructuring: flatten, conversions, clean names, broken references
+
+`core/refs/restructure.ts` plans every change that moves, merges or renames a file, or takes a
+reference out, as one pure and deterministic decision that execution replays:
+
+1. **Duplicates** (`--deduplicate exact`): which copy stays (most references, then shortest path).
+2. **eXeLearning 3 folders** (`--flatten legacy`): files matching
+   `content/resources/<14 digits + 6 [A-Z0-9]>/<file>` (`core/format/legacy-folders.ts`) get a
+   target in `content/resources/`. Names are compared case- and NFC-insensitively; a taken name
+   gives `name_2.ext`, `name_3.ext`…; a byte-identical occupant is merged instead. Files that hold
+   references themselves, or whose references are not all explicit, exact and rewritable, stay.
+3. **Conversions**: files re-encoded into another format (WAV/AIFF/FLAC → MP3) get the new
+   extension, after any move. The element's `type` attribute is part of the rewrite; a `type` that
+   cannot be edited blocks the conversion.
+4. **Clean names** (`--normalize-names slug`): user files outside `custom/` whose name is not
+   already clean get the name from `core/refs/slug.ts` (lower case, no accents, `a-z0-9-`, copy
+   markers removed, extension lower-cased), after any move or conversion; a taken name gives
+   `-2`, `-3`…; files that hold references, or whose references are not all explicit, exact and
+   rewritable, keep their names.
+5. **Verification**: every reference of the package is resolved again against the final set of
+   paths. A rewritten reference must resolve exactly (no lenient rule) to its file's new path, and
+   every other reference must resolve exactly as before (a new name must not capture it). Changes
+   that break either rule are cancelled, together with identical copies that were only merged into
+   a file that now stays, and the check repeats until the set is consistent.
+6. **Broken references** (`--missing-references remove`): explicit references in the editable,
+   published and search-index representations whose status is `missing`, `unmapped` (`asset://`)
+   or a local file path. Each is removed through its encoding layers: the whole element when it is
+   void or empty and every reference it holds is being removed, otherwise the attribute; `srcset`
+   candidates individually; JSON string values emptied. An edit never cuts through another one.
+
+Rewritten references keep their form: a page-relative URL stays relative, legacy `resources/…`
+stays so, and `{{context_path}}` references (long or eXeLearning 3 short form) are written in the
+long form `{{context_path}}/content/resources/<path>` that eXeLearning 4's exporter writes. Empty
+editor folders are dropped, and a moved entry that is not re-encoded keeps its compressed bytes
+(only the name changes).
 
 ## Media
 
@@ -118,6 +156,9 @@ or the ffprobe entry point of ffmpeg.wasm) with the same arguments, and its JSON
 `core/media/probe.ts`. Image metadata (ICC, EXIF, XMP, IPTC, text chunks) is extracted from the
 original and injected into the encoder's output by `core/media/image-metadata.ts`, so both engines
 produce the same metadata; pixels are never rotated (the EXIF orientation is kept).
+`core/media/audio-policy.ts` decides audio jobs (WAV/AIFF/FLAC to MP3 with a rename, MP3/M4A/Opus
+re-encoded in place only far above the target), builds their FFmpeg arguments under the same rules
+and validates candidates (one audio stream, codec, channels, sample rate, duration tolerance).
 
 Engines differ in capabilities, and plans and reports say which engine and versions were used:
 
@@ -126,8 +167,9 @@ Engines differ in capabilities, and plans and reports say which engine and versi
 | Video                   | ffmpeg/ffprobe processes (libx264, aac, libvpx-vp9, libopus when present) | ffmpeg.wasm 0.12.15, core 0.12.10 (single-thread; core-mt when isolated) |
 | x264 preset per profile | slow / medium / medium                                                    | faster / veryfast / veryfast                                             |
 | VP9 (WebM)              | yes                                                                       | too slow; skipped unless forced                                          |
+| Audio files             | ffmpeg processes (libmp3lame, aac, libopus), several at once              | the same ffmpeg.wasm core (LAME, AAC, libopus), one at a time            |
 | JPEG / PNG / WebP       | sharp 0.35.5 (mozjpeg, libpng, libwebp)                                   | jSquash MozJPEG, OxiPNG, libwebp (WASM)                                  |
-| Playback check          | —                                                                         | `<video>` in the page, compared with the original                        |
+| Playback check          | —                                                                         | detached `<video>` element, compared with the original                   |
 | Cancellation            | process-group SIGTERM/SIGKILL                                             | `FFmpeg.terminate()` (worker killed, reloaded for the next job)          |
 
 Encoders produce different bytes; tests check equivalent semantics (streams, duration, size,
@@ -140,15 +182,19 @@ capabilities, operations (with lossy flags and human-readable conversions), reso
 unchanged with stable reason codes, risks and an estimate labelled as such. Execution rebuilds the
 plan from the analysis and refuses to run if any hash differs.
 
-Videos run one at a time; images run with bounded concurrency. Each candidate is validated
-(probe + full decode + playback in the browser) and must save at least the configured minimum;
-otherwise the original is kept and the reason recorded. The output is written to a temporary
-file next to the destination (CLI) or to a Blob (web), then reopened and analyzed from scratch:
-same entries minus the removed ones, unchanged entries with identical CRC and size, no new
+Videos run one at a time; audio files and images run with bounded concurrency natively (the
+browser engine queues FFmpeg jobs). Each candidate is validated (probe + full decode + playback in
+the browser) and must save at least the configured minimum; otherwise the original is kept and the
+reason recorded. The restructuring is then replayed with the conversions that succeeded, so a
+recording that was not converted keeps its name and its references. The output is written to a
+temporary file next to the destination (CLI) or to a Blob (web), then reopened and analyzed from
+scratch: same entries minus the removed ones and under their new names, unchanged entries with
+identical CRC and size (moved files compared under their original name), no new
 missing/ambiguous/structural diagnostics, every previously resolved reference still resolving,
 same pages and component IDs, and a manifest matching the entries. Only then is the file committed
 (renamed into place) or offered for download. If the final ZIP is not smaller than the input, a
-byte-for-byte copy of the input is delivered with status `no-improvement`.
+byte-for-byte copy of the input is delivered with status `no-improvement`, unless files were moved
+or broken references taken out: those are changes the user asked for.
 
 ## Web runtime
 
@@ -159,3 +205,11 @@ with WORKERFS (read from the Blob on demand) and outputs are read from MEMFS and
 immediately. All JavaScript, workers and WASM are emitted by Vite into `dist/web/assets` and
 loaded from the same origin with relative URLs; a Content-Security-Policy restricts scripts,
 workers and connections to the same origin. See [web.md](web.md).
+
+The page and the worker exchange typed messages (`src/adapters/browser/protocol.ts`): `analyze`,
+`plan`, `optimize`, `cancel`, progress and engine status, the playback checks the worker asks the
+page to run, and `preview`. A preview request names one image, audio or video
+entry of the analyzed project; the worker answers with a Blob typed with the entry's MIME type (a
+zero-copy slice of the input File for stored entries, inflated for deflated ones up to 256 MiB),
+which the page shows in an `<img>`, `<video>` or `<audio>` element through a `blob:` URL and
+revokes afterwards. Other entries are refused, so the project's HTML and scripts are never rendered.

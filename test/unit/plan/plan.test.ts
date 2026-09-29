@@ -114,7 +114,7 @@ describe('buildOptimizationPlan', () => {
       ].sort((a, b) => (a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0)),
     );
     expect(plan.risks).toEqual([
-      'Lossy re-encoding changes image/video quality; originals are kept when a result is not valid or not smaller.',
+      'Lossy re-encoding changes image, audio or video quality; originals are kept when a result is not valid or not smaller.',
       'Some media will be downscaled.',
       'Unreferenced files will be removed; only files with no reference of any kind are selected.',
       'Duplicate files will be merged and their references rewritten.',

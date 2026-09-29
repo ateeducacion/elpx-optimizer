@@ -81,6 +81,8 @@ describe('web entry', () => {
     expect(app.currentView).toBe('review');
     expect(root.querySelector('.inventory')).not.toBeNull();
     expect(root.querySelector('.engine-line')!.getAttribute('data-state')).toBe('ready');
+    // The page follows the system colour scheme.
+    expect(document.documentElement.dataset['bsTheme']).toBe(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     // Leaving the page stops the worker.
     const dispose = vi.spyOn(clientOf(app), 'dispose');
     window.dispatchEvent(new Event('pagehide'));
@@ -105,6 +107,46 @@ describe('web entry', () => {
     expect(other).not.toBe(app);
     expect(clientOf(other).maxVideoBytes).toBeUndefined();
     clientOf(other).dispose();
+  });
+
+  it('follows the system colour scheme with Bootstrap themes', async () => {
+    const { followColorScheme } = await import('../../src/web/main.js');
+    const listeners: { type: string; listener: () => void }[] = [];
+    const media = {
+      matches: false,
+      addEventListener: (type: string, listener: () => void) => listeners.push({ type, listener }),
+    };
+    const target = document.createElement('div');
+    followColorScheme(target, media as unknown as MediaQueryList);
+    expect(target.dataset['bsTheme']).toBe('light');
+    expect(listeners.map((l) => l.type)).toEqual(['change']);
+    media.matches = true;
+    listeners[0]!.listener();
+    expect(target.dataset['bsTheme']).toBe('dark');
+    media.matches = false;
+    listeners[0]!.listener();
+    expect(target.dataset['bsTheme']).toBe('light');
+  });
+
+  it('switches the compiled theme between light and dark', async () => {
+    const { followColorScheme } = await import('../../src/web/main.js');
+    const html = document.documentElement;
+    const previous = html.dataset['bsTheme'];
+    const media = { matches: true, addEventListener: () => undefined } as unknown as MediaQueryList;
+    try {
+      followColorScheme(html, media);
+      expect(html.dataset['bsTheme']).toBe('dark');
+      // The app background (styles.css) and Bootstrap's body colour (theme.scss) both switch.
+      expect(getComputedStyle(document.body).backgroundColor).toBe('rgb(18, 21, 31)');
+      expect(getComputedStyle(document.body).color).toBe('rgb(222, 226, 230)');
+      followColorScheme(html, { ...media, matches: false } as unknown as MediaQueryList);
+      expect(html.dataset['bsTheme']).toBe('light');
+      expect(getComputedStyle(document.body).backgroundColor).toBe('rgb(243, 244, 248)');
+      expect(getComputedStyle(document.body).color).toBe('rgb(29, 34, 51)');
+    } finally {
+      if (previous === undefined) delete html.dataset['bsTheme'];
+      else html.dataset['bsTheme'] = previous;
+    }
   });
 
   it('does nothing without a mount point, and falls back to navigator.language', async () => {

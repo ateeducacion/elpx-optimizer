@@ -301,7 +301,7 @@ describe('analyzeArchive: media inspection', () => {
     off.infoValue = engineInfo({ video: { available: false, reason: 'ffprobe not found', encoders: [], engineClass: 'native', slowEncoders: [] } });
     const a = await analyzeBytes(bytes, { media: { engine: off, store } });
     expect(a.result.media).toEqual({ probed: false, engine: 'native', note: 'ffprobe not found' });
-    expect(diags(a, 'media-engine-unavailable')[0]!.message).toBe('Videos were not inspected: ffprobe not found');
+    expect(diags(a, 'media-engine-unavailable')[0]!.message).toBe('Videos and audio were not inspected: ffprobe not found');
     off.infoValue = engineInfo({ video: { available: false, encoders: [], engineClass: 'browser', slowEncoders: [] } });
     expect((await analyzeBytes(bytes, { media: { engine: off, store } })).result.media.note).toBe('Video inspection unavailable');
 
@@ -314,7 +314,7 @@ describe('analyzeArchive: media inspection', () => {
       ['content/resources/big.mp4', 'content/resources/big.mp4: moov atom not found'],
       ['content/resources/v.mp4', 'content/resources/v.mp4: moov atom not found'],
     ]);
-    expect((await analyzeBytes(bytes)).result.media).toEqual({ probed: false, note: 'Videos were not inspected (no media engine)' });
+    expect((await analyzeBytes(bytes)).result.media).toEqual({ probed: false, note: 'Videos and audio were not inspected (no media engine)' });
     // No videos: the engine is not even asked.
     const quiet = new FakeEngine(store);
     expect((await analyzeBytes(buildElpx({ components: [] }), { media: { engine: quiet, store } })).result.media).toEqual({ probed: false });
@@ -353,15 +353,40 @@ describe('analyzeArchive: media inspection', () => {
       format: 'webm',
       video: expect.objectContaining({ audio: [{ codec: 'opus', channels: 1 }] }),
     });
-    expect(entry(a, 'content/resources/cancion.mp4').kind).toBe('audio');
+    expect(entry(a, 'content/resources/grabacion.webm').audio).toEqual({ codec: 'opus', duration: 4, channels: 1 });
+    expect(entry(a, 'content/resources/cancion.mp4')).toMatchObject({ kind: 'audio', audio: { codec: 'aac', duration: 10, bitRate: 8_000_000 } });
+    expect(entry(a, 'content/resources/cancion.mp4').video).toBeDefined();
     expect(entry(a, 'content/resources/raro.mp4').kind).toBe('video');
+    expect(entry(a, 'content/resources/raro.mp4').audio).toBeUndefined();
     expect(entry(a, 'content/resources/clip.mp4').kind).toBe('video');
     expect(a.result.totals).toMatchObject({ audioBytes: 6500, videoBytes: 7600 });
     const { buildOptimizationPlan } = await import('../../../src/core/plan/plan.js');
     const { normalizeOptions } = await import('../../../src/core/plan/options.js');
     const plan = buildOptimizationPlan(a, normalizeOptions(), engineInfo(), limits());
     expect(plan.operations.map((o) => o.id)).toEqual(['video:content/resources/clip.mp4']);
-    expect(plan.skipped.map((s) => s.path)).toEqual(['content/resources/raro.mp4']);
+    // Audio-only containers are audio files now: this engine cannot process audio.
+    expect(plan.skipped.map((s) => [s.path, s.kind, s.reason])).toEqual([
+      ['content/resources/cancion.mp4', 'audio', 'engine-unavailable'],
+      ['content/resources/grabacion.webm', 'audio', 'engine-unavailable'],
+      ['content/resources/raro.mp4', 'video', 'no-video-stream'],
+    ]);
+    // With audio support they are still left alone: AAC in an MP4 container is not re-encoded, and the Opus
+    // recording (6 kb/s, from its size and duration) is already efficient; without libopus it could not be.
+    const withAudio = buildOptimizationPlan(
+      a,
+      normalizeOptions(),
+      engineInfo({ audio: { available: true, encoders: ['libmp3lame', 'aac', 'libopus'] } }),
+      limits(),
+    );
+    expect(withAudio.skipped.filter((s) => s.kind === 'audio').map((s) => [s.path, s.reason])).toEqual([
+      ['content/resources/cancion.mp4', 'unsupported-format'],
+      ['content/resources/grabacion.webm', 'already-efficient'],
+    ]);
+    const noOpus = buildOptimizationPlan(a, normalizeOptions(), engineInfo({ audio: { available: true, encoders: ['libmp3lame', 'aac'] } }), limits());
+    expect(noOpus.skipped.find((s) => s.path === 'content/resources/grabacion.webm')).toMatchObject({
+      reason: 'engine-capability',
+      detail: 'The engine lacks the libopus encoder',
+    });
     // Without a probe nothing can be told: the file stays a video.
     expect(entry(await analyzeBytes(pkg), 'content/resources/grabacion.webm').kind).toBe('video');
   });

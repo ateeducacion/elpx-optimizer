@@ -293,6 +293,7 @@ export function restructurePlan(
   options: NormalizedOptions,
   removed: ReadonlySet<string>,
   convert: ReadonlyMap<string, string> = new Map(),
+  convertNames?: ReadonlyMap<string, string>,
 ): RestructurePlan {
   return planRestructure(analysis, {
     deduplicate: options.deduplicate === 'exact',
@@ -302,6 +303,7 @@ export function restructurePlan(
     excluded: new Set(options.exclude),
     removed,
     convert,
+    ...(convertNames ? { convertNames } : {}),
   });
 }
 

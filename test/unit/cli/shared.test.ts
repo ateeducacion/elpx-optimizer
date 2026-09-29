@@ -171,7 +171,7 @@ describe('progressPrinter', () => {
     expect(lines).toEqual([
       'Reading input\n',
       'Checking entries [1/3]\n',
-      'Inspecting video [1/1] v.mp4\n',
+      'Inspecting media [1/1] v.mp4\n',
       'Transcoding v.mp4 1.3/4.0 s\n',
       'Images [2/5]\n',
       'Packaging [1/9]\n',
@@ -184,7 +184,7 @@ describe('progressPrinter', () => {
   it('omits unknown durations and resources', () => {
     expect(feed([[0, { stage: 'transcode' }]])).toEqual(['Transcoding \n']);
     expect(feed([[0, { stage: 'transcode', resource: 'v.mp4', processedSeconds: 2 }]])).toEqual(['Transcoding v.mp4\n']);
-    expect(feed([[0, { stage: 'probe' }]])).toEqual(['Inspecting video \n']);
+    expect(feed([[0, { stage: 'probe' }]])).toEqual(['Inspecting media \n']);
   });
 
   it('throttles updates of the same stage to one per second', () => {

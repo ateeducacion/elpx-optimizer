@@ -73,6 +73,43 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
     } else {
       checks.push({ name: 'video-encode', ok: false, detail: info.video.reason ?? 'unavailable' });
     }
+    // Real audio smoke test (independent of libx264): encode 0.3 s of tone with the first audio encoder.
+    const audioEncoder = info.audio?.encoders.find((e) => e === 'libmp3lame' || e === 'aac');
+    if (info.audio?.available && audioEncoder) {
+      const dir = await mkdtemp(join(tmpdir(), 'elpx-doctor-'));
+      try {
+        const name = audioEncoder === 'libmp3lame' ? 'smoke.mp3' : 'smoke.m4a';
+        const out = join(dir, name);
+        const r = await runProcess(
+          engine.ffmpegPath!,
+          ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.3', '-c:a', audioEncoder, '-y', out],
+          { timeoutMs: 30_000, cwd: dir },
+        );
+        const size =
+          r.code === 0
+            ? await stat(out).then(
+                (s) => s.size,
+                () => 0,
+              )
+            : 0;
+        const probed =
+          size > 0
+            ? await engine.probe(store.adopt(out, name, size), { resourcePath: 'smoke', timeoutMs: 30_000 }).then(
+                () => true,
+                () => false,
+              )
+            : false;
+        checks.push({
+          name: 'audio-encode',
+          ok: probed,
+          detail: probed ? `${audioEncoder} encode and ffprobe succeeded` : `ffmpeg audio smoke test failed: ${r.stderr.split('\n')[0] ?? ''}`,
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    } else {
+      checks.push({ name: 'audio-encode', ok: false, detail: info.audio?.reason ?? 'unavailable' });
+    }
     if (info.image.available) {
       try {
         const png = new Uint8Array(
@@ -125,8 +162,7 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
           ...(info.video.reason ? { reason: info.video.reason } : {}),
         },
         audio: {
-          // Audio uses the same FFmpeg processes as video.
-          available: (info.audio?.available ?? false) && checks.find((c) => c.name === 'video-encode')!.ok,
+          available: (info.audio?.available ?? false) && checks.find((c) => c.name === 'audio-encode')!.ok,
           encoders: info.audio?.encoders ?? [],
           ...(info.audio?.reason ? { reason: info.audio.reason } : {}),
         },

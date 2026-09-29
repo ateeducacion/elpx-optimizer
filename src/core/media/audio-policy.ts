@@ -210,6 +210,8 @@ export function buildAudioArgs(job: AudioJob, input: string, output: string, ext
   if (job.demuxer.startsWith('mov')) args.push('-enable_drefs', '0');
   args.push('-i', input, '-map', `0:${job.audioIndex}`, '-map_metadata', '0', '-vn', '-sn', '-dn');
   args.push('-c:a', job.encoder, '-b:a', `${job.bitrateKbps}k`, '-ac', String(job.channels), '-ar', String(job.sampleRate));
+  // The pinned ffmpeg.wasm core crashes encoding stereo Opus above level 4; both engines use the same arguments.
+  if (job.encoder === 'libopus') args.push('-compression_level', '4');
   if (job.target === 'mp3') args.push('-id3v2_version', '3', '-f', 'mp3');
   else if (job.target === 'm4a') args.push('-movflags', '+faststart', '-f', 'ipod');
   else args.push('-f', job.target);

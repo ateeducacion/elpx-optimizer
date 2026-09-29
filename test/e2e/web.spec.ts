@@ -1,6 +1,19 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { join } from 'node:path';
-import { assertOnlyStaticRequests, analyzeFile, dropFile, E2E_FIXTURES, FIXTURES, nativeVideoCheck, readEntry, recordRequests, sha256File } from './helpers.js';
+import { strFromU8 } from 'fflate';
+import {
+  assertOnlyStaticRequests,
+  analyzeFile,
+  dropFile,
+  E2E_FIXTURES,
+  FIXTURES,
+  nativeVideoCheck,
+  readEntry,
+  recordRequests,
+  sha256File,
+  ui,
+  zipEntries,
+} from './helpers.js';
 
 /**
  * The static web app recompresses videos in the browser with ffmpeg.wasm.
@@ -10,6 +23,7 @@ import { assertOnlyStaticRequests, analyzeFile, dropFile, E2E_FIXTURES, FIXTURES
 
 const COURSE = join(FIXTURES, 'elpx', 'course-video.elpx');
 const EFFICIENT = join(FIXTURES, 'elpx', 'efficient.elpx');
+const LEGACY = join(FIXTURES, 'elpx', 'legacy-folders.elpx');
 const VIDEO_ENTRY = 'content/resources/media/clase 1.mp4';
 
 /** True when a finished request was served from the browser cache (no network transfer). */
@@ -23,20 +37,23 @@ async function waitForReview(page: Page): Promise<void> {
   await expect(page.locator('.inventory')).toBeVisible({ timeout: 180_000 });
 }
 
-/** Reviews the plan and runs it; returns the downloaded file path. */
-async function planRunDownload(
-  page: Page,
-  testInfo: { outputPath: (n: string) => string },
-  expectStatus = /optimizado|optimized/i,
-): Promise<{ path: string; name: string }> {
-  await page.locator('form.options button[type=submit]').click();
-  await expect(page.locator('.step-step4')).toBeVisible();
-  await page.locator('.step-step4 .button.primary').click();
+type OutputInfo = { outputPath: (n: string) => string };
+
+/** Runs the confirmed plan; returns the downloaded file path. */
+async function runDownload(page: Page, testInfo: OutputInfo, expectStatus = /optimizado|optimized/i): Promise<{ path: string; name: string }> {
+  await ui.optimize(page).click();
   await expect(page.locator('.result-status')).toHaveText(expectStatus, { timeout: 280_000 });
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('download').click()]);
   const path = testInfo.outputPath(download.suggestedFilename());
   await download.saveAs(path);
   return { path, name: download.suggestedFilename() };
+}
+
+/** Reviews the plan and runs it; returns the downloaded file path. */
+async function planRunDownload(page: Page, testInfo: OutputInfo, expectStatus?: RegExp): Promise<{ path: string; name: string }> {
+  await ui.reviewPlan(page).click();
+  await expect(ui.planHeading(page)).toBeVisible();
+  return runDownload(page, testInfo, expectStatus);
 }
 
 test('recompresses the video in the browser: single-thread, no isolation, no uploads @cross-browser', async ({ page }, testInfo) => {
@@ -74,6 +91,12 @@ test('recompresses the video in the browser: single-thread, no isolation, no upl
   expect(Buffer.from(await readEntry(path, 'content.xml')).equals(Buffer.from(await readEntry(COURSE, 'content.xml')))).toBe(true);
   expect(analysis.package).toMatchObject({ pages: 2, components: 5, variant: 'v4' });
 
+  // The footer links elsewhere, but nothing is ever requested from another origin.
+  await expect(page.getByRole('link', { name: /^(Código fuente en GitHub|Source code on GitHub)/ })).toHaveAttribute(
+    'href',
+    'https://github.com/ateeducacion/elpx-optimizer',
+  );
+  await expect(page.locator('footer a[target="_blank"]')).toHaveCount(2);
   expect(assertOnlyStaticRequests(requests, 'http://127.0.0.1:4173', '/')).toEqual([]);
 });
 
@@ -121,16 +144,16 @@ test('cancelling stops the codec and a second optimization works without reloadi
   await page.goto('/');
   await page.setInputFiles('#file-input', join(E2E_FIXTURES, 'long-video.elpx'));
   await waitForReview(page);
-  await page.locator('form.options button[type=submit]').click();
-  await page.locator('.step-step4 .button.primary').click();
+  await ui.reviewPlan(page).click();
+  await ui.optimize(page).click();
   await expect(page.locator('.progress-text')).toContainText(/Recodificando|Re-encoding/, { timeout: 120_000 });
   await expect(page.locator('.progress-text')).toContainText(/ de | of /);
   const started = Date.now();
-  await page.locator('.button.danger').click();
+  await ui.cancel(page).click();
   await expect(page.locator('.step-error')).toContainText(/Cancelado|Cancelled/, { timeout: 10_000 });
   expect(Date.now() - started).toBeLessThan(10_000);
   // The same page, a new project.
-  await page.getByRole('button', { name: /Volver a empezar|Start over/ }).click();
+  await ui.startOver(page).click();
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
   const { path } = await planRunDownload(page, testInfo);
@@ -157,9 +180,9 @@ test('a video above the memory/size limit is kept as original', async ({ page },
   await page.goto('/?maxVideoMiB=1');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
-  await page.locator('form.options button[type=submit]').click();
+  await ui.reviewPlan(page).click();
   await expect(page.locator('.plan-skipped')).toContainText('clase 1.mp4');
-  await page.locator('.step-step4 .button.primary').click();
+  await ui.optimize(page).click();
   await expect(page.locator('.result-status')).toBeVisible({ timeout: 120_000 });
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('download').click()]);
   const path = testInfo.outputPath('limited.elpx');
@@ -182,7 +205,7 @@ test('keeps working with the network blocked once the components are loaded', as
     if (response && !response.fromServiceWorker() && !r.url().startsWith('blob:') && !(await isFromCache(r))) network.push(r.url());
   });
   await context.setOffline(true);
-  await page.getByRole('button', { name: /Optimizar otro proyecto|Optimize another project/ }).click();
+  await ui.another(page).click();
   await page.setInputFiles('#file-input', EFFICIENT);
   await waitForReview(page);
   await planRunDownload(page, testInfo, /No se ha conseguido|could not be reduced/);
@@ -212,16 +235,162 @@ test('rejects a legacy .elp with a concrete message', async ({ page }) => {
 test('is usable with the keyboard and fits a phone screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await page.keyboard.press('Tab');
-  await page.keyboard.press('Tab');
-  await expect(page.locator('label[for=file-input]')).toBeFocused();
+  // The file button is reached with Tab, right after the header controls.
+  const choose = ui.chooseFile(page);
+  for (let i = 0; i < 8 && !(await choose.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab');
+  await expect(choose).toBeFocused();
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
   await chooser.setFiles(COURSE);
   await waitForReview(page);
   await expect(page.locator('#h-step2')).toBeFocused();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  await page.locator('form.options button[type=submit]').focus();
+  await ui.reviewPlan(page).focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#h-step4')).toBeFocused();
+});
+
+test('flattens eXeLearning 3 folders and takes out broken references @cross-browser', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.setInputFiles('#file-input', LEGACY);
+  await waitForReview(page);
+  await expect(page.getByTestId('legacy-alert')).toContainText(/Carpetas de eXeLearning 3|eXeLearning 3 folders/);
+  await expect(page.getByTestId('broken-alert')).toContainText(/Referencias a archivos que no existen|References to files that do not exist/);
+  const flatten = page.getByRole('switch', { name: /^(Aplanar carpetas de eXeLearning 3|Flatten eXeLearning 3 folders)$/ });
+  const unlink = page.getByRole('switch', { name: /^(Quitar referencias rotas|Remove broken references)$/ });
+  await expect(flatten).not.toBeChecked();
+  await expect(unlink).not.toBeChecked();
+  await flatten.check();
+  await unlink.check();
+  await ui.reviewPlan(page).click();
+  await expect(ui.planHeading(page)).toBeVisible();
+  await expect(page.locator('.stepper-item.is-current')).toContainText(/Plan/);
+  const plan = page.locator('.plan-ops');
+  await expect(plan).toContainText(/Archivos a mover|Files to move/);
+  await expect(plan).toContainText('content/resources/foto_2.jpg');
+  await expect(plan).toContainText(/Archivos ausentes cuyas referencias se quitan|Missing files whose references are removed/);
+  await expect(plan).toContainText('borrada.jpg');
+  const { path } = await runDownload(page, testInfo);
+  await expect(page.locator('.op-results')).toContainText('foto_2.jpg');
+
+  // The downloaded ZIP, read with fflate: no editor folders left, renamed files in place.
+  const files = zipEntries(path);
+  const names = Object.keys(files);
+  expect(names.filter((n) => /^content\/resources\/\d{14}[A-Za-z0-9]{6}\//.test(n))).toEqual([]);
+  expect(names).toContain('content/resources/foto_2.jpg');
+  expect(names).toContain('content/resources/foto.jpg');
+  expect(names).toContain('content/resources/mis fotos/playa.jpg');
+  const xml = strFromU8(files['content.xml']!);
+  expect(xml).not.toContain('borrada.jpg');
+  expect(xml).not.toContain('apuntes.pdf');
+  // The link keeps its text.
+  expect(xml).toContain('<a>Apuntes</a>');
+  expect(xml).toContain('{{context_path}}/content/resources/foto_2.jpg');
+  const analysis = await analyzeFile(path);
+  expect(analysis.ok).toBe(true);
+  expect(analysis.package?.legacyFolders).toEqual({ folders: 0, files: 0 });
+  expect(analysis.diagnostics.filter((d) => d.severity === 'error' || d.code === 'missing-resource')).toEqual([]);
+});
+
+test('follows the system colour scheme @cross-browser', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  const html = page.locator('html');
+  await expect(html).toHaveAttribute('data-bs-theme', 'dark');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(18, 21, 31)');
+  // A change while the page is open is followed too.
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(html).toHaveAttribute('data-bs-theme', 'light');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(243, 244, 248)');
+});
+
+test('previews an image and a video of the project in the browser', async ({ page }) => {
+  const requests = recordRequests(page);
+  await page.goto('/');
+  await page.setInputFiles('#file-input', COURSE);
+  await waitForReview(page);
+  // The image is read from the project in the worker and shown in a modal window.
+  await page.getByRole('button', { name: /^(Ver la imagen|View the image) fotos\/foto&paisaje\.jpg$/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'fotos/foto&paisaje.jpg' });
+  await expect(dialog).toBeVisible();
+  const img = dialog.getByRole('img', { name: 'fotos/foto&paisaje.jpg' });
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(0);
+  await dialog.getByRole('button', { name: /^(Cerrar|Close)$/ }).click();
+  await expect(dialog).toHaveCount(0);
+  // The video plays in the page's own <video>.
+  await page.getByRole('button', { name: /^(Ver el vídeo|Watch the video) media\/clase 1\.mp4$/ }).click();
+  const player = page.getByRole('dialog', { name: 'media/clase 1.mp4' });
+  await expect(player).toContainText('640×360');
+  await expect.poll(() => player.locator('video').evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(1);
+  await page.keyboard.press('Escape');
+  await expect(player).toHaveCount(0);
+  // Previews use blob: URLs only.
+  expect(assertOnlyStaticRequests(requests, 'http://127.0.0.1:4173', '/')).toEqual([]);
+});
+
+test('the licenses panel links texts served by the site itself', async ({ page, request }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /^(Licencias|Licenses)$/ }).click();
+  const panel = page.getByRole('dialog', { name: /Licencias y créditos|Licenses and credits/ });
+  await expect(panel).toBeVisible();
+  const hrefs = await panel.locator('a').evaluateAll((links) => links.map((a) => a.getAttribute('href')!));
+  const local = hrefs.filter((href) => !/^https?:/.test(href));
+  expect(local.length).toBeGreaterThan(10);
+  for (const href of local) {
+    const response = await request.get(href);
+    expect(response.status(), href).toBe(200);
+    expect((await response.text()).length, href).toBeGreaterThan(100);
+  }
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+});
+
+test('re-encodes audio: WAV, FLAC and AIFF become MP3 with their references and types rewritten @cross-browser', async ({ page }, testInfo) => {
+  const AUDIO = join(FIXTURES, 'elpx', 'audio-course.elpx');
+  const A = 'content/resources/audio';
+  await page.goto('/');
+  await page.setInputFiles('#file-input', AUDIO);
+  await waitForReview(page);
+  // Audio rows are described and can be excluded like images and videos.
+  await expect(page.locator('.inventory')).toContainText('pcm_s16le');
+  await expect(page.locator('.inventory')).toContainText(/estéreo|stereo|mono/);
+  await expect(page.getByRole('switch', { name: /^(Optimizar|Optimize) content\/resources\/audio\/lectura\.wav$/ })).toBeChecked();
+  await ui.reviewPlan(page).click();
+  await expect(ui.planHeading(page)).toBeVisible();
+  const plan = page.locator('.plan-ops');
+  await expect(plan).toContainText(/Audios a recomprimir|Audio to recompress/);
+  await expect(plan).toContainText('audio/lectura.wav → audio/lectura.mp3');
+  await expect(page.locator('.risks')).toContainText(/pasan a MP3 con extensión \.mp3|become MP3 with the \.mp3 extension/);
+  // A file a script names cannot be renamed safely: it is left as is.
+  await expect(page.locator('.plan-skipped')).toContainText('audio/codigo.wav');
+  const { path } = await runDownload(page, testInfo);
+
+  const files = zipEntries(path);
+  const names = Object.keys(files).filter((n) => n.startsWith(`${A}/`));
+  expect(names.sort()).toEqual([`${A}/alta.mp3`, `${A}/codigo.wav`, `${A}/lectura.mp3`, `${A}/musica.mp3`, `${A}/pista.mp3`]);
+  const xml = strFromU8(files['content.xml']!);
+  expect(xml).toContain(`src="{{context_path}}/${A}/lectura.mp3" type="audio/mpeg"`);
+  expect(xml).toContain(`<source src="{{context_path}}/${A}/musica.mp3" type="audio/mpeg">`);
+  expect(xml).toContain(`<a href="{{context_path}}/${A}/pista.mp3">Pista</a>`);
+  expect(xml).toContain(`"audio":"{{context_path}}/${A}/lectura.mp3"`);
+  expect(xml).not.toMatch(/type="audio\/(wav|flac|aiff)"/);
+  expect(xml).toContain(`var extra = "${A}/codigo.wav";`);
+  // Each new file is real MP3 audio (checked with native ffprobe/ffmpeg), smaller than its source.
+  for (const [name, source] of [
+    ['lectura.mp3', 'lectura.wav'],
+    ['musica.mp3', 'musica.flac'],
+    ['pista.mp3', 'pista.aiff'],
+    ['alta.mp3', 'alta.mp3'],
+  ]) {
+    const check = nativeVideoCheck(files[`${A}/${name}`]!);
+    expect(
+      check.streams.map((s) => `${s.codec_type}:${s.codec_name}`),
+      name,
+    ).toEqual(['audio:mp3']);
+    expect(check.decodeErrors, name).toBe('');
+    expect(files[`${A}/${name}`]!.length, name).toBeLessThan((await readEntry(AUDIO, `${A}/${source}`)).length);
+  }
+  const analysis = await analyzeFile(path);
+  expect(analysis.ok).toBe(true);
+  expect(analysis.diagnostics.filter((d) => d.severity === 'error' || d.code === 'missing-resource')).toEqual([]);
 });

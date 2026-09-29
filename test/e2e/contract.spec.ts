@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OptimizationReport } from '../../src/core/report/report.js';
-import { analyzeFile, FIXTURES, nativeVideoCheck, readEntry, ROOT } from './helpers.js';
+import { analyzeFile, FIXTURES, nativeVideoCheck, readEntry, ROOT, ui } from './helpers.js';
 
 /**
  * Contract between the CLI (native engine) and the web app (browser engine):
@@ -48,8 +48,9 @@ test('CLI and web share plan and rules and give equivalent results', async ({ pa
     await expect(page.locator('.inventory')).toBeVisible({ timeout: 180_000 });
     await page.getByLabel(/Quitar archivos sin ninguna referencia|Remove files with no reference/).check();
     await page.getByLabel(/Unificar archivos idénticos|Merge identical files/).check();
-    await page.locator('form.options button[type=submit]').click();
-    await page.locator('.step-step4 .button.primary').click();
+    await ui.reviewPlan(page).click();
+    await expect(ui.planHeading(page)).toBeVisible();
+    await ui.optimize(page).click();
     await expect(page.locator('.result-status')).toBeVisible({ timeout: 280_000 });
     const [reportDl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('download-report').click()]);
     const webReportPath = testInfo.outputPath('web-report.json');

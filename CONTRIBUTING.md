@@ -20,7 +20,7 @@ make coverage              # Vitest, Node + Chromium, ≥ 90 % lines/statements/
 make test-bun              # the same core and CLI under the Bun runtime
 make e2e                   # Playwright against dist/web served statically
 make skill-validate        # when touching skills/
-make compat                # when touching format handling: eXeLearning's own importer/exporters
+make compat                # when touching format, reference or restructuring code: eXeLearning's own importer/exporters
 ```
 
 ## Rules
@@ -28,8 +28,12 @@ make compat                # when touching format handling: eXeLearning's own im
 - `src/core` stays portable: no `node:*`, Bun, DOM globals, sharp or ffmpeg.wasm imports. Put runtime
   code in `src/adapters/*` behind the interfaces in `src/core/media/engine.ts`, `src/core/io/*` and
   `src/core/optimize/optimize.ts`.
-- Never loosen a safety rule to make a test pass: missing files are reported, not hidden; unknown or
-  ambiguous references protect files; originals are kept on any doubt.
+- Never loosen a safety rule to make a test pass: missing files are reported, not hidden (taking out
+  their references stays an explicit opt-in); unknown or ambiguous references protect files from
+  removal, moves and renames; originals are kept on any doubt.
+- The web app's styles come from `src/web/theme.scss` (Bootstrap compiled with Sass at build time)
+  and `src/web/styles.css`; no CDN, and the Content-Security-Policy in `vite.config.ts` must not be
+  loosened. Every interface string needs its Spanish and English text in `src/web/i18n.ts`.
 - Add a regression test for every bug fix. Tests use real ZIPs, real codecs and real FFmpeg where
   possible; fakes are for failures and timeouts.
 - Fixtures must be synthetic (`scripts/generate-*`) or come from eXeLearning with provenance. Never

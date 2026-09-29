@@ -13,8 +13,10 @@ analyzes files without executing them.
 ## What changes and what does not
 
 - The input file is never modified. The CLI refuses an output path that is the input (or a link to it).
-- Lossy: re-encoding videos (H.264 at the chosen CRF) and JPEG/lossy WebP images. PNG and lossless WebP
-  are recompressed without changing pixels (verified). Formats and extensions never change.
+- Lossy: re-encoding videos (H.264 at the chosen CRF), JPEG/lossy WebP images and audio. PNG and
+  lossless WebP are recompressed without changing pixels (verified). Formats and extensions never
+  change, except WAV, AIFF and FLAC recordings, which become MP3 files renamed to `.mp3` with their
+  references rewritten (skip them with `--no-audio`).
 - Kept: page structure, IDs, iDevices, activities, texts, themes, libraries, iDevice runtimes, audio
   streams (copied when compatible), subtitles, chapters, colour profiles, EXIF orientation and, unless
   `--strip-metadata`, authorship metadata.
@@ -23,11 +25,16 @@ analyzes files without executing them.
   Files that are only possibly referenced stay.
 - `--deduplicate exact` merges byte-identical media and rewrites their references; if a reference
   cannot be rewritten safely, both files stay.
-- Missing resources are reported, never "repaired" by deleting references or inventing files.
+- `--flatten legacy` moves files only out of eXeLearning 3 folders named like `20251009090601SQPBIF`;
+  folders the user created are never touched, and a file whose references cannot all follow stays.
+- Missing resources are reported, never "repaired" by inventing files. Their references are kept
+  unless the user explicitly asks for `--missing-references remove`; then broken images and players
+  are deleted and links keep their text. Do not enable it on your own.
 
 ## Before running
 
-- Ask before enabling lossy presets, `--remove-unused` or `--deduplicate` unless the user asked.
+- Ask before enabling lossy presets, `--remove-unused`, `--deduplicate`, `--flatten` or
+  `--missing-references remove` unless the user asked.
 - Prefer `--dry-run` first and show the plan.
 - Never pass arbitrary ffmpeg arguments; the CLI does not accept them.
 - Do not install software globally or without telling the user.

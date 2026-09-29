@@ -316,6 +316,24 @@ ff(
 ff(...speech, '-filter_complex', '[0:a][1:a]amix=inputs=2', '-ac', '1', '-c:a', 'flac', join(out, 'tone.flac'));
 ff('-f', 'lavfi', '-i', 'sine=frequency=500:sample_rate=22050:duration=1', '-c:a', 'pcm_s16be', '-f', 'aiff', join(out, 'tone.aiff'));
 ff(...speech, '-filter_complex', '[0:a][1:a]amix=inputs=2,aformat=channel_layouts=stereo', '-c:a', 'libmp3lame', '-b:a', '320k', join(out, 'tone-320.mp3'));
+// Opus in WebM: a high-bitrate file (re-encoded) and a recording like MediaRecorder's, without a duration in its header.
+ff(...speech, '-filter_complex', '[0:a][1:a]amix=inputs=2,aformat=channel_layouts=stereo', '-c:a', 'libopus', '-b:a', '256k', join(out, 'tone-opus.webm'));
+ff(
+  ...speech,
+  '-filter_complex',
+  '[0:a][1:a]amix=inputs=2',
+  '-ac',
+  '1',
+  '-c:a',
+  'libopus',
+  '-b:a',
+  '96k',
+  '-live',
+  '1',
+  '-f',
+  'webm',
+  join(out, 'recording-opus.webm'),
+);
 // Truncated (corrupt) MP4.
 writeFileSync(join(out, 'truncated.mp4'), readFileSync(join(out, 'inefficient.mp4')).subarray(0, 4000));
 // WebVTT track.

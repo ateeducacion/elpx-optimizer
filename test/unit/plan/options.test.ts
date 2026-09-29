@@ -3,6 +3,7 @@ import { canonicalJson, normalizeOptions, parseResolution, type OptionsInput } f
 import { ElpxError } from '../../../src/core/errors.js';
 import { VIDEO_PROFILES } from '../../../src/core/media/video-policy.js';
 import { IMAGE_PROFILES } from '../../../src/core/media/image-policy.js';
+import { AUDIO_PROFILES } from '../../../src/core/media/audio-policy.js';
 
 /** Expects normalizeOptions to reject the input with an invalid-options error. */
 function rejects(input: unknown, message: RegExp): void {
@@ -39,7 +40,7 @@ describe('normalizeOptions', () => {
         preset: 'balanced',
         jpegQuality: IMAGE_PROFILES.balanced.jpegQuality,
         webpQuality: IMAGE_PROFILES.balanced.webpQuality,
-        maxDimension: undefined,
+        maxDimension: 1920,
         png: true,
         stripMetadata: false,
         minSavingsPercent: 5,
@@ -47,20 +48,47 @@ describe('normalizeOptions', () => {
         force: false,
         includeScreenshot: false,
       },
+      audio: {
+        enabled: true,
+        preset: 'balanced',
+        bitrateKbps: AUDIO_PROFILES.balanced.bitrateKbps,
+        minSavingsPercent: 5,
+        minSavingsBytes: 1024,
+        force: false,
+      },
       removeUnused: 'off',
       deduplicate: 'off',
       flatten: 'off',
       missingReferences: 'keep',
+      normalizeNames: 'off',
       exclude: [],
     });
     expect(normalizeOptions({})).toEqual(o);
   });
 
+  it('fills audio options from the profile and validates explicit values', () => {
+    expect(normalizeOptions({ preset: 'conservative' }).audio.bitrateKbps).toBe(192);
+    expect(normalizeOptions({ preset: 'aggressive' }).audio).toMatchObject({ preset: 'aggressive', bitrateKbps: 96 });
+    // The shared savings thresholds apply to audio too.
+    expect(normalizeOptions({ minSavingsPercent: 0, minSavingsBytes: 0, audio: { enabled: false, bitrate: 320, force: true } }).audio).toEqual({
+      enabled: false,
+      preset: 'balanced',
+      bitrateKbps: 320,
+      minSavingsPercent: 0,
+      minSavingsBytes: 0,
+      force: true,
+    });
+    expect(normalizeOptions({ audio: { bitrate: 64 } }).audio.bitrateKbps).toBe(64);
+  });
+
   it('applies profile defaults and explicit values', () => {
     const aggressive = normalizeOptions({ preset: 'aggressive' });
     expect(aggressive.video).toMatchObject({ crf: 28, maxShortSide: 720, audioBitrateKbps: 96 });
-    expect(aggressive.images.maxDimension).toBe(1920);
+    expect(aggressive.images.maxDimension).toBe(1600);
+    expect(normalizeOptions({ preset: 'conservative' }).images.maxDimension).toBe(2560);
+    // null turns the default downscaling off.
     expect(normalizeOptions({ preset: 'aggressive', images: { maxDimension: null } }).images.maxDimension).toBeUndefined();
+    expect(normalizeOptions({ images: { maxDimension: null } }).images.maxDimension).toBeUndefined();
     const custom = normalizeOptions({
       preset: 'conservative',
       minSavingsPercent: 0,
@@ -71,6 +99,7 @@ describe('normalizeOptions', () => {
       deduplicate: 'exact',
       flatten: 'legacy',
       missingReferences: 'remove',
+      normalizeNames: 'slug',
       exclude: ['b', 'a', 'b'],
     });
     expect(custom.video).toMatchObject({
@@ -100,6 +129,7 @@ describe('normalizeOptions', () => {
     expect(custom.deduplicate).toBe('exact');
     expect(custom.flatten).toBe('legacy');
     expect(custom.missingReferences).toBe('remove');
+    expect(custom.normalizeNames).toBe('slug');
   });
 
   it.each([
@@ -133,10 +163,19 @@ describe('normalizeOptions', () => {
     [{ images: { force: null } }, /images\.force/],
     [{ images: { includeScreenshot: 'y' } }, /images\.includeScreenshot/],
     [{ images: { enabled: 1 } }, /images\.enabled/],
+    [{ audio: 'mp3' }, /audio must be an object/],
+    [{ audio: { codec: 'mp3' } }, /Unknown option audio\.codec/],
+    [{ audio: { bitrate: 63 } }, /audio\.bitrate must be an integer between 64 and 320/],
+    [{ audio: { bitrate: 321 } }, /audio\.bitrate/],
+    [{ audio: { bitrate: 128.5 } }, /audio\.bitrate/],
+    [{ audio: { bitrate: '128' } }, /audio\.bitrate/],
+    [{ audio: { enabled: 'no' } }, /audio\.enabled must be true or false/],
+    [{ audio: { force: 1 } }, /audio\.force/],
     [{ removeUnused: 'all' }, /removeUnused must be "off" or "safe"/],
     [{ deduplicate: 'fuzzy' }, /deduplicate must be "off" or "exact"/],
     [{ flatten: 'all' }, /flatten must be "off" or "legacy"/],
     [{ missingReferences: 'hide' }, /missingReferences must be "keep" or "remove"/],
+    [{ normalizeNames: 'lower' }, /normalizeNames must be "off" or "slug"/],
     [{ exclude: 'a.png' }, /exclude must be a list of paths/],
     [{ exclude: ['a.png', 3] }, /exclude must be a list of paths/],
   ])('rejects %j', (input, message) => {

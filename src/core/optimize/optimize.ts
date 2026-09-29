@@ -168,7 +168,9 @@ export async function optimizeArchive(
         results.push({ id: op.id, op: op.op, path: op.path, status: 'applied', before: op.size, after: 0, detail: op.reason });
       }
     }
-    const restructure = restructurePlan(analysis, plan.options, new Set(removed), converted);
+    // Converted files keep the names the plan showed (a name freed by a failed conversion is not reused).
+    const plannedNames = new Map(audioOps.filter((op) => op.to !== undefined && converted.has(op.path)).map((op) => [op.path, op.to!]));
+    const restructure = restructurePlan(analysis, plan.options, new Set(removed), converted, plannedNames);
     for (const [path, target] of converted) {
       const i = results.findIndex((r) => r.op === 'transcode-audio' && r.path === path);
       const to = restructure.renames.get(path);

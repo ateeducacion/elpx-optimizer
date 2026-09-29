@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Page, Request } from '@playwright/test';
+import type { Locator, Page, Request } from '@playwright/test';
+import { unzipSync } from 'fflate';
 import { FileByteSource } from '../../src/adapters/node/file-source.js';
 import { analyzeArchive } from '../../src/core/analyze/analyze.js';
 import { NATIVE_LIMITS } from '../../src/core/limits.js';
@@ -56,6 +57,21 @@ export function assertOnlyStaticRequests(requests: readonly Request[], origin: s
   return problems;
 }
 
+/** The controls the specs drive, by role and accessible name in either interface language. */
+export const ui = {
+  // The visible label-button (the hidden file input shares its accessible name).
+  chooseFile: (page: Page): Locator => {
+    const name = /^(Elegir archivo…|Choose file…)$/;
+    return page.getByRole('button', { name }).and(page.getByText(name));
+  },
+  reviewPlan: (page: Page): Locator => page.getByRole('button', { name: /^(Revisar el plan|Review the plan)$/ }),
+  optimize: (page: Page): Locator => page.getByRole('button', { name: /^(Optimizar|Optimize)$/ }),
+  cancel: (page: Page): Locator => page.getByRole('button', { name: /^(Cancelar|Cancel)$/ }),
+  startOver: (page: Page): Locator => page.getByRole('button', { name: /^(Volver a empezar|Start over)$/ }),
+  another: (page: Page): Locator => page.getByRole('button', { name: /^(Optimizar otro proyecto|Optimize another project)$/ }),
+  planHeading: (page: Page): Locator => page.getByRole('heading', { name: /^(Confirma el plan|Confirm the plan)$/ }),
+};
+
 /** Selects a file through a drag-and-drop on the drop zone (DataTransfer built in the page). */
 export async function dropFile(page: Page, path: string, name: string): Promise<void> {
   const b64 = readFileSync(path).toString('base64');
@@ -87,6 +103,11 @@ export async function readEntry(path: string, entry: string): Promise<Uint8Array
   } finally {
     await src.close();
   }
+}
+
+/** Every entry of a package, read with fflate (independent of the core ZIP reader). */
+export function zipEntries(path: string): Record<string, Uint8Array> {
+  return unzipSync(new Uint8Array(readFileSync(path)));
 }
 
 /** Full analysis of a downloaded package. */

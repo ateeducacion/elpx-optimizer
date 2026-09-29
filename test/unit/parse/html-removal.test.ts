@@ -68,3 +68,29 @@ describe('attribute spans', () => {
     }
   });
 });
+
+describe('typeValueSpan', () => {
+  /** The source text of the type value span of the first element with a src attribute. */
+  function typeValue(html: string, fields: HtmlField[] = scanHtmlFragment(html)): string | undefined {
+    const f = fields.find((x) => x.kind === 'attribute' && (x.name === 'src' || x.name.endsWith('href')))!;
+    const span = f.element.typeValueSpan;
+    return span ? html.slice(span.start, span.end) : undefined;
+  }
+
+  it('covers the raw value of a plain type attribute, whatever the quoting', () => {
+    expect(typeValue('<audio src="a.wav" type="audio/wav"></audio>')).toBe('audio/wav');
+    expect(typeValue("<source type='audio/x-wav; codecs=1' src=a.wav>")).toBe('audio/x-wav; codecs=1');
+    expect(typeValue('<source src=a.wav type=audio/wav>')).toBe('audio/wav');
+    // Character references are part of the raw value that gets replaced.
+    expect(typeValue('<source src="a.wav" type="audio/wav&amp;x">')).toBe('audio/wav&amp;x');
+    expect(typeValue('<source src="a.wav" type="audio/wav">', scanHtmlDocument('<source src="a.wav" type="audio/wav">'))).toBe('audio/wav');
+  });
+
+  it('is absent without a type value, for namespaced type attributes and when the value cannot be decoded faithfully', () => {
+    expect(typeValue('<audio src="a.wav"></audio>')).toBeUndefined();
+    expect(typeValue('<audio src="a.wav" type></audio>')).toBeUndefined();
+    expect(typeValue('<svg><a xlink:type="simple" xlink:href="a.wav"></a></svg>')).toBeUndefined();
+    // parse5 turns NUL into U+FFFD: replacing the raw value could change it.
+    expect(typeValue('<audio src="a.wav" type="audio/wav\u0000"></audio>')).toBeUndefined();
+  });
+});

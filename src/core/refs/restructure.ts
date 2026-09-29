@@ -29,6 +29,8 @@ export interface RestructureOptions {
   readonly removed: ReadonlySet<string>;
   /** Files re-encoded into another format (e.g. WAV → MP3): path → new extension. */
   readonly convert?: ReadonlyMap<string, string>;
+  /** Names chosen by the plan for converted files: execution keeps them (a name freed by a failed conversion is not reused). */
+  readonly convertNames?: ReadonlyMap<string, string>;
   /** Give user files clean names (lower case, no spaces, accents or copy markers; see slug.ts). */
   readonly normalizeNames?: boolean;
 }
@@ -172,7 +174,7 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
         continue;
       }
       const base = moveTo.get(path) ?? path;
-      const to = freeName(withExtension(base, ext), occupied);
+      const to = freeName(options.convertNames?.get(path) ?? withExtension(base, ext), occupied);
       moveTo.set(path, to);
       converting.add(path);
       occupy(occupied, to, path);
@@ -191,14 +193,25 @@ export function planRestructure(analysis: Analysis, options: RestructureOptions)
       if (entryRole(p) === 'user-asset' && !p.startsWith('custom/') && cleanFileName(name) !== name) candidates.push(p);
       else occupy(occupied, current, p);
     }
+    // Folders with HTML or scripts are opaque: their code may name any of their files, referenced or not.
+    const bundles = analysis.result.diagnostics.filter((d) => d.code === 'opaque-bundle').map((d) => d.resource!);
+    const inBundle = (path: string): string | undefined => {
+      const bundle = bundles.find((b) => path.startsWith(b));
+      return bundle ? `inside ${bundle}, which contains HTML or scripts` : undefined;
+    };
+    // Files that keep their name are placed first, so that no clean name takes theirs.
+    const renaming: string[] = [];
     for (const path of candidates.sort(compare)) {
-      const current = moveTo.get(path) ?? path;
-      const reason = staticReason(path, false) ?? (sources.has(path) ? 'contains references to other files' : undefined);
-      if (reason) {
-        skipped.push({ path, kind: 'rename', reason });
-        occupy(occupied, current, path);
+      const reason = staticReason(path, false) ?? (sources.has(path) ? 'contains references to other files' : inBundle(path));
+      if (!reason) {
+        renaming.push(path);
         continue;
       }
+      skipped.push({ path, kind: 'rename', reason });
+      occupy(occupied, moveTo.get(path) ?? path, path);
+    }
+    for (const path of renaming) {
+      const current = moveTo.get(path) ?? path;
       const dir = current.slice(0, current.lastIndexOf('/') + 1);
       const to = freeName(dir + cleanFileName(current.slice(dir.length)), occupied, '-');
       moveTo.set(path, to);
@@ -421,6 +434,17 @@ function verify(
   const fail = (path: string, reason: string): void => {
     if (!failures.has(path)) failures.set(path, reason);
   };
+  // A new name may not differ from another file's only in letter case or Unicode form (the same file on many
+  // systems): this happens when a change that freed that name for another file is cancelled.
+  const bySlot = new Map<string, string[]>();
+  for (const p of future.files) bySlot.set(slot(p), [...(bySlot.get(slot(p)) ?? []), p]);
+  for (const group of bySlot.values()) {
+    if (group.length < 2) continue;
+    for (const p of group) {
+      const from = movedFrom.get(p);
+      if (from !== undefined) fail(from, `${p} would differ only in letter case from ${group.filter((o) => o !== p).join(', ')}`);
+    }
+  }
   for (const ref of analysis.references) {
     const target = ref.status === 'resolved' ? ref.target : undefined;
     const ctx = contextFor(ref);

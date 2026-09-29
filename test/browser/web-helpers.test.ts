@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { append, h, replace } from '../../src/web/dom.js';
 import { bytes, duration, percent } from '../../src/web/format.js';
 import { detectLang, translate } from '../../src/web/i18n.js';
+import { icon, type IconName } from '../../src/web/icons.js';
 import { readUrlSettings } from '../../src/web/url-settings.js';
 import { BROWSER_LIMITS } from '../../src/core/limits.js';
 
@@ -114,5 +115,79 @@ describe('readUrlSettings', () => {
     expect(readUrlSettings('?threads=single')).toEqual({ threading: 'single' });
     expect(readUrlSettings('?threads=auto&maxVideoMiB=1')).toEqual({ threading: 'auto', maxVideoBytes: MiB });
     for (const v of ['multi', 'SINGLE', '', '1']) expect(readUrlSettings(`?threads=${v}`), v).toEqual({});
+  });
+});
+
+describe('icons', () => {
+  // Every icon, checked at compile time against the bundled set.
+  const ALL: Record<IconName, true> = {
+    archive: true,
+    'arrow-left': true,
+    'arrow-repeat': true,
+    'camera-video': true,
+    'check-circle-fill': true,
+    circle: true,
+    download: true,
+    eraser: true,
+    eye: true,
+    'pause-fill': true,
+    'play-fill': true,
+    'play-circle': true,
+    'question-circle': true,
+    robot: true,
+    terminal: true,
+    clipboard: true,
+    'clipboard-check': true,
+    'exclamation-triangle-fill': true,
+    'file-earmark': true,
+    'file-earmark-arrow-up': true,
+    files: true,
+    'filetype-json': true,
+    'folder-symlink': true,
+    gear: true,
+    github: true,
+    image: true,
+    'info-circle-fill': true,
+    'music-note-beamed': true,
+    'pencil-square': true,
+    'shield-lock': true,
+    feather: true,
+    translate: true,
+    trash3: true,
+    'x-circle-fill': true,
+  };
+
+  it('turns every bundled SVG into a decorative inline icon', () => {
+    const seen = new Set<string>();
+    for (const name of Object.keys(ALL) as IconName[]) {
+      const svg = icon(name);
+      expect(svg, name).toBeInstanceOf(SVGSVGElement);
+      expect(svg.namespaceURI).toBe('http://www.w3.org/2000/svg');
+      expect(svg.ownerDocument).toBe(document);
+      expect(svg.getAttribute('class')).toBe('bi');
+      expect(svg.getAttribute('aria-hidden')).toBe('true');
+      expect(svg.getAttribute('focusable')).toBe('false');
+      // Sized by CSS (1em), not by the file.
+      expect(svg.hasAttribute('width')).toBe(false);
+      expect(svg.hasAttribute('height')).toBe(false);
+      expect(svg.getAttribute('viewBox')).toBe('0 0 16 16');
+      expect(svg.querySelector('parsererror')).toBeNull();
+      expect(svg.querySelector('path')).not.toBeNull();
+      expect(svg.querySelector('script, foreignObject')).toBeNull();
+      seen.add(svg.innerHTML);
+    }
+    // Each name is a different drawing.
+    expect(seen.size).toBe(Object.keys(ALL).length);
+  });
+
+  it('adds extra classes and returns a fresh element each time', () => {
+    const a = icon('github', 'fs-5');
+    expect(a.getAttribute('class')).toBe('bi fs-5');
+    const b = icon('github');
+    expect(b).not.toBe(a);
+    expect(b.innerHTML).toBe(a.innerHTML);
+    document.body.append(a);
+    expect(a.getBoundingClientRect().width).toBeGreaterThan(0);
+    a.remove();
   });
 });

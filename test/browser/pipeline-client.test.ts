@@ -51,6 +51,7 @@ function cooperative(m: ClientMessage, w: FakeWorker): void {
   if (m.type === 'analyze') queueMicrotask(() => w.send({ type: 'analysis', id: m.id, result: analysis }));
   if (m.type === 'plan') queueMicrotask(() => w.send({ type: 'plan', id: m.id, plan }));
   if (m.type === 'optimize') queueMicrotask(() => w.send({ type: 'result', id: m.id, report, fileName: 'a_optimized.elpx', output: new Blob(['zip']) }));
+  if (m.type === 'preview') queueMicrotask(() => w.send({ type: 'preview', id: m.id, blob: new Blob([m.path], { type: 'image/png' }) }));
 }
 
 const file = new File(['PK'], 'a.elpx');
@@ -254,6 +255,36 @@ describe('PipelineClient', () => {
     workers[0]!.onerror!({ message: 'crash' });
     await expect(client.optimize('h')).rejects.toMatchObject({ code: 'io', message: 'file moved' });
     expect(workers[1]!.posted.map((m) => m.type)).toEqual(['analyze']);
+  });
+
+  it('asks the worker for a preview of a resource', async () => {
+    const { client, workers } = setup(cooperative);
+    await client.analyze(file);
+    const blob = await client.preview('content/resources/a.png');
+    expect(blob.type).toBe('image/png');
+    expect(await blob.text()).toBe('content/resources/a.png');
+    expect(workers[0]!.posted.at(-1)).toEqual({ type: 'preview', id: 2, path: 'content/resources/a.png' });
+  });
+
+  it('maps a refused preview to PipelineError', async () => {
+    const { client } = setup((m, w) => {
+      if (m.type === 'preview') queueMicrotask(() => w.send({ type: 'error', id: m.id, code: 'limit-exceeded', message: 'Too large to preview' }));
+    });
+    await expect(client.preview('content/resources/big.mp4')).rejects.toMatchObject({
+      name: 'PipelineError',
+      code: 'limit-exceeded',
+      message: 'Too large to preview',
+    });
+  });
+
+  it('re-analyzes the file in a restarted worker before a preview', async () => {
+    const { client, workers } = setup(cooperative);
+    await client.analyze(file, undefined, 'single');
+    workers[0]!.onerror!({ message: 'crash' });
+    const blob = await client.preview('content/resources/b.png');
+    expect(await blob.text()).toBe('content/resources/b.png');
+    expect(workers[1]!.posted.map((m) => m.type)).toEqual(['analyze', 'preview']);
+    expect(workers[1]!.posted[0]).toMatchObject({ type: 'analyze', file, threading: 'single' });
   });
 
   it('terminates the worker on dispose', () => {
