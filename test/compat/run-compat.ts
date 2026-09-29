@@ -86,7 +86,9 @@ for (const { fixture: f, flags, label } of cases) {
   };
   // Moved files: map each new path back to the original one for the content-hash comparison.
   const renames = Object.fromEntries(
-    report.operations.filter((o) => o.op === 'move-resource' && o.status === 'applied').map((o) => [/moved to (.+?);/.exec(o.detail ?? '')![1]!, o.path]),
+    report.operations
+      .filter((o) => (o.op === 'move-resource' || o.op === 'transcode-audio') && o.status === 'applied' && /(?:moved|renamed) to /.test(o.detail ?? ''))
+      .map((o) => [/(?:moved|renamed) to (.+?)(?:;|$)/.exec(o.detail!)![1]!, o.path]),
   );
   const renamesPath = join(out, `${name}.renames.json`);
   writeFileSync(renamesPath, JSON.stringify(renames));
