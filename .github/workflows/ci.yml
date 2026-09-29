@@ -22,10 +22,10 @@ jobs:
     name: Lint and types
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '${{ env.BUN_VERSION }}' }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: bun install --frozen-lockfile
       - run: npx eslint .
@@ -36,10 +36,10 @@ jobs:
     name: Tests and coverage (Node + Chromium, native ffmpeg)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '${{ env.BUN_VERSION }}' }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
@@ -48,7 +48,7 @@ jobs:
         run: npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
       - name: Bun runtime tests
         run: bun test test/bun
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-and-test-reports
@@ -60,10 +60,10 @@ jobs:
     name: Build and test packaged distributions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '${{ env.BUN_VERSION }}' }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
@@ -105,7 +105,7 @@ jobs:
           curl -fsS http://127.0.0.1:8099/ | grep -q "elpx\|eXeLearning"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8099/)" = "405"
           kill %1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: distributions
           path: |
@@ -117,10 +117,10 @@ jobs:
     name: Agent Skill validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '${{ env.BUN_VERSION }}' }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: '3.12' }
       - run: pip install skills-ref==0.1.1
       - run: bun scripts/validate-skill.ts
@@ -129,17 +129,17 @@ jobs:
     name: E2E (static web app, ffmpeg.wasm in the browser)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '${{ env.BUN_VERSION }}' }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: bun run build:web
       - run: npx playwright test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-report
@@ -151,14 +151,14 @@ jobs:
     name: Compatibility with eXeLearning (pinned upstream)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '${{ env.BUN_VERSION }}' }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
       - run: sh scripts/fetch-upstream.sh
       - run: bun test/compat/run-compat.ts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: compat-reports
@@ -168,7 +168,7 @@ jobs:
     name: Docker images
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build --target web -t elpx-optimizer-web .
       - run: docker build --target cli -t elpx-optimizer-cli .
       - name: Web image serves static files only
