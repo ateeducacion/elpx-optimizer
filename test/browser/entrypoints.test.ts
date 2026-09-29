@@ -153,7 +153,7 @@ describe('web entry', () => {
       addEventListener: (type: string, listener: () => void) => listeners.push({ type, listener }),
     };
     const target = document.createElement('div');
-    followColorScheme(target, media as unknown as MediaQueryList);
+    followColorScheme(target, media as unknown as MediaQueryList, () => undefined);
     expect(target.dataset['bsTheme']).toBe('light');
     expect(listeners.map((l) => l.type)).toEqual(['change']);
     media.matches = true;
@@ -164,18 +164,34 @@ describe('web entry', () => {
     expect(target.dataset['bsTheme']).toBe('light');
   });
 
+  it('keeps the scheme chosen with the header button over the system one', async () => {
+    const { followColorScheme } = await import('../../src/web/main.js');
+    const listeners: (() => void)[] = [];
+    const media = { matches: false, addEventListener: (_: string, l: () => void) => listeners.push(l) };
+    const target = document.createElement('div');
+    let chosen: 'dark' | undefined = 'dark';
+    followColorScheme(target, media as unknown as MediaQueryList, () => chosen);
+    expect(target.dataset['bsTheme']).toBe('dark');
+    media.matches = false;
+    listeners[0]!();
+    expect(target.dataset['bsTheme']).toBe('dark');
+    chosen = undefined;
+    listeners[0]!();
+    expect(target.dataset['bsTheme']).toBe('light');
+  });
+
   it('switches the compiled theme between light and dark', async () => {
     const { followColorScheme } = await import('../../src/web/main.js');
     const html = document.documentElement;
     const previous = html.dataset['bsTheme'];
     const media = { matches: true, addEventListener: () => undefined } as unknown as MediaQueryList;
     try {
-      followColorScheme(html, media);
+      followColorScheme(html, media, () => undefined);
       expect(html.dataset['bsTheme']).toBe('dark');
       // The app background (styles.css) and Bootstrap's body colour (theme.scss) both switch.
       expect(getComputedStyle(document.body).backgroundColor).toBe('rgb(18, 21, 31)');
       expect(getComputedStyle(document.body).color).toBe('rgb(222, 226, 230)');
-      followColorScheme(html, { ...media, matches: false } as unknown as MediaQueryList);
+      followColorScheme(html, { ...media, matches: false } as unknown as MediaQueryList, () => undefined);
       expect(html.dataset['bsTheme']).toBe('light');
       expect(getComputedStyle(document.body).backgroundColor).toBe('rgb(243, 244, 248)');
       expect(getComputedStyle(document.body).color).toBe('rgb(29, 34, 51)');

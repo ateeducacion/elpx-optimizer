@@ -122,6 +122,8 @@ describe('icons', () => {
   // Every icon, checked at compile time against the bundled set.
   const ALL: Record<IconName, true> = {
     archive: true,
+    sun: true,
+    'moon-stars': true,
     'arrow-left': true,
     'arrow-repeat': true,
     'camera-video': true,
