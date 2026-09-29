@@ -195,7 +195,9 @@ export async function optimizeArchive(
       validations.push({ name: 'content-xml-well-formed-after-rewrite', ok: true });
     }
     const finalNames = archive.entries.filter((e) => !e.isDirectory && !removed.has(e.name)).map((e) => renames.get(e.name) ?? e.name);
-    if ((removed.size > 0 || renames.size > 0) && analysis.manifest) {
+    // The manifest lists files only: dropping empty directory entries does not change it (nor does the plan list it).
+    const filesChanged = renames.size > 0 || [...removed].some((p) => !p.endsWith('/'));
+    if (filesChanged && analysis.manifest) {
       newTexts.set(MANIFEST_PATH, renderManifest(analysis.manifest, finalNames));
       results.push({
         id: `manifest:${MANIFEST_PATH}`,
@@ -469,8 +471,13 @@ function compareWithBaseline(
   }
   out.push({ name: 'unchanged-entries-preserved', ok: unexpected === 0, detail: `${changed} entries changed as planned, ${unexpected} unexpected changes` });
   const beforeKeys = new Set(before.result.diagnostics.map(diagnosticKey));
+  // A moved file keeps its diagnostics (e.g. an extension mismatch): compare them under its original name.
+  const keyBefore = (d: Diagnostic): string => {
+    const original = d.resource === undefined ? undefined : originalName.get(d.resource);
+    return diagnosticKey(original === undefined ? d : { ...d, resource: original });
+  };
   const introduced: Diagnostic[] = after.result.diagnostics.filter(
-    (d) => REGRESSION_CODES.has(d.code) && !beforeKeys.has(diagnosticKey(d)) && !(d.resource && removed.has(d.resource)),
+    (d) => REGRESSION_CODES.has(d.code) && !beforeKeys.has(keyBefore(d)) && !(d.resource && removed.has(d.resource)),
   );
   out.push({
     name: 'no-new-problems',

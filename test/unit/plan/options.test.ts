@@ -69,6 +69,8 @@ describe('normalizeOptions', () => {
       images: { enabled: false, jpegQuality: 30, webpQuality: 100, maxDimension: 64, png: false, stripMetadata: true, force: true, includeScreenshot: true },
       removeUnused: 'safe',
       deduplicate: 'exact',
+      flatten: 'legacy',
+      missingReferences: 'remove',
       exclude: ['b', 'a', 'b'],
     });
     expect(custom.video).toMatchObject({
@@ -96,6 +98,8 @@ describe('normalizeOptions', () => {
     expect(custom.exclude).toEqual(['a', 'b']);
     expect(custom.removeUnused).toBe('safe');
     expect(custom.deduplicate).toBe('exact');
+    expect(custom.flatten).toBe('legacy');
+    expect(custom.missingReferences).toBe('remove');
   });
 
   it.each([
@@ -131,6 +135,8 @@ describe('normalizeOptions', () => {
     [{ images: { enabled: 1 } }, /images\.enabled/],
     [{ removeUnused: 'all' }, /removeUnused must be "off" or "safe"/],
     [{ deduplicate: 'fuzzy' }, /deduplicate must be "off" or "exact"/],
+    [{ flatten: 'all' }, /flatten must be "off" or "legacy"/],
+    [{ missingReferences: 'hide' }, /missingReferences must be "keep" or "remove"/],
     [{ exclude: 'a.png' }, /exclude must be a list of paths/],
     [{ exclude: ['a.png', 3] }, /exclude must be a list of paths/],
   ])('rejects %j', (input, message) => {

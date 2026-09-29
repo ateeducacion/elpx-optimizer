@@ -170,6 +170,7 @@ describe('renderInspect', () => {
       hasManifest: false,
       hasSearchIndex: false,
       hasPublishedHtml: false,
+      legacyFolders: { folders: 0, files: 0 },
     },
     totals: { entries: 0, files: 0, uncompressedBytes: 0, userAssetBytes: 0, imageBytes: 0, videoBytes: 0, audioBytes: 0 },
     entries: [],
