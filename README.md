@@ -48,7 +48,8 @@ Three presets: conservative, balanced (default) and maximum. What each one chang
 [Web app](docs/web.md) · [CLI](docs/cli.md) · [Agent Skill](docs/skill.md) ·
 [Presets and quality](docs/profiles.md) · [Architecture](docs/architecture.md) ·
 [Diagnostics](docs/diagnostics.md) · [Design decisions](docs/decisions.md) ·
-[Testing](docs/testing.md) · [eXeLearning format review](docs/upstream-review.md)
+[Testing](docs/testing.md) · [Publishing on npm](docs/npm.md) ·
+[eXeLearning format review](docs/upstream-review.md)
 
 Development: `bun install` and `make help`; see [CONTRIBUTING.md](CONTRIBUTING.md) and
 [AGENTS.md](AGENTS.md). Security: [SECURITY.md](SECURITY.md).

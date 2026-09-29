@@ -27,8 +27,9 @@ Guidance for AI agents that develop elpx-optimizer (the Agent Skill for _using_ 
   format or reference handling; code beats upstream documentation. `docs/decisions.md` records why
   things are done the way they are.
 - `.github/workflows/release.yml` — on a published release: GHCR images (each architecture on a native
-  runner, then one multi-platform image), GitHub Pages, release assets. Run it by hand with an
-  existing tag to publish that release again.
+  runner, then one multi-platform image), GitHub Pages, release assets, and the npm package when
+  `NPM_PUBLISH` is `true` (`docs/npm.md`). Run it by hand with an existing tag to publish that release
+  again.
   `.github/dependabot.yml` — weekly updates for Bun (`package.json`, `bun.lock`), Docker and Actions;
   the `Dockerfile` writes base images in its `FROM` lines (no `ARG`) so Dependabot can update them.
 

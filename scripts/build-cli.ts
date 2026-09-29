@@ -53,10 +53,14 @@ writeFileSync(
   join(out, 'package.json'),
   `${JSON.stringify(
     {
-      name: 'elpx-optimizer-cli',
+      name: 'elpx-optimizer',
       version: pkg.version,
       description: 'Command line interface of elpx-optimizer (analyze and shrink eXeLearning .elpx projects).',
       license: 'AGPL-3.0-or-later',
+      keywords: ['exelearning', 'elpx', 'optimizer', 'education', 'ffmpeg', 'compression'],
+      homepage: 'https://github.com/ateeducacion/elpx-optimizer',
+      repository: { type: 'git', url: 'git+https://github.com/ateeducacion/elpx-optimizer.git' },
+      bugs: { url: 'https://github.com/ateeducacion/elpx-optimizer/issues' },
       type: 'module',
       bin: { 'elpx-optimizer': 'elpx-optimizer.mjs' },
       files: ['elpx-optimizer.mjs', 'qpdf-runner.mjs', 'LICENSE', 'README.md'],
@@ -70,6 +74,6 @@ writeFileSync(
 copyFileSync(join(root, 'LICENSE'), join(out, 'LICENSE'));
 writeFileSync(
   join(out, 'README.md'),
-  `# elpx-optimizer CLI ${pkg.version}\n\nInstall: \`npm install -g ./elpx-optimizer-cli-${pkg.version}.tgz\` (downloads sharp and qpdf-wasm) or run \`node elpx-optimizer.mjs\` after \`npm install\` in this folder.\nVideo and audio optimization need ffmpeg and ffprobe on PATH (or --ffmpeg/--ffprobe); PDFs use qpdf compiled to WebAssembly (no install). See https://github.com/ateeducacion/elpx-optimizer.\n`,
+  `# elpx-optimizer CLI ${pkg.version}\n\nRun: \`npx elpx-optimizer optimize curso.elpx\`, or install: \`npm install -g elpx-optimizer\` (or \`./elpx-optimizer-${pkg.version}.tgz\` from a release; downloads sharp and qpdf-wasm), or run \`node elpx-optimizer.mjs\` after \`npm install\` in this folder.\nVideo and audio optimization need ffmpeg and ffprobe on PATH (or --ffmpeg/--ffprobe); PDFs use qpdf compiled to WebAssembly (no install). See https://github.com/ateeducacion/elpx-optimizer.\n`,
 );
 console.log(`CLI bundle written to ${bundle}`);

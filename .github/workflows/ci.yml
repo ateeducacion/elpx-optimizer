@@ -93,10 +93,10 @@ jobs:
       - name: CLI from a clean directory (npm install of the packed tarball)
         run: |
           CLEAN=$(mktemp -d "/tmp/clean cli XXXX")
-          cp dist/elpx-optimizer-cli-*.tgz "$CLEAN/"
+          cp dist/elpx-optimizer-[0-9]*.tgz "$CLEAN/"
           cp test/fixtures/elpx/course-video.elpx "$CLEAN/mi curso.elpx"
           cd "$CLEAN"
-          npm init -y > /dev/null && npm install --no-audit --no-fund ./elpx-optimizer-cli-*.tgz
+          npm init -y > /dev/null && npm install --no-audit --no-fund ./elpx-optimizer-[0-9]*.tgz
           npx elpx-optimizer doctor | tee doctor.txt
           grep -q "✓ pdf: qpdf" doctor.txt
           npx elpx-optimizer inspect "mi curso.elpx" --json > inspect.json
@@ -126,7 +126,7 @@ jobs:
         with:
           name: distributions
           path: |
-            dist/elpx-optimizer-cli-*.tgz
+            dist/elpx-optimizer-[0-9]*.tgz
             dist/elpx-optimizer-skill.zip
             dist/elpx-optimizer-web.tar.gz
 

@@ -217,11 +217,11 @@ To build the same image from a checkout: `docker build --target cli -t elpx-opti
 ### From a release
 
 Every GitHub release (https://github.com/ateeducacion/elpx-optimizer/releases) also carries
-`elpx-optimizer-cli-X.Y.Z.tgz` (the CLI package), `elpx-optimizer-skill.zip` (the Agent Skill, see
+`elpx-optimizer-X.Y.Z.tgz` (the CLI package), `elpx-optimizer-skill.zip` (the Agent Skill, see
 [skill.md](skill.md)) and `elpx-optimizer-web.tar.gz` (the static web app).
 
 ```bash
-npm install -g ./elpx-optimizer-cli-X.Y.Z.tgz      # installs sharp and qpdf-wasm from npm
+npm install -g ./elpx-optimizer-X.Y.Z.tgz      # installs sharp and qpdf-wasm from npm
 elpx-optimizer doctor
 ```
 
@@ -231,14 +231,14 @@ elpx-optimizer doctor
 bun install --frozen-lockfile
 bun scripts/build-cli.ts                     # dist/cli/elpx-optimizer.mjs + qpdf-runner.mjs + package.json
 node dist/cli/elpx-optimizer.mjs doctor
-# or install the packed CLI: (cd dist/cli && npm pack) && npm install -g dist/cli/elpx-optimizer-cli-*.tgz
+# or install the packed CLI: (cd dist/cli && npm pack) && npm install -g dist/cli/elpx-optimizer-[0-9]*.tgz
 ```
 
 ### Ubuntu Server (22.04/24.04)
 
 ```bash
 sudo apt-get update && sudo apt-get install -y ffmpeg nodejs npm   # Node 22+ (e.g. NodeSource) or Bun
-npm install -g ./elpx-optimizer-cli-X.Y.Z.tgz                      # from a release or a local build
+npm install -g ./elpx-optimizer-X.Y.Z.tgz                      # from a release or a local build
 elpx-optimizer doctor
 ```
 
@@ -246,7 +246,7 @@ elpx-optimizer doctor
 
 ```bash
 brew install ffmpeg node        # or: brew install oven-sh/bun/bun
-npm install -g ./elpx-optimizer-cli-X.Y.Z.tgz
+npm install -g ./elpx-optimizer-X.Y.Z.tgz
 elpx-optimizer doctor
 ```
 

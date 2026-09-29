@@ -87,6 +87,6 @@ Published on every release as `ghcr.io/ateeducacion/elpx-optimizer` (target `web
   their licenses) and Alpine's `ffmpeg` package (GPL build).
 
 The release assets `elpx-optimizer-web.tar.gz` (the web build, with `licenses/`),
-`elpx-optimizer-cli-X.Y.Z.tgz` and `elpx-optimizer-skill.zip` (the CLI bundle and `qpdf-runner.mjs`;
+`elpx-optimizer-X.Y.Z.tgz` and `elpx-optimizer-skill.zip` (the CLI bundle and `qpdf-runner.mjs`;
 sharp and qpdf-wasm are installed from npm by the user) carry the components listed in the
 corresponding sections.
