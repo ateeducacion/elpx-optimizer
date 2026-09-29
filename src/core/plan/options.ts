@@ -2,6 +2,7 @@ import { ElpxError } from '../errors.js';
 import { IMAGE_PROFILES, type ImageOptions } from '../media/image-policy.js';
 import { RESOLUTION_CAPS, VIDEO_PROFILES, X264_PRESETS, type Preset, type ResolutionCap, type VideoOptions } from '../media/video-policy.js';
 import { AUDIO_PROFILES, type AudioOptions } from '../media/audio-policy.js';
+import { PDF_PROFILES, type PdfOptions } from '../media/pdf-policy.js';
 
 /**
  * User-facing options and their normalization. The CLI flags, the web form
@@ -38,6 +39,11 @@ export interface OptionsInput {
     /** Re-encode MP3/M4A even when their bitrate is close to the target. */
     force?: boolean;
   };
+  pdf?: {
+    enabled?: boolean;
+    /** Let qpdf convert images inside PDFs to JPEG (lossy); by default on except in the conservative preset. */
+    images?: boolean;
+  };
   removeUnused?: 'off' | 'safe';
   deduplicate?: 'off' | 'exact';
   /** Move files out of eXeLearning 3 editor folders (content/resources/<ODE-ID>/) into content/resources/. */
@@ -57,6 +63,7 @@ export interface NormalizedOptions {
   readonly video: VideoOptions;
   readonly images: ImageOptions & { readonly includeScreenshot: boolean };
   readonly audio: AudioOptions;
+  readonly pdf: PdfOptions;
   readonly removeUnused: 'off' | 'safe';
   readonly deduplicate: 'off' | 'exact';
   readonly flatten: 'off' | 'legacy';
@@ -103,6 +110,7 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
       'video',
       'images',
       'audio',
+      'pdf',
       'removeUnused',
       'deduplicate',
       'flatten',
@@ -167,6 +175,16 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
     minSavingsBytes: minBytes,
     force: au.force === undefined ? false : bool(au.force, 'audio.force'),
   };
+  const pd = input.pdf ?? {};
+  if (typeof pd !== 'object' || pd === null) invalid('pdf must be an object');
+  checkKeys(pd, ['enabled', 'images'], 'pdf.');
+  const pdf: PdfOptions = {
+    enabled: pd.enabled === undefined ? true : bool(pd.enabled, 'pdf.enabled'),
+    preset,
+    images: pd.images === undefined ? PDF_PROFILES[preset].images : bool(pd.images, 'pdf.images'),
+    minSavingsPercent: minPercent,
+    minSavingsBytes: minBytes,
+  };
   const removeUnused = input.removeUnused ?? 'off';
   if (removeUnused !== 'off' && removeUnused !== 'safe') invalid('removeUnused must be "off" or "safe"');
   const deduplicate = input.deduplicate ?? 'off';
@@ -179,7 +197,7 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
   if (normalizeNames !== 'off' && normalizeNames !== 'slug') invalid('normalizeNames must be "off" or "slug"');
   const exclude = input.exclude ?? [];
   if (!Array.isArray(exclude) || !exclude.every((p) => typeof p === 'string')) invalid('exclude must be a list of paths');
-  return { preset, video, images, audio, removeUnused, deduplicate, flatten, missingReferences, normalizeNames, exclude: [...new Set(exclude)].sort() };
+  return { preset, video, images, audio, pdf, removeUnused, deduplicate, flatten, missingReferences, normalizeNames, exclude: [...new Set(exclude)].sort() };
 }
 
 /** Canonical JSON (sorted keys) used for hashing plans and options. */

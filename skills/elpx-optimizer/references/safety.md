@@ -13,10 +13,13 @@ analyzes files without executing them.
 ## What changes and what does not
 
 - The input file is never modified. The CLI refuses an output path that is the input (or a link to it).
-- Lossy: re-encoding videos (H.264 at the chosen CRF), JPEG/lossy WebP images and audio. PNG and
-  lossless WebP are recompressed without changing pixels (verified). Formats and extensions never
-  change, except WAV, AIFF and FLAC recordings, which become MP3 files renamed to `.mp3` with their
-  references rewritten (skip them with `--no-audio`).
+- Lossy: re-encoding videos (H.264 at the chosen CRF), JPEG/lossy WebP images and audio, and, in
+  PDFs, converting images that are not JPEG into JPEG (balanced and aggressive presets; not with
+  `--pdf-lossless` or `--no-pdf`). PNG and lossless WebP are recompressed without changing pixels
+  (verified). PDF text, fonts, links, bookmarks and forms are never re-rendered or altered, and
+  encrypted or signed PDFs are not touched. Formats and extensions never change, except WAV, AIFF
+  and FLAC recordings, which become MP3 files renamed to `.mp3` with their references rewritten
+  (skip them with `--no-audio`).
 - Kept: page structure, IDs, iDevices, activities, texts, themes, libraries, iDevice runtimes, audio
   streams (copied when compatible), subtitles, chapters, colour profiles, EXIF orientation and, unless
   `--strip-metadata`, authorship metadata.
@@ -38,7 +41,7 @@ analyzes files without executing them.
 - Ask before enabling lossy presets, `--remove-unused`, `--deduplicate`, `--normalize-names`,
   `--flatten` or `--missing-references remove` unless the user asked.
 - Prefer `--dry-run` first and show the plan.
-- Never pass arbitrary ffmpeg arguments; the CLI does not accept them.
+- Never pass arbitrary ffmpeg or qpdf arguments; the CLI does not accept them.
 - Do not install software globally or without telling the user.
 
 ## Privacy

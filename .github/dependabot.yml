@@ -1,11 +1,79 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
+# Weekly version updates for the three ecosystems of the repository: Bun
+# (package.json and bun.lock), the Docker base images and the GitHub Actions.
+# Packages that have to move together are grouped into one pull request; the
+# runtime components the builds redistribute without a group (sharp, fflate,
+# @noble/hashes, qpdf-wasm) arrive one by one, since each update also means
+# checking its entry in THIRD-PARTY-NOTICES.md. New releases wait a few days
+# (cooldown) before an update is proposed; security updates are not delayed.
 version: 2
+
 updates:
-  - package-ecosystem: "npm" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: bun
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Atlantic/Canary
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
+      semver-minor-days: 7
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: Deps
+    groups:
+      # The FFmpeg WebAssembly cores and their JavaScript API are released
+      # together; the web app pins the encoders each core provides.
+      ffmpeg-wasm:
+        patterns: ['@ffmpeg/*']
+      # jSquash image codecs (MozJPEG, OxiPNG, PNG, WebP, resize) share code.
+      jsquash:
+        patterns: ['@jsquash/*']
+      # Vite, Vitest and its browser runner, and Playwright (which Vitest's
+      # browser mode and the E2E tests drive) must agree on versions.
+      build-and-test:
+        patterns: ['vite', 'vitest', '@vitest/*', 'playwright', '@playwright/*']
+      # TypeScript and the type packages it checks against.
+      typescript:
+        patterns: ['typescript', '@types/*']
+      # Linting and formatting.
+      lint:
+        patterns: ['eslint', '@eslint/*', 'typescript-eslint', 'globals', 'prettier']
+      # The interface: Bootstrap's Sass is compiled with sass, plus icons and font.
+      web-ui:
+        patterns: ['bootstrap', 'bootstrap-icons', 'sass', '@fontsource/*']
+      # parse5 depends on entities, which the HTML decoder also uses directly.
+      html-parser:
+        patterns: ['parse5', 'entities']
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Atlantic/Canary
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: Docker
+    groups:
+      # oven/bun (build and CLI stages) and nginx-unprivileged (web stage).
+      docker-images:
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Atlantic/Canary
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: CI
+    groups:
+      github-actions:
+        patterns: ['*']

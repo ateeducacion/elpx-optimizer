@@ -2,10 +2,9 @@
 # Multi-stage build:
 #   --target web : static hosting of the web app (nginx, non-root, no ffmpeg, no API).
 #   --target cli : the CLI with Bun, ffmpeg/ffprobe and sharp (Alpine, non-root).
-ARG BUN_IMAGE=oven/bun:1.4.0-alpine
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.29-alpine
+# Base images are written in the FROM lines (not in ARGs) so Dependabot can update them.
 
-FROM ${BUN_IMAGE} AS deps
+FROM oven/bun:1.4.0-alpine AS deps
 WORKDIR /src
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --ignore-scripts
@@ -15,7 +14,7 @@ COPY . .
 RUN bun x vite build && bun scripts/build-cli.ts
 
 # ---------------------------------------------------------------- web
-FROM ${NGINX_IMAGE} AS web
+FROM nginxinc/nginx-unprivileged:1.29-alpine AS web
 # Set ELPX_ISOLATION=on to send COOP/COEP (enables the multi-thread FFmpeg core).
 ENV ELPX_ISOLATION=off NGINX_ENVSUBST_OUTPUT_DIR=/tmp NGINX_ENVSUBST_FILTER=^ELPX_
 COPY docker/nginx.conf /etc/nginx/nginx.conf
@@ -27,7 +26,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
 
 # ---------------------------------------------------------------- cli
-FROM ${BUN_IMAGE} AS cli
+FROM oven/bun:1.4.0-alpine AS cli
 RUN apk add --no-cache ffmpeg \
   && addgroup -S elpx && adduser -S -G elpx -h /home/elpx elpx \
   && mkdir -p /work /app && chown elpx:elpx /work

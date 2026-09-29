@@ -80,7 +80,8 @@ jobs:
           cp test/fixtures/elpx/course-video.elpx "$CLEAN/mi curso.elpx"
           cd "$CLEAN"
           npm init -y > /dev/null && npm install --no-audit --no-fund ./elpx-optimizer-cli-*.tgz
-          npx elpx-optimizer doctor
+          npx elpx-optimizer doctor | tee doctor.txt
+          grep -q "✓ pdf: qpdf" doctor.txt
           npx elpx-optimizer inspect "mi curso.elpx" --json > inspect.json
           npx elpx-optimizer optimize "mi curso.elpx" --remove-unused safe --deduplicate exact --json > report.json
           node -e "const r=require('./report.json'); if (r.status!=='optimized' || r.sizes.saved<=0) process.exit(1)"

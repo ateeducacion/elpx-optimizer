@@ -4,13 +4,13 @@
 elpx-optimizer <command> [options]
 ```
 
-| Command         | What it does                                                                                                                                                                                                 |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `doctor`        | Runtime, ffmpeg/ffprobe (version, video and audio encoders, a real 0.5 s libx264 encode + probe and a separate 0.3 s audio encode + probe, `audio-encode`), sharp/libvips (a real encode), static web build. |
-| `inspect FILE`  | Full analysis without changes. Uses ffprobe for videos and audio when available (`--no-probe` to skip); inspecting never requires FFmpeg.                                                                    |
-| `validate FILE` | Integrity (ZIP, CRC, `content.xml`), references and download manifest, as a verdict.                                                                                                                         |
-| `optimize FILE` | Builds the plan (`--dry-run` stops there) and runs it, writing `<name>_optimized.elpx`.                                                                                                                      |
-| `serve`         | Serves the static web app (`dist/web`). GET/HEAD only: no upload or processing API.                                                                                                                          |
+| Command         | What it does                                                                                                                                                                                                                                                           |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `doctor`        | Runtime, ffmpeg/ffprobe (version, video and audio encoders, a real 0.5 s libx264 encode + probe and a separate 0.3 s audio encode + probe, `audio-encode`), qpdf (WebAssembly; reads a generated PDF, `pdf-rewrite`), sharp/libvips (a real encode), static web build. |
+| `inspect FILE`  | Full analysis without changes. Uses ffprobe for videos and audio and qpdf for PDFs when available (`--no-probe` skips both); inspecting never requires FFmpeg.                                                                                                         |
+| `validate FILE` | Integrity (ZIP, CRC, `content.xml`), references and download manifest, as a verdict.                                                                                                                                                                                   |
+| `optimize FILE` | Builds the plan (`--dry-run` stops there) and runs it, writing `<name>_optimized.elpx`.                                                                                                                                                                                |
+| `serve`         | Serves the static web app (`dist/web`). GET/HEAD only: no upload or processing API.                                                                                                                                                                                    |
 
 Global options: `--json` (exactly one JSON document on stdout, nothing else), `--quiet` (no
 progress on stderr), `--help`/`-h`, `--version`/`-v`. Progress, messages and errors always go to
@@ -33,6 +33,8 @@ elpx-optimizer optimize "curso.elpx" --missing-references remove     # opt-in: t
 elpx-optimizer optimize "curso.elpx" --no-video --image-quality 85 --strip-metadata
 elpx-optimizer optimize "curso.elpx" --audio-bitrate 96              # WAV/AIFF/FLAC → MP3 at 96 kb/s stereo
 elpx-optimizer optimize "curso.elpx" --no-audio                      # leave every audio file as it is
+elpx-optimizer optimize "curso.elpx" --pdf-lossless                  # PDFs: recompress streams, do not convert their images to JPEG
+elpx-optimizer optimize "curso.elpx" --no-pdf                        # leave every PDF as it is
 elpx-optimizer optimize "curso.elpx" --exclude "content/resources/intro.mp4" --video-max-resolution 720
 elpx-optimizer serve --host 127.0.0.1 --port 8080
 elpx-optimizer serve --base /tools/elpx/ --isolation      # subdirectory + COOP/COEP (multi-thread core)
@@ -40,44 +42,45 @@ elpx-optimizer serve --base /tools/elpx/ --isolation      # subdirectory + COOP/
 
 ## optimize options
 
-| Option                                    | Values                                                                                                                                                                                                                                             | Default                                   |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `--output PATH`                           | output file; must not be the input (also checked through symlinks/hard links)                                                                                                                                                                      | `<name>_optimized.elpx` next to the input |
-| `--overwrite`                             | allow replacing an existing output (never the input)                                                                                                                                                                                               | refuse                                    |
-| `--report PATH`                           | also write the JSON report (the plan for `--dry-run`)                                                                                                                                                                                              | —                                         |
-| `--dry-run`                               | print the plan only                                                                                                                                                                                                                                | —                                         |
-| `--preset`                                | `conservative`, `balanced`, `aggressive` (`maximum` is an alias: the web app calls it "Maximum"; plans and reports say `aggressive`)                                                                                                               | `balanced`                                |
-| `--config FILE`                           | JSON with the same keys as the web app (`{"preset": ..., "video": {...}, "images": {...}, "audio": {...}, "removeUnused": ..., "deduplicate": ..., "flatten": ..., "missingReferences": ..., "normalizeNames": ..., "exclude": [...]}`); flags win | —                                         |
-| `--no-video`, `--no-images`, `--no-audio` | skip a media type                                                                                                                                                                                                                                  | enabled                                   |
-| `--remove-unused`                         | `off`, `safe` (only resources with no reference of any kind)                                                                                                                                                                                       | `off`                                     |
-| `--deduplicate`                           | `off`, `exact` (byte-identical binary media, references rewritten)                                                                                                                                                                                 | `off`                                     |
-| `--flatten`                               | `off`, `legacy` (move files out of eXeLearning 3 folders `content/resources/<ODE-ID>/` into `content/resources/`, references rewritten)                                                                                                            | `off`                                     |
-| `--normalize-names`                       | `off`, `slug` (clean file names: lower case, no spaces, accents or copy markers; references rewritten)                                                                                                                                             | `off` (the web app turns it on)           |
-| `--missing-references`                    | `keep`, `remove` (take out references to files that do not exist)                                                                                                                                                                                  | `keep`                                    |
-| `--exclude PATH`                          | ZIP path to leave untouched (repeatable)                                                                                                                                                                                                           | —                                         |
-| `--video-crf`                             | 16–35                                                                                                                                                                                                                                              | 20 / 23 / 28 by preset                    |
-| `--video-max-resolution`                  | 360, 480, 720, 1080, 1440, 2160 (short side) or `original`                                                                                                                                                                                         | 1080 / 1080 / 720                         |
-| `--video-audio-bitrate`                   | 64–320 kb/s, for audio tracks inside videos that must be converted                                                                                                                                                                                 | 192 / 128 / 96                            |
-| `--video-x264-preset`                     | `ultrafast` … `veryslow`                                                                                                                                                                                                                           | `slow` / `medium` / `medium`              |
-| `--video-force`                           | re-encode sources that already look efficient                                                                                                                                                                                                      | off                                       |
-| `--video-drop-data-streams`               | allow dropping timecode/telemetry streams                                                                                                                                                                                                          | off (such videos are kept)                |
-| `--image-quality`                         | JPEG quality 30–100                                                                                                                                                                                                                                | 90 / 82 / 72                              |
-| `--webp-quality`                          | 30–100                                                                                                                                                                                                                                             | 90 / 82 / 75                              |
-| `--image-max-dimension`                   | long side in pixels, or `none`                                                                                                                                                                                                                     | 2560 / 1920 / 1600                        |
-| `--no-png`                                | do not recompress PNG                                                                                                                                                                                                                              | recompress (lossless)                     |
-| `--strip-metadata`                        | remove EXIF/XMP/IPTC/text (ICC kept; EXIF kept when it holds a rotation)                                                                                                                                                                           | keep                                      |
-| `--image-force`                           | re-encode images that already look efficient                                                                                                                                                                                                       | off                                       |
-| `--include-screenshot`                    | also optimize `screenshot.png` (lossless only)                                                                                                                                                                                                     | off                                       |
-| `--audio-bitrate`                         | 64–320 kb/s, MP3/AAC stereo target; mono uses half (at least 64), Opus half of those (see profiles.md)                                                                                                                                             | 192 / 128 / 96                            |
-| `--audio-force`                           | re-encode MP3/M4A/Opus files even when their bitrate is below 1.4 × the target                                                                                                                                                                     | off                                       |
-| `--min-savings-percent`                   | minimum saving to replace a resource                                                                                                                                                                                                               | 5                                         |
-| `--min-savings-bytes`                     | minimum saving in bytes (videos: at least 10240)                                                                                                                                                                                                   | 1024                                      |
-| `--threads`                               | FFmpeg encoder threads                                                                                                                                                                                                                             | min(4, cores − 1)                         |
-| `--image-concurrency`                     | parallel image jobs; also the number of audio files encoded at once                                                                                                                                                                                | min(4, cores − 1)                         |
-| `--timeout-video`                         | seconds per video or audio file                                                                                                                                                                                                                    | 7200                                      |
-| `--max-archive-size`, `--max-video-size`  | bytes (the video limit also applies to audio files)                                                                                                                                                                                                | 16 GiB, 8 GiB                             |
-| `--temp-dir`                              | parent of the private temporary directory                                                                                                                                                                                                          | OS temp dir                               |
-| `--ffmpeg`, `--ffprobe`                   | tool paths (also `ELPX_OPTIMIZER_FFMPEG`, `ELPX_OPTIMIZER_FFPROBE`)                                                                                                                                                                                | `PATH`                                    |
+| Option                                                | Values                                                                                                                                                                                                                                                                                     | Default                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `--output PATH`                                       | output file; must not be the input (also checked through symlinks/hard links)                                                                                                                                                                                                              | `<name>_optimized.elpx` next to the input    |
+| `--overwrite`                                         | allow replacing an existing output (never the input)                                                                                                                                                                                                                                       | refuse                                       |
+| `--report PATH`                                       | also write the JSON report (the plan for `--dry-run`)                                                                                                                                                                                                                                      | —                                            |
+| `--dry-run`                                           | print the plan only                                                                                                                                                                                                                                                                        | —                                            |
+| `--preset`                                            | `conservative`, `balanced`, `aggressive` (`maximum` is an alias: the web app calls it "Maximum"; plans and reports say `aggressive`)                                                                                                                                                       | `balanced`                                   |
+| `--config FILE`                                       | JSON with the same keys as the web app (`{"preset": ..., "video": {...}, "images": {...}, "audio": {...}, "pdf": {"enabled": ..., "images": ...}, "removeUnused": ..., "deduplicate": ..., "flatten": ..., "missingReferences": ..., "normalizeNames": ..., "exclude": [...]}`); flags win | —                                            |
+| `--no-video`, `--no-images`, `--no-audio`, `--no-pdf` | skip a media type                                                                                                                                                                                                                                                                          | enabled                                      |
+| `--remove-unused`                                     | `off`, `safe` (only resources with no reference of any kind)                                                                                                                                                                                                                               | `off`                                        |
+| `--deduplicate`                                       | `off`, `exact` (byte-identical binary media, references rewritten)                                                                                                                                                                                                                         | `off`                                        |
+| `--flatten`                                           | `off`, `legacy` (move files out of eXeLearning 3 folders `content/resources/<ODE-ID>/` into `content/resources/`, references rewritten)                                                                                                                                                    | `off`                                        |
+| `--normalize-names`                                   | `off`, `slug` (clean file names: lower case, no spaces, accents or copy markers; references rewritten)                                                                                                                                                                                     | `off` (the web app turns it on)              |
+| `--missing-references`                                | `keep`, `remove` (take out references to files that do not exist)                                                                                                                                                                                                                          | `keep`                                       |
+| `--exclude PATH`                                      | ZIP path to leave untouched (repeatable)                                                                                                                                                                                                                                                   | —                                            |
+| `--video-crf`                                         | 16–35                                                                                                                                                                                                                                                                                      | 20 / 23 / 28 by preset                       |
+| `--video-max-resolution`                              | 360, 480, 720, 1080, 1440, 2160 (short side) or `original`                                                                                                                                                                                                                                 | 1080 / 1080 / 720                            |
+| `--video-audio-bitrate`                               | 64–320 kb/s, for audio tracks inside videos that must be converted                                                                                                                                                                                                                         | 192 / 128 / 96                               |
+| `--video-x264-preset`                                 | `ultrafast` … `veryslow`                                                                                                                                                                                                                                                                   | `slow` / `medium` / `medium`                 |
+| `--video-force`                                       | re-encode sources that already look efficient                                                                                                                                                                                                                                              | off                                          |
+| `--video-drop-data-streams`                           | allow dropping timecode/telemetry streams                                                                                                                                                                                                                                                  | off (such videos are kept)                   |
+| `--image-quality`                                     | JPEG quality 30–100                                                                                                                                                                                                                                                                        | 90 / 82 / 72                                 |
+| `--webp-quality`                                      | 30–100                                                                                                                                                                                                                                                                                     | 90 / 82 / 75                                 |
+| `--image-max-dimension`                               | long side in pixels, or `none`                                                                                                                                                                                                                                                             | 2560 / 1920 / 1600                           |
+| `--no-png`                                            | do not recompress PNG                                                                                                                                                                                                                                                                      | recompress (lossless)                        |
+| `--strip-metadata`                                    | remove EXIF/XMP/IPTC/text (ICC kept; EXIF kept when it holds a rotation)                                                                                                                                                                                                                   | keep                                         |
+| `--image-force`                                       | re-encode images that already look efficient                                                                                                                                                                                                                                               | off                                          |
+| `--include-screenshot`                                | also optimize `screenshot.png` (lossless only)                                                                                                                                                                                                                                             | off                                          |
+| `--audio-bitrate`                                     | 64–320 kb/s, MP3/AAC stereo target; mono uses half (at least 64), Opus half of those (see profiles.md)                                                                                                                                                                                     | 192 / 128 / 96                               |
+| `--audio-force`                                       | re-encode MP3/M4A/Opus files even when their bitrate is below 1.4 × the target                                                                                                                                                                                                             | off                                          |
+| `--pdf-lossless`                                      | PDFs: recompress streams only, do not convert their images to JPEG (the conservative preset already does this)                                                                                                                                                                             | off (balanced and aggressive convert images) |
+| `--min-savings-percent`                               | minimum saving to replace a resource                                                                                                                                                                                                                                                       | 5                                            |
+| `--min-savings-bytes`                                 | minimum saving in bytes (videos: at least 10240)                                                                                                                                                                                                                                           | 1024                                         |
+| `--threads`                                           | FFmpeg encoder threads                                                                                                                                                                                                                                                                     | min(4, cores − 1)                            |
+| `--image-concurrency`                                 | parallel image jobs; also the number of audio files encoded at once                                                                                                                                                                                                                        | min(4, cores − 1)                            |
+| `--timeout-video`                                     | seconds per video or audio file, and per qpdf run for PDFs                                                                                                                                                                                                                                 | 7200                                         |
+| `--max-archive-size`, `--max-video-size`              | bytes (the video limit also applies to audio files)                                                                                                                                                                                                                                        | 16 GiB, 8 GiB                                |
+| `--temp-dir`                                          | parent of the private temporary directory                                                                                                                                                                                                                                                  | OS temp dir                                  |
+| `--ffmpeg`, `--ffprobe`                               | tool paths (also `ELPX_OPTIMIZER_FFMPEG`, `ELPX_OPTIMIZER_FFPROBE`)                                                                                                                                                                                                                        | `PATH`                                       |
 
 What each option changes, and when files are left alone, is described in
 [profiles.md](profiles.md). In short:
@@ -86,6 +89,14 @@ What each option changes, and when files are left alone, is described in
   the `type` attribute of the element that holds them) are rewritten and verified. A file whose
   references cannot all follow the new name is left unchanged. MP3, M4A and Opus (WebM/Ogg) keep
   their format and name. `--no-audio` leaves every audio file untouched.
+- **PDFs**: rewritten by qpdf (WebAssembly, no external tool) without re-rendering, so text, fonts,
+  links, bookmarks, forms and tags are kept. A lossless pass (object streams, Flate streams
+  recompressed at level 9) always runs; in the balanced and aggressive presets an image pass also
+  converts images that are not JPEG into JPEG where that makes them smaller (existing JPEGs are
+  never re-encoded), and `--pdf-lossless` turns it off. Encrypted and signed PDFs, files above
+  512 MiB and PDFs qpdf cannot read are left unchanged; a result must pass `qpdf --check` without
+  warnings, keep the page count and save at least the minimum, or the original stays. `--no-pdf`
+  leaves every PDF untouched; progress shows `PDF [n/m] <path>` on stderr.
 - **`--flatten legacy`**: only folders named like eXeLearning 3 ODE-IDs (14 digits and 6 upper-case
   letters or digits) are flattened; folders created by the user are never touched. `inspect` reports
   such folders with the `legacy-resource-folders` diagnostic.
@@ -107,7 +118,7 @@ What each option changes, and when files are left alone, is described in
 | 3    | Invalid input: not a ZIP, legacy `.elp` (eXeLearning ≤ 2.x), not an eXeLearning project, corrupt or unsafe archive, limits exceeded.                                                         |
 | 4    | Partial: `optimize` delivered a valid, smaller file but some operations failed (their originals were kept); `validate` found errors such as missing resources (or warnings with `--strict`). |
 | 5    | Missing dependency (`doctor` found an unavailable capability).                                                                                                                               |
-| 130  | Cancelled (Ctrl+C / SIGTERM). FFmpeg processes are killed with their process group, temporary files are removed and no output is written.                                                    |
+| 130  | Cancelled (Ctrl+C / SIGTERM). FFmpeg and qpdf processes are killed with their process group, temporary files are removed and no output is written.                                           |
 
 Warnings (e.g. an external link, a lenient match) never change the exit code of `optimize`; a
 failed operation does (4), because the user asked for something that was not done.
@@ -121,10 +132,10 @@ All documents carry `schema` and `schemaVersion`.
   `legacyFolders` with the number of eXeLearning 3 editor `folders` and the `files` in them),
   `totals` (including `videoBytes`, `imageBytes` and `audioBytes`), `entries[]` (path, size,
   compressedSize, method, role, kind, format, mime, extensionMatches, usage and reasons, references,
-  referencedFrom, representations, resolutionSensitive, duplicateGroup, image or video/audio
-  properties), `references[]` (value, form, status, target, lenient rule, kind, representation,
-  location, layers, rewritable), `duplicates[]`, `diagnostics[]` (see
-  [diagnostics.md](diagnostics.md)), `media`.
+  referencedFrom, representations, resolutionSensitive, duplicateGroup, image, video/audio or PDF
+  properties; for a PDF: `pages`, `encrypted`, `signed`, `pdfA1`, `linearized`), `references[]`
+  (value, form, status, target, lenient rule, kind, representation, location, layers, rewritable),
+  `duplicates[]`, `diagnostics[]` (see [diagnostics.md](diagnostics.md)), `media`.
 - `optimize --dry-run` → `elpx-optimizer/dry-run` with `plan` (`elpx-optimizer/plan`: input hash,
   normalized options and hash, engine versions and capabilities, `operations[]`, `skipped[]` with
   stable reason codes, `risks[]`, `estimate` explicitly labelled as an estimate, `planHash`).
@@ -138,7 +149,8 @@ All documents carry `schema` and `schemaVersion`.
   checks that could not run because the project could not be analyzed that far are `not-run` and
   shown with "–" in text output), `diagnostics[]`.
 - `doctor` → `elpx-optimizer/doctor`: runtime, versions, `capabilities` (`inspect`, `validate`,
-  `video`, `audio` with its encoders among `libmp3lame`, `aac` and `libopus`, `image`, `web`), checks.
+  `video`, `audio` with its encoders among `libmp3lame`, `aac` and `libopus`, `pdf` with its `engine`
+  such as `qpdf 12.2.0 (WebAssembly)`, `image`, `web`), checks.
 
 Plan operations (`op`), in the plan and, with their outcome, in the report:
 
@@ -147,6 +159,7 @@ Plan operations (`op`), in the plan and, with their outcome, in the report:
 | `transcode-video`          | `path`, `size`, `lossy`, `conversions`, `job`, `estimatedBytes`                      | Re-encode a video in its own container.                                                                             |
 | `recompress-image`         | `path`, `size`, `lossy`, `conversions`, `job`, `estimatedBytes`                      | Recompress an image in its own format.                                                                              |
 | `transcode-audio`          | `path`, `size`, `lossy`, `conversions`, `job`, `to` (when renamed), `estimatedBytes` | Convert WAV/AIFF/FLAC to MP3 (`to` is the new `.mp3` path) or re-encode MP3/M4A/Opus in place.                      |
+| `optimize-pdf`             | `path`, `size`, `lossy`, `conversions`, `job`, `estimatedBytes`                      | Rewrite a PDF with qpdf in its own file (`lossy` when images may become JPEG).                                      |
 | `remove-unused`            | `path`, `size`, `reason`                                                             | Remove a file with no reference of any kind.                                                                        |
 | `deduplicate`              | `keep`, `remove[]`, `size`, `references`                                             | Keep one of several identical files and point the others' references to it.                                         |
 | `move-resource`            | `path`, `to`, `size`, `references`                                                   | Move a file out of an eXeLearning 3 folder (`--flatten legacy`), with its clean name when `--normalize-names slug`. |
@@ -155,7 +168,7 @@ Plan operations (`op`), in the plan and, with their outcome, in the report:
 | `rewrite-references`       | `path`, `edits`, `reason`                                                            | Text entry (`content.xml`, a page, `search_index.js`…) whose references change.                                     |
 | `update-manifest`          | `path`, `reason`                                                                     | Regenerate `libs/elpx-manifest.js` after files are removed, merged, moved or renamed.                               |
 
-`skipped[]` entries have a `kind` (`video`, `image`, `audio`, `unused`, `duplicate`, `flatten`,
+`skipped[]` entries have a `kind` (`video`, `image`, `audio`, `pdf`, `unused`, `duplicate`, `flatten`,
 `rename`, `missing-reference`), a `reason` code and a human-readable `detail`. Moving or renaming
 files and taking out broken references are changes the user asked for: when they apply, the new
 package is delivered even if it is not smaller (it is not replaced by a `no-improvement` copy).
@@ -164,15 +177,18 @@ package is delivered even if it is not smaller (it is not replaced by a `no-impr
 
 The CLI runs on Node ≥ 22 or Bun ≥ 1.3. Video and audio need ffmpeg and ffprobe (with libx264 for
 video, libmp3lame for MP3); images need sharp, which ships prebuilt libvips binaries for common
-platforms.
+platforms. PDFs need no external tool: qpdf comes as WebAssembly in the npm package
+`@neslinesli93/qpdf-wasm` (installed with the CLI, like sharp) and runs in a child process,
+`qpdf-runner.mjs` next to the CLI bundle, with the same Node or Bun executable that runs the CLI.
+`doctor` reports it as `pdf`.
 
 ### Docker (no local dependencies)
 
 Each GitHub release publishes two images on the GitHub Container Registry, for `linux/amd64` and
 `linux/arm64`, tagged `latest`, `X.Y.Z` and `X.Y`:
 
-- `ghcr.io/ateeducacion/elpx-optimizer-cli`: the CLI (Alpine, Bun, ffmpeg, sharp), non-root, working
-  directory `/work`;
+- `ghcr.io/ateeducacion/elpx-optimizer-cli`: the CLI (Alpine, Bun, ffmpeg, sharp, qpdf-wasm), non-root,
+  working directory `/work`;
 - `ghcr.io/ateeducacion/elpx-optimizer`: the static web app on nginx (port 8080, see [web.md](web.md)).
 
 ```bash
@@ -202,7 +218,7 @@ Every GitHub release (https://github.com/ateeducacion/elpx-optimizer/releases) a
 [skill.md](skill.md)) and `elpx-optimizer-web.tar.gz` (the static web app).
 
 ```bash
-npm install -g ./elpx-optimizer-cli-X.Y.Z.tgz      # installs sharp from npm
+npm install -g ./elpx-optimizer-cli-X.Y.Z.tgz      # installs sharp and qpdf-wasm from npm
 elpx-optimizer doctor
 ```
 
@@ -210,7 +226,7 @@ elpx-optimizer doctor
 
 ```bash
 bun install --frozen-lockfile
-bun scripts/build-cli.ts                     # dist/cli/elpx-optimizer.mjs + package.json
+bun scripts/build-cli.ts                     # dist/cli/elpx-optimizer.mjs + qpdf-runner.mjs + package.json
 node dist/cli/elpx-optimizer.mjs doctor
 # or install the packed CLI: (cd dist/cli && npm pack) && npm install -g dist/cli/elpx-optimizer-cli-*.tgz
 ```
@@ -246,5 +262,9 @@ docker run --rm -v "${PWD}:/work" ghcr.io/ateeducacion/elpx-optimizer-cli optimi
   `-protocol_whitelist file`, a forced demuxer, `-enable_drefs 0` for MP4-family inputs, a time
   limit, and is killed with its whole process group on cancellation or timeout. Audio files are
   processed under the same rules. There is no way to pass FFmpeg arguments.
+- qpdf runs in its own child process (`qpdf-runner.mjs`, WebAssembly) with an argument vector built
+  only by the PDF policy, an input and an output file with synthetic names in the private temporary
+  directory, a time limit, and is killed with its process group on cancellation or timeout, like
+  FFmpeg. There is no way to pass qpdf arguments.
 - The output is written to a temporary file next to the destination and renamed into place only
   after the result was re-read and validated. Disk space is checked before extracting media.

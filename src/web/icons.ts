@@ -22,6 +22,7 @@ import clipboard from 'bootstrap-icons/icons/clipboard.svg?raw';
 import clipboardCheck from 'bootstrap-icons/icons/clipboard-check.svg?raw';
 import exclamationTriangleFill from 'bootstrap-icons/icons/exclamation-triangle-fill.svg?raw';
 import fileEarmark from 'bootstrap-icons/icons/file-earmark.svg?raw';
+import fileEarmarkPdf from 'bootstrap-icons/icons/file-earmark-pdf.svg?raw';
 import fileEarmarkArrowUp from 'bootstrap-icons/icons/file-earmark-arrow-up.svg?raw';
 import files from 'bootstrap-icons/icons/files.svg?raw';
 import filetypeJson from 'bootstrap-icons/icons/filetype-json.svg?raw';
@@ -59,6 +60,7 @@ const SOURCES = {
   'exclamation-triangle-fill': exclamationTriangleFill,
   'file-earmark': fileEarmark,
   'file-earmark-arrow-up': fileEarmarkArrowUp,
+  'file-earmark-pdf': fileEarmarkPdf,
   files,
   'filetype-json': filetypeJson,
   'folder-symlink': folderSymlink,

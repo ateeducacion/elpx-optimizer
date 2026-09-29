@@ -18,6 +18,7 @@ import type { MediaEngine, ProgressListener, ResourceStore } from '../media/engi
 import { EntryIndex, resolveReference, type ResolveContext } from '../refs/resolve.js';
 import type { FoundReference } from '../refs/scan.js';
 import { legacyFolderOf } from '../format/legacy-folders.js';
+import { inspectPdf, type PdfInfo } from '../media/pdf-policy.js';
 import { ANALYSIS_SCHEMA_VERSION, TOOL_NAME, TOOL_VERSION, UPSTREAM_VERSION } from '../version.js';
 import type {
   Analysis,
@@ -277,7 +278,27 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
     mediaNote = 'Videos and audio were not inspected (no media engine)';
   }
 
-  const inventory = buildInventory(archive, sniffs, references, images, probes, duplicates, ode, diagnostics);
+  // PDFs: inspected with qpdf (WebAssembly) when the engine provides it.
+  const pdfs = new Map<string, PdfInfo>();
+  const pdfFiles = files.filter((f) => entryRole(f.name) === 'user-asset' && sniffs.get(f.name)?.format === 'pdf' && f.uncompressedSize <= limits.maxPdfBytes);
+  const qpdf = options.media?.engine;
+  if (qpdf?.runQpdf && pdfFiles.length > 0 && (await qpdf.info()).pdf?.available) {
+    const runner = { runQpdf: qpdf.runQpdf.bind(qpdf) };
+    let n = 0;
+    for (const f of pdfFiles) {
+      throwIfCancelled(signal);
+      progress({ stage: 'probe', resource: f.name, item: ++n, items: pdfFiles.length });
+      try {
+        const bytes = await readEntryBytes(archive, f, limits.maxPdfBytes, signal ? { signal } : {});
+        pdfs.set(f.name, await inspectPdf(runner, bytes, { resourcePath: f.name, timeoutMs: 120_000, ...(signal ? { signal } : {}) }));
+      } catch (error) {
+        if (error instanceof ElpxError && error.code === 'cancelled') throw error;
+        diagnostics.push(diagnostic('media-probe-failed', `${displayName(f.name)}: ${errorMessage(error)}`, { resource: f.name }));
+      }
+    }
+  }
+
+  const inventory = buildInventory(archive, sniffs, references, images, probes, duplicates, ode, diagnostics, pdfs);
   for (const e of inventory) {
     if (e.role === 'user-asset' && e.extensionMatches === false) {
       diagnostics.push(
@@ -311,7 +332,7 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
     media: { probed: probes.size > 0, ...(mediaEngine ? { engine: mediaEngine } : {}), ...(mediaNote ? { note: mediaNote } : {}) },
   };
   progress({ stage: 'done' });
-  return { result, archive, ode, ...(manifest ? { manifest } : {}), texts, references, probes, images };
+  return { result, archive, ode, ...(manifest ? { manifest } : {}), texts, references, probes, images, pdfs };
 }
 
 function withArchive(a: Analysis, archive: ZipArchive): Analysis {
@@ -658,6 +679,7 @@ function buildInventory(
   duplicates: readonly DuplicateGroup[],
   ode: OdeDocument,
   diagnostics: Diagnostic[],
+  pdfs: ReadonlyMap<string, PdfInfo> = new Map(),
 ): InventoryEntry[] {
   const strong = new Map<string, number>();
   const weak = new Map<string, string[]>();
@@ -790,6 +812,7 @@ function buildInventory(
       resolutionSensitive: sensitive.has(e.name),
       ...(dupOf.has(e.name) ? { duplicateGroup: dupOf.get(e.name)! } : {}),
       ...(imageInfo ? { image: imageSummary(imageInfo) } : {}),
+      ...(pdfs.has(e.name) ? { pdf: pdfs.get(e.name)! } : {}),
       ...(probe && s.kind === 'video' ? { video: videoSummary(probe) } : {}),
       ...(probe && (audioOnly || s.kind === 'audio') ? audioSummary(probe) : {}),
     };

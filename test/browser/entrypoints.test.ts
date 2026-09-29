@@ -5,7 +5,9 @@ import type { App } from '../../src/web/app.js';
 import type { PipelineClient } from '../../src/adapters/browser/pipeline-client.js';
 import type { WorkerMessage } from '../../src/adapters/browser/protocol.js';
 import type { ImageResponse } from '../../src/adapters/browser/image-pool.js';
+import type { QpdfResult } from '../../src/core/media/engine.js';
 import { fixtureBytes, fixtureFile, imageJobFor, waitFor } from './helpers.js';
+import { craftPdf } from '../helpers/pdf-craft.js';
 
 type AppWindow = Window & { elpxApp?: App };
 
@@ -55,6 +57,40 @@ describe('image worker entry', () => {
     const encoded = (response as { encoded: Uint8Array }).encoded;
     expect(encoded.length).toBeGreaterThan(0);
     expect(transfer).toEqual([encoded.buffer]);
+  });
+});
+
+describe('qpdf worker entry', () => {
+  const previous = self.onmessage;
+
+  afterEach(() => {
+    self.onmessage = previous;
+    vi.restoreAllMocks();
+  });
+
+  it('runs qpdf for each request and answers errors by id', async () => {
+    const posted: { id: number; result?: QpdfResult; error?: string }[] = [];
+    const transfers: Transferable[][] = [];
+    vi.spyOn(window, 'postMessage').mockImplementation(((m: (typeof posted)[number], transfer: Transferable[] = []) => {
+      posted.push(m);
+      transfers.push(transfer);
+    }) as unknown as typeof window.postMessage);
+    await import('../../src/adapters/browser/pdf.worker.js');
+    self.onmessage!(new MessageEvent('message', { data: { id: 1, args: ['--version'], input: new Uint8Array() } }));
+    await waitFor(() => posted.length === 1, 30_000, 'qpdf worker answer');
+    expect(posted[0]).toMatchObject({ id: 1, result: { code: 0 } });
+    expect(transfers[0]).toEqual([]);
+    // A rewrite answers with the new file, transferred.
+    self.onmessage!(new MessageEvent('message', { data: { id: 3, args: ['/in.pdf', '/out.pdf'], input: craftPdf() } }));
+    await waitFor(() => posted.length === 2, 30_000, 'qpdf worker rewrite');
+    const output = posted[1]!.result!.output!;
+    expect(new TextDecoder().decode(output.subarray(0, 5))).toBe('%PDF-');
+    expect(transfers[1]).toEqual([output.buffer]);
+    // Input that is not bytes cannot be written to qpdf's file system.
+    self.onmessage!(new MessageEvent('message', { data: { id: 2, args: ['--check', '/in.pdf'], input: 42 } }));
+    await waitFor(() => posted.length === 3, 30_000, 'qpdf worker error');
+    expect(posted[2]!.id).toBe(2);
+    expect(posted[2]!.error).toBeTruthy();
   });
 });
 

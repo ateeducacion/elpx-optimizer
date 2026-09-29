@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EXIT } from '../../../src/cli/exit-codes.js';
+import { QPDF_VERSION } from '../../../src/adapters/browser/qpdf-version.js';
 import { FAKE_FFMPEG_IDENTITY, removeDir, runCli, singleJson, tempDir, writeFailingFfmpeg, writeScript } from '../../helpers/cli.js';
 import { nativeVideoAvailable } from '../../helpers/native.js';
 
@@ -48,12 +49,15 @@ describe.runIf(video)('doctor with working tools', () => {
     expect(report.schema).toBe('elpx-optimizer/doctor');
     expect(report.ok).toBe(true);
     expect(report.runtime.node).toBe(process.versions.node);
-    expect(Object.keys(report.versions).sort()).toEqual(['ffmpeg', 'ffprobe', 'libvips', 'sharp']);
+    expect(Object.keys(report.versions).sort()).toEqual(['ffmpeg', 'ffprobe', 'libvips', 'qpdf', 'sharp']);
+    expect(report.versions['qpdf']).toBe(`${QPDF_VERSION} (WebAssembly)`);
     expect(report.capabilities['video']).toMatchObject({ available: true });
     expect(report.capabilities['image']).toMatchObject({ available: true });
     expect(report.capabilities['web']).toEqual({ available: true, root: 'web' });
     expect(check(report, 'video-encode')).toEqual({ name: 'video-encode', ok: true, detail: 'libx264 encode and ffprobe succeeded' });
     expect(check(report, 'image-encode')).toEqual({ name: 'image-encode', ok: true, detail: 'sharp encode succeeded' });
+    expect(report.capabilities['pdf']).toEqual({ available: true, engine: `qpdf ${QPDF_VERSION} (WebAssembly)` });
+    expect(check(report, 'pdf-rewrite')).toEqual({ name: 'pdf-rewrite', ok: true, detail: `qpdf ${QPDF_VERSION} (WebAssembly) read a test PDF` });
   });
 
   it('prints a human summary', async () => {
@@ -63,6 +67,7 @@ describe.runIf(video)('doctor with working tools', () => {
     expect(r.stdout).toContain('✓ inspect / validate: available (no external tools needed)\n');
     expect(r.stdout).toMatch(/✓ video: ffmpeg \S+, ffprobe \S+, encoders libx264/);
     expect(r.stdout).toMatch(/✓ images: sharp \S+ \(libvips \S+\)/);
+    expect(r.stdout).toContain(`✓ pdf: qpdf ${QPDF_VERSION} (WebAssembly)\n`);
     expect(r.stdout).toContain('✓ web app: static files in web\n');
   });
 
@@ -95,6 +100,9 @@ describe('doctor with missing or broken tools', () => {
     expect(report.capabilities['video']).toMatchObject({ available: false, reason: 'ffmpeg/ffprobe not found' });
     expect(report.capabilities['inspect']).toEqual({ available: true });
     expect(check(report, 'video-encode')).toMatchObject({ ok: false, detail: 'ffmpeg/ffprobe not found' });
+    // PDFs do not need ffmpeg.
+    expect(report.capabilities['pdf']).toMatchObject({ available: true });
+    expect(check(report, 'pdf-rewrite').ok).toBe(true);
     expect(report.notes).toContain('Missing: ffmpeg');
     const text = await doctor(['--ffmpeg', '/nonexistent/ffmpeg']);
     expect(text.code).toBe(EXIT.DEPENDENCY);

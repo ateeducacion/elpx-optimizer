@@ -77,6 +77,9 @@ export function progressPrinter(io: CliIO, quiet: boolean): (e: ProgressEvent) =
       case 'encode-image':
         line = `Images${item}`;
         break;
+      case 'pdf':
+        line = `PDF${item} ${e.resource ?? ''}`;
+        break;
       case 'package':
         line = `Packaging${item}`;
         break;

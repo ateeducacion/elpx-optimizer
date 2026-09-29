@@ -11,8 +11,10 @@ import { NodeResourceStore } from '../../src/adapters/node/resource-store.js';
 import { CancelledError } from '../../src/core/errors.js';
 import { MemoryByteSource } from '../../src/core/io/byte-source.js';
 import { NATIVE_LIMITS } from '../../src/core/limits.js';
+import { PDF_INPUT, PDF_OUTPUT, checkPdf, inspectPdf } from '../../src/core/media/pdf-policy.js';
 import { openZip } from '../../src/core/zip/reader.js';
 import { craftZip } from '../helpers/zip-craft.js';
+import { craftPdf } from '../helpers/pdf-craft.js';
 import { removeDir, tempDir } from '../helpers/cli.js';
 import { MEDIA, nativeVideoAvailable } from '../helpers/native.js';
 
@@ -135,5 +137,17 @@ describe('native media engine under Bun', () => {
     const resource = await store.fromBytes(new Uint8Array(await readFile(join(MEDIA, 'efficient.mp4'))), 'mp4');
     const probe = await engine.probe(resource, { resourcePath: 'efficient.mp4', timeoutMs: 60_000 });
     expect(probe.streams.some((s) => s.type === 'video')).toBe(true);
+  });
+
+  it('runs qpdf (WebAssembly) through the runner with Bun', async () => {
+    const engine = new NativeMediaEngine(store, { tools: { ffmpeg: '/nonexistent/ffmpeg' } });
+    expect((await engine.info()).pdf).toMatchObject({ available: true, engine: expect.stringMatching(/^qpdf \d+\.\d+\.\d+ \(WebAssembly\)$/) });
+    const ctx = { resourcePath: 'a.pdf', timeoutMs: 60_000 };
+    const pdf = craftPdf({ pages: 2, image: { width: 100, height: 100 } });
+    expect(await inspectPdf(engine, pdf, ctx)).toEqual({ pages: 2, encrypted: false, signed: false, pdfA1: false, linearized: false });
+    const r = await engine.runQpdf(['--object-streams=generate', '--optimize-images', PDF_INPUT, PDF_OUTPUT], pdf, ctx);
+    expect(r.code).toBe(0);
+    expect(r.output!.length).toBeLessThan(pdf.length);
+    await checkPdf(engine, r.output!, ctx);
   });
 });

@@ -5,6 +5,7 @@ import type { EngineInfo } from '../media/engine.js';
 import { decideImage, type ImageJob, type ImageSkipReason } from '../media/image-policy.js';
 import { decideVideo, type VideoJob, type VideoSkipReason } from '../media/video-policy.js';
 import { decideAudio, type AudioJob, type AudioSkipReason } from '../media/audio-policy.js';
+import { decidePdf, type PdfJob, type PdfSkipReason } from '../media/pdf-policy.js';
 import { sha256Hex } from '../io/hash.js';
 import { MANIFEST_PATH } from '../format/manifest.js';
 import { IMAGE_EXTENSIONS } from '../analyze/analyze.js';
@@ -53,6 +54,17 @@ export type PlanOperation =
       readonly to?: string;
       readonly estimatedBytes?: number;
     }
+  | {
+      readonly id: string;
+      readonly op: 'optimize-pdf';
+      readonly path: string;
+      readonly size: number;
+      /** True when images may be converted to JPEG. */
+      readonly lossy: boolean;
+      readonly conversions: readonly string[];
+      readonly job: PdfJob;
+      readonly estimatedBytes?: number;
+    }
   | { readonly id: string; readonly op: 'remove-unused'; readonly path: string; readonly size: number; readonly reason: string }
   | {
       readonly id: string;
@@ -92,8 +104,8 @@ export type PlanOperation =
 
 export interface SkippedResource {
   readonly path: string;
-  readonly kind: 'video' | 'image' | 'audio' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference' | 'rename';
-  readonly reason: VideoSkipReason | ImageSkipReason | AudioSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
+  readonly kind: 'video' | 'image' | 'audio' | 'pdf' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference' | 'rename';
+  readonly reason: VideoSkipReason | ImageSkipReason | AudioSkipReason | PdfSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
   readonly detail: string;
 }
 
@@ -222,6 +234,29 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
       if (e.kind === 'video') planVideo(analysis, e, options, engine, limits, operations, skipped);
       else planImage(analysis, e, options, engine, limits, operations, skipped, isScreenshot);
     }
+    for (const e of result.entries) {
+      if (e.isDirectory || e.role !== 'user-asset' || e.format !== 'pdf' || removedPaths.has(e.path)) continue;
+      if (excluded.has(e.path)) {
+        skipped.push({ path: e.path, kind: 'pdf', reason: 'excluded', detail: 'Kept as original by request' });
+        continue;
+      }
+      const caps = engine.pdf ?? { available: false, reason: 'This engine does not process PDFs' };
+      const decision = decidePdf({ size: e.size, ...(analysis.pdfs?.has(e.path) ? { info: analysis.pdfs.get(e.path)! } : {}) }, options.pdf, caps, limits);
+      if (decision.action === 'skip') {
+        skipped.push({ path: e.path, kind: 'pdf', reason: decision.reason, detail: decision.detail });
+        continue;
+      }
+      operations.push({
+        id: `pdf:${e.path}`,
+        op: 'optimize-pdf',
+        path: e.path,
+        size: e.size,
+        lossy: decision.job.images,
+        conversions: decision.job.conversions,
+        job: decision.job,
+        estimatedBytes: Math.round(e.size * (decision.job.images ? 0.8 : 0.95)),
+      });
+    }
     const removals = operations.some(
       (o) =>
         o.op === 'remove-unused' ||
@@ -234,12 +269,15 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
       operations.push({ id: `manifest:${MANIFEST_PATH}`, op: 'update-manifest', path: MANIFEST_PATH, reason: 'list the final set of entries' });
     }
     for (const op of operations) {
-      if (op.op === 'transcode-video' || op.op === 'recompress-image' || op.op === 'transcode-audio')
+      if (op.op === 'transcode-video' || op.op === 'recompress-image' || op.op === 'transcode-audio' || op.op === 'optimize-pdf')
         estimate += Math.max(0, op.size - (op.estimatedBytes ?? op.size));
       else if (op.op === 'remove-unused' || op.op === 'deduplicate') estimate += op.size;
     }
     if (operations.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || (o.op === 'recompress-image' && o.lossy))) {
       risks.push('Lossy re-encoding changes image, audio or video quality; originals are kept when a result is not valid or not smaller.');
+    }
+    if (operations.some((o) => o.op === 'optimize-pdf' && o.lossy)) {
+      risks.push('Images inside PDFs may be converted to JPEG (lossy); text, fonts, links and forms are not re-rendered.');
     }
     if (operations.some((o) => o.op === 'transcode-audio' && o.to !== undefined)) {
       risks.push('WAV, AIFF and FLAC recordings become MP3 files with the .mp3 extension; their references are rewritten.');

@@ -8,6 +8,22 @@ import { runProcess } from '../../adapters/node/process.js';
 import { EXIT, type ExitCode } from '../exit-codes.js';
 import { printJson, type CliIO } from '../io.js';
 import { webRoot } from './serve.js';
+import { inspectPdf } from '../../core/media/pdf-policy.js';
+
+/** A valid one-page PDF (with a correct cross-reference table) for the qpdf smoke test. */
+export function minimalPdf(): Uint8Array {
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>'];
+  let body = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  objects.forEach((o, i) => {
+    offsets.push(body.length);
+    body += `${i + 1} 0 obj\n${o}\nendobj\n`;
+  });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new TextEncoder().encode(body);
+}
 
 /** Checks tools and real capabilities (a tiny encode with each engine). */
 export async function runDoctor(values: Record<string, unknown>, io: CliIO): Promise<ExitCode> {
@@ -110,6 +126,16 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
     } else {
       checks.push({ name: 'audio-encode', ok: false, detail: info.audio?.reason ?? 'unavailable' });
     }
+    // PDF smoke test: qpdf (WebAssembly) inspects a generated one-page PDF.
+    if (info.pdf?.available) {
+      const ok = await inspectPdf({ runQpdf: engine.runQpdf.bind(engine) }, minimalPdf(), { resourcePath: 'smoke.pdf', timeoutMs: 30_000 }).then(
+        (p) => p.pages === 1,
+        () => false,
+      );
+      checks.push({ name: 'pdf-rewrite', ok, detail: ok ? `${info.pdf.engine ?? 'qpdf'} read a test PDF` : 'qpdf smoke test failed' });
+    } else {
+      checks.push({ name: 'pdf-rewrite', ok: false, detail: info.pdf?.reason ?? 'unavailable' });
+    }
     if (info.image.available) {
       try {
         const png = new Uint8Array(
@@ -166,6 +192,11 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
           encoders: info.audio?.encoders ?? [],
           ...(info.audio?.reason ? { reason: info.audio.reason } : {}),
         },
+        pdf: {
+          available: (info.pdf?.available ?? false) && checks.find((c) => c.name === 'pdf-rewrite')!.ok,
+          ...(info.pdf?.engine ? { engine: info.pdf.engine } : {}),
+          ...(info.pdf?.reason ? { reason: info.pdf.reason } : {}),
+        },
         image: {
           available: info.image.available && checks.find((c) => c.name === 'image-encode')!.ok,
           encoders: info.image.encoders,
@@ -197,6 +228,12 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
         line(
           result.capabilities.image.available,
           `images: ${result.capabilities.image.available ? `sharp ${info.versions['sharp']} (libvips ${info.versions['libvips']})` : (info.image.reason ?? 'unavailable')}`,
+        ),
+      );
+      io.stdout(
+        line(
+          result.capabilities.pdf.available,
+          `pdf: ${result.capabilities.pdf.available ? (info.pdf?.engine ?? 'qpdf') : (info.pdf?.reason ?? 'unavailable')}`,
         ),
       );
       io.stdout(line(web.available, `web app: ${web.available ? `static files in ${web.root}` : 'dist/web not built (run: make build-web)'}`));

@@ -17,6 +17,13 @@ export const COMPONENTS: readonly Component[] = [
   { name: 'FFmpeg (@ffmpeg/core, @ffmpeg/core-mt)', version: '0.12.10', license: 'GPL-2.0-or-later', file: 'ffmpeg-core-GPL-2.0.txt', role: 'lic_ffmpeg' },
   { name: 'ffmpeg.wasm (@ffmpeg/ffmpeg)', version: '0.12.15', license: 'MIT', file: 'ffmpeg.wasm-MIT.txt', role: 'lic_ffmpegwasm' },
   {
+    name: 'qpdf (@neslinesli93/qpdf-wasm 0.3.0)',
+    version: '12.2.0',
+    license: 'Apache-2.0, Zlib, IJG, BSD-3-Clause, ISC',
+    file: 'qpdf-wasm-NOTICES.txt',
+    role: 'lic_qpdf',
+  },
+  {
     name: 'jSquash (@jsquash/jpeg, png, oxipng, webp, resize)',
     version: '1.6 · 3.1 · 2.3 · 1.5 · 2.1',
     license: 'Apache-2.0',

@@ -1,17 +1,18 @@
 # elpx-optimizer
 
 Analiza y reduce el tamaño de proyectos de [eXeLearning](https://github.com/exelearning/exelearning)
-(`.elpx`). Recomprime vídeos, imágenes y audio, detecta recursos ausentes, sin uso y duplicados, puede
-ordenar las carpetas de eXeLearning 3 y los nombres de archivo, y genera un `nombre_optimized.elpx`
-nuevo que se sigue pudiendo editar en eXeLearning. El archivo original no se modifica nunca.
+(`.elpx`). Recomprime vídeos, imágenes, audio y PDF, detecta recursos ausentes, sin uso y duplicados,
+puede ordenar las carpetas de eXeLearning 3 y los nombres de archivo, y genera un
+`nombre_optimized.elpx` nuevo que se sigue pudiendo editar en eXeLearning. El archivo original no se
+modifica nunca.
 
 Tres formas de usarlo con un único núcleo compartido:
 
 - **Web**: una página estática HTML/JavaScript/WebAssembly. **Los vídeos y el audio se recodifican
-  dentro de tu navegador con ffmpeg.wasm; el proyecto no se sube a ningún servidor.** El servidor
-  solo entrega archivos estáticos.
-- **CLI** (`elpx-optimizer`): Bun o Node, con FFmpeg/ffprobe nativos para vídeo y audio y sharp
-  (libvips) para imágenes.
+  dentro de tu navegador con ffmpeg.wasm y los PDF se reescriben con qpdf (WebAssembly); el proyecto
+  no se sube a ningún servidor.** El servidor solo entrega archivos estáticos.
+- **CLI** (`elpx-optimizer`): Bun o Node, con FFmpeg/ffprobe nativos para vídeo y audio, sharp
+  (libvips) para imágenes y el mismo qpdf (WebAssembly, sin instalar nada) para los PDF.
 - **Agent Skill** (`skills/elpx-optimizer`): permite a agentes de IA inspeccionar, explicar y optimizar
   proyectos a través del CLI.
 
@@ -35,7 +36,11 @@ Tres formas de usarlo con un único núcleo compartido:
      metadatos y perfiles de color;
    - grabaciones WAV, AIFF y FLAC convertidas a MP3 y renombradas a `.mp3`, reescribiendo sus
      referencias y sus atributos `type`; los MP3, M4A y Opus (WebM/Ogg) solo se recodifican, con el
-     mismo nombre, cuando su tasa de bits está muy por encima del objetivo.
+     mismo nombre, cuando su tasa de bits está muy por encima del objetivo;
+   - PDF reescritos con qpdf sin volver a renderizarlos (se conservan texto, fuentes, enlaces,
+     marcadores, formularios y etiquetas): se recomprimen sus flujos y se empaquetan en flujos de
+     objetos y, salvo en el nivel conservador, las imágenes que no son JPEG pasan a JPEG cuando así
+     ocupan menos (`--pdf-lossless` lo desactiva). Los PDF cifrados y los firmados no se tocan.
 5. **Limpia, solo si se pide**: elimina de forma segura archivos sin ninguna referencia; unifica
    duplicados exactos; limpia los nombres de archivo (`Copia de Foto Clase (2).JPG` →
    `foto-clase.jpg`; activado por defecto en la web); saca los archivos de las carpetas del editor de
@@ -43,7 +48,8 @@ Tres formas de usarlo con un único núcleo compartido:
    (`content/resources/<ID-ODE>/`) a `content/resources/`; y quita las referencias a archivos que no
    existen (por defecto se informa de ellas, no se ocultan). Cada archivo movido, unificado o
    renombrado se comprueba volviendo a resolver todas las referencias del paquete.
-6. **Verifica**: cada resultado se inspecciona y se decodifica entero; el paquete nuevo se vuelve a abrir
+6. **Verifica**: cada resultado se inspecciona y se decodifica entero (un PDF debe pasar
+   `qpdf --check` sin avisos y conservar su número de páginas); el paquete nuevo se vuelve a abrir
    y a analizar y se compara con el original. Si no se consigue reducir el tamaño (y no se ha movido ni
    limpiado nada), se entrega una copia idéntica (`no-improvement`).
 
@@ -80,7 +86,7 @@ privacidad: [docs/web.md](docs/web.md) (en inglés).
 
 ### CLI
 
-Con Docker no hace falta instalar nada más (la imagen incluye FFmpeg y sharp):
+Con Docker no hace falta instalar nada más (la imagen incluye FFmpeg, sharp y qpdf):
 
 ```bash
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer-cli inspect /work/curso.elpx
@@ -89,7 +95,8 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/
   --remove-unused safe --deduplicate exact
 ```
 
-Desde el código fuente (Node ≥ 22 o Bun ≥ 1.3, más ffmpeg/ffprobe para vídeo y audio):
+Desde el código fuente (Node ≥ 22 o Bun ≥ 1.3, más ffmpeg/ffprobe para vídeo y audio; los PDF no
+necesitan nada más, qpdf llega desde npm como WebAssembly):
 
 ```bash
 bun install && bun run build:cli
@@ -116,10 +123,11 @@ Descarga `elpx-optimizer-skill.zip` de una versión publicada (incluye el CLI) o
 Cada versión publicada en GitHub ([releases](https://github.com/ateeducacion/elpx-optimizer/releases)):
 
 - sube `ghcr.io/ateeducacion/elpx-optimizer` (web, nginx) y `ghcr.io/ateeducacion/elpx-optimizer-cli`
-  (CLI con ffmpeg y sharp), con las etiquetas `latest`, `X.Y.Z` y `X.Y`, para `linux/amd64` y
+  (CLI con ffmpeg, sharp y qpdf), con las etiquetas `latest`, `X.Y.Z` y `X.Y`, para `linux/amd64` y
   `linux/arm64`;
 - despliega la web en GitHub Pages (FFmpeg de un solo hilo: Pages no puede enviar las cabeceras
-  COOP/COEP que necesita el núcleo multihilo);
+  COOP/COEP que necesita el núcleo multihilo; la versión de qpdf de un solo hilo que usan los PDF no
+  las necesita);
 - adjunta `elpx-optimizer-cli-X.Y.Z.tgz`, `elpx-optimizer-skill.zip` y `elpx-optimizer-web.tar.gz`.
 
 Las imágenes también se pueden construir en local: `docker build --target web -t elpx-optimizer-web .`
@@ -127,18 +135,20 @@ y `docker build --target cli -t elpx-optimizer-cli .`.
 
 ## Niveles
 
-| Nivel (id)                            | Vídeo                     | Imágenes                    | Archivos de audio |
-| ------------------------------------- | ------------------------- | --------------------------- | ----------------- |
-| Conservador (`conservative`)          | H.264 CRF 20, hasta 1080p | JPEG q90, WebP q90, 2560 px | MP3/AAC 192 kb/s  |
-| Equilibrado (`balanced`, por defecto) | H.264 CRF 23, hasta 1080p | JPEG q82, WebP q82, 1920 px | MP3/AAC 128 kb/s  |
-| Máximo (`aggressive`)                 | H.264 CRF 28, hasta 720p  | JPEG q72, WebP q75, 1600 px | MP3/AAC 96 kb/s   |
+| Nivel (id)                            | Vídeo                     | Imágenes                    | Archivos de audio | PDF                                           |
+| ------------------------------------- | ------------------------- | --------------------------- | ----------------- | --------------------------------------------- |
+| Conservador (`conservative`)          | H.264 CRF 20, hasta 1080p | JPEG q90, WebP q90, 2560 px | MP3/AAC 192 kb/s  | sin pérdida                                   |
+| Equilibrado (`balanced`, por defecto) | H.264 CRF 23, hasta 1080p | JPEG q82, WebP q82, 1920 px | MP3/AAC 128 kb/s  | sin pérdida + imágenes a JPEG si ocupan menos |
+| Máximo (`aggressive`)                 | H.264 CRF 28, hasta 720p  | JPEG q72, WebP q75, 1600 px | MP3/AAC 96 kb/s   | sin pérdida + imágenes a JPEG si ocupan menos |
 
 Los píxeles son el lado mayor a partir del cual se reducen las imágenes (`--image-max-dimension` lo
 cambia y `none` lo desactiva; en la web, «Tamaño máximo de las imágenes»). El CLI también acepta
 `--preset maximum`; los planes e informes usan el id `aggressive`. Las tasas de audio son para
 estéreo; el mono usa la mitad (como mínimo 64 kb/s) y Opus la mitad de esas. Recodificar vídeo, audio
-y JPEG implica pérdida de calidad. PNG y WebP sin pérdida se comprimen sin perder nada. Si un
-resultado no es válido o no ahorra lo suficiente, se conserva el original. Las opciones de limpieza
+y JPEG implica pérdida de calidad. PNG y WebP sin pérdida se comprimen sin perder nada. Los PDF no
+tienen ajuste de calidad: el nivel solo decide si sus imágenes pueden pasar a JPEG (las que ya son
+JPEG no se recodifican). Si un resultado no es válido o no ahorra lo suficiente, se conserva el
+original. Las opciones de limpieza
 están desactivadas por defecto en el CLI; la web activa la limpieza de nombres. Detalles:
 [docs/profiles.md](docs/profiles.md) (en inglés).
 
@@ -152,6 +162,7 @@ navegador. El CLI funciona sin red. Los informes no incluyen rutas absolutas ni 
 ## Licencia
 
 AGPL-3.0-or-later. Los componentes de terceros mantienen sus licencias; la web incluye FFmpeg
-(GPL-2.0-or-later, mediante ffmpeg.wasm). Ver [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). El
+(GPL-2.0-or-later, mediante ffmpeg.wasm) y qpdf (Apache-2.0, mediante qpdf-wasm). Ver
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). El
 logotipo del ATE es propiedad del Área de Tecnología Educativa del Gobierno de Canarias y no está
 cubierto por la licencia del proyecto.

@@ -13,10 +13,13 @@ Guidance for AI agents that develop elpx-optimizer (the Agent Skill for _using_ 
     eXeLearning 3 ODE-ID folders (`legacy-folders.ts`) · `refs/` reference discovery (`scan.ts`),
     resolution (`resolve.ts`), retargeting (`rewrite.ts`), clean names (`slug.ts`), and every move,
     merge, rename or reference removal with its verification (`restructure.ts`) · `analyze/`,
-    `plan/`, `optimize/`, `validate/`, `report/` · `media/` shared video, image and audio policies
-    and the `MediaEngine` contract.
-- `src/adapters/node/` — FFmpeg/ffprobe processes, sharp, temp files, atomic output.
-- `src/adapters/browser/` — Blob I/O, ffmpeg.wasm engine, jSquash codecs, pipeline worker/client.
+    `plan/`, `optimize/`, `validate/`, `report/` · `media/` shared video, image, audio and PDF
+    policies (`pdf-policy.ts` decides, builds qpdf arguments and validates) and the `MediaEngine`
+    contract.
+- `src/adapters/node/` — FFmpeg/ffprobe processes, sharp, qpdf (`qpdf-runner.ts`, a child process
+  bundled to `dist/cli/qpdf-runner.mjs`), temp files, atomic output.
+- `src/adapters/browser/` — Blob I/O, ffmpeg.wasm engine, jSquash codecs, qpdf worker
+  (`pdf.worker.ts`, `qpdf-wasm.ts`), pipeline worker/client.
 - `src/cli/` — `main(argv, io)` and commands. `src/web/` — the static UI (Bootstrap compiled from
   `theme.scss`, UI strings in `i18n.ts`, Spanish and English).
 - `skills/elpx-optimizer/` — the distributable Agent Skill (wrapper resolves an existing CLI).
@@ -24,6 +27,8 @@ Guidance for AI agents that develop elpx-optimizer (the Agent Skill for _using_ 
   format or reference handling; code beats upstream documentation. `docs/decisions.md` records why
   things are done the way they are.
 - `.github/workflows/release.yml` — on a published release: GHCR images, GitHub Pages, release assets.
+  `.github/dependabot.yml` — weekly updates for Bun (`package.json`, `bun.lock`), Docker and Actions;
+  the `Dockerfile` writes base images in its `FROM` lines (no `ARG`) so Dependabot can update them.
 
 ## Commands
 
@@ -42,6 +47,8 @@ After changing diagnostics run `bun scripts/generate-diagnostics-doc.ts`.
   move, merge or rename is verified by resolving every reference again.
 - Anything uncertain (dynamic, lenient, ambiguous, opaque bundles) protects files from removal, moves
   and renames.
+- PDFs are rewritten only by qpdf, never re-rendered; encrypted and signed ones are never touched,
+  and a result must pass `qpdf --check` without warnings and keep its page count.
 - Missing files are reported; their references are taken out only with the explicit
   `--missing-references remove` opt-in.
 - `--json` prints exactly one JSON document on stdout.

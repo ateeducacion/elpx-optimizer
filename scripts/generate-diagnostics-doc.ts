@@ -43,6 +43,9 @@ Audio: \`audio-disabled\`, \`engine-unavailable\`, \`engine-capability\`, \`unsu
 \`no-audio-stream\`, \`multiple-audio-streams\`, \`has-video\`, \`unknown-duration\`, \`exceeds-size-limit\`,
 \`exceeds-duration-limit\`, \`already-efficient\`, \`not-probed\`, \`excluded\`, \`kept\`.
 
+PDFs: \`pdf-disabled\`, \`engine-unavailable\`, \`not-inspected\`, \`encrypted\`, \`signed\`,
+\`exceeds-size-limit\`, \`excluded\`.
+
 Clean-up and restructuring (\`unused\`, \`duplicate\`, \`flatten\`, \`rename\`, \`missing-reference\`, and
 audio that cannot be renamed) use the reason \`kept\`, with the cause in \`detail\`.
 `;
