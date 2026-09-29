@@ -22,6 +22,11 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: Deps
+    ignore:
+      # TypeScript 7 (the native compiler) is not supported by typescript-eslint 8 yet
+      # ("typescript-eslint does not support TS 7.0"); lift this when it is.
+      - dependency-name: typescript
+        versions: ['>=7']
     groups:
       # The FFmpeg WebAssembly cores and their JavaScript API are released
       # together; the web app pins the encoders each core provides.

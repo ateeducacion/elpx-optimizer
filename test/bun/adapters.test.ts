@@ -62,6 +62,9 @@ describe('runProcess under Bun', () => {
     });
     await expect(pending).rejects.toBeInstanceOf(CancelledError);
     expect(grandchild).toBeGreaterThan(0);
+    // Its parent was killed too: until init reaps it, the grandchild is a zombie that kill(pid, 0) still finds.
+    const deadline = Date.now() + 5000;
+    while (alive(grandchild) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
     expect(alive(grandchild)).toBe(false);
   });
 
