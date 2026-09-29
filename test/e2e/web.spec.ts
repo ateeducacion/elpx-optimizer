@@ -104,7 +104,11 @@ test('recompresses the video in the browser: single-thread, no isolation, no upl
     'href',
     'https://github.com/ateeducacion/elpx-optimizer',
   );
-  await expect(page.locator('footer a[target="_blank"]')).toHaveCount(2);
+  await expect(page.getByRole('link', { name: /^(Versión|Version) \d+\.\d+\.\d+/ })).toHaveAttribute(
+    'href',
+    /^https:\/\/github\.com\/ateeducacion\/elpx-optimizer\/releases\/tag\/v\d+\.\d+\.\d+$/,
+  );
+  await expect(page.locator('footer a[target="_blank"]')).toHaveCount(3);
   expect(assertOnlyStaticRequests(requests, 'http://127.0.0.1:4173', '/')).toEqual([]);
 });
 

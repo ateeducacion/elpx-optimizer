@@ -14,6 +14,7 @@ import { icon, type IconName } from './icons.js';
 import ateLogo from './assets/ate-logo.png';
 import { COMPONENTS } from './licenses.js';
 import { cleanFileName } from '../core/refs/slug.js';
+import { TOOL_VERSION } from '../core/version.js';
 
 /** What the UI needs from the pipeline (the real client or a test double). */
 export interface PipelineApi {
@@ -231,6 +232,16 @@ export class App {
             { ...external, href: REPO_URL, className: 'github-link d-inline-flex align-items-center gap-2', 'aria-label': this.t('sourceCodeLink') },
             icon('github', 'fs-5'),
             this.t('sourceCode'),
+          ),
+          h(
+            'a',
+            {
+              ...external,
+              href: `${REPO_URL}/releases/tag/v${TOOL_VERSION}`,
+              className: 'version-link',
+              'aria-label': this.t('versionLink', { version: TOOL_VERSION }),
+            },
+            `v${TOOL_VERSION}`,
           ),
           h(
             'button',

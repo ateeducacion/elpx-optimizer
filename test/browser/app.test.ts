@@ -12,6 +12,7 @@ import type { ProgressEvent } from '../../src/core/media/engine.js';
 import type { OptionsInput } from '../../src/core/plan/options.js';
 import type { OptimizationPlan, PlanOperation } from '../../src/core/plan/plan.js';
 import type { OperationResult, OptimizationReport } from '../../src/core/report/report.js';
+import { TOOL_VERSION } from '../../src/core/version.js';
 import { waitFor } from './helpers.js';
 
 // ------------------------------------------------------------------ test data
@@ -453,6 +454,11 @@ describe('App shell', () => {
     expect(github.getAttribute('aria-label')).toBe('Source code on GitHub (opens in a new tab)');
     expect(text(github)).toBe('Source code');
     expect(github.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    const version = $<HTMLAnchorElement>('.app-footer a.version-link');
+    expect(version.textContent).toBe(`v${TOOL_VERSION}`);
+    expect(version.getAttribute('href')).toBe(`https://github.com/ateeducacion/elpx-optimizer/releases/tag/v${TOOL_VERSION}`);
+    expect(version.getAttribute('target')).toBe('_blank');
+    expect(version.getAttribute('aria-label')).toBe(`Version ${TOOL_VERSION}: release notes (opens in a new tab)`);
     languageButton().click();
     expect($('.app-footer a.ate-link').textContent).toBe('Hecho por el Área de Tecnología Educativa del Gobierno de Canarias');
     expect($('.app-footer a.ate-link').getAttribute('aria-label')).toBe('Área de Tecnología Educativa del Gobierno de Canarias (se abre en otra pestaña)');
