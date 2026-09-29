@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { pngSize, screenshotProblem } from '../../src/core/format/screenshot.js';
 import { packagePath, renderFirstPage, ScreenshotError, thumbnailFromImage, type ReadEntry } from '../../src/web/screenshot.js';
 
@@ -39,6 +39,9 @@ describe('packagePath', () => {
     ['index.html', '#top', undefined],
     ['index.html', '', undefined],
     ['index.html', 'bad%E0%A4%A.png', undefined],
+    // Backslashes are slashes to the URL parser: \\host/x names another host, not a package file.
+    ['index.html', '\\\\example.com/a.png', undefined],
+    ['css/a.css', '../../../../outside.png', 'outside.png'],
   ])('%s + %s → %s', (from, ref, expected) => {
     expect(packagePath(from, ref)).toBe(expected);
   });
@@ -90,6 +93,24 @@ describe('renderFirstPage', () => {
     const png = await renderFirstPage(reader({ 'index.html': html, 'img/h.png': await solidPng(4, 4, '#ff0000'), 'doc.pdf': 'x' }, log));
     expect(await pixel(png, 640, 360)).toEqual([255, 0, 0, 255]);
     expect(log.sort()).toEqual(['gone.png', 'img/h.png', 'index.html', 'missing.css', 'nowhere.png']);
+  });
+
+  it('removes links that are not style sheets or have no address, and keeps empty style elements', async () => {
+    const log: string[] = [];
+    const html = '<html><head><link href="a.css"><link rel="stylesheet"><style></style></head><body></body></html>';
+    const png = await renderFirstPage(reader({ 'index.html': html, 'a.css': 'body{}' }, log));
+    expect(pngSize(new Uint8Array(await png.arrayBuffer()))).toEqual({ width: 1280, height: 720 });
+    expect(log).toEqual(['index.html']);
+  });
+
+  it('reports a page the browser cannot draw or encode', async () => {
+    const files = reader({ 'index.html': '<p>x</p>' });
+    const decode = vi.spyOn(HTMLImageElement.prototype, 'decode').mockRejectedValueOnce(new Error(''));
+    await expect(renderFirstPage(files)).rejects.toMatchObject({ code: 'render', message: 'The page could not be drawn' });
+    decode.mockRestore();
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementationOnce((callback) => callback(null));
+    await expect(renderFirstPage(files)).rejects.toMatchObject({ code: 'render', message: 'The browser could not encode the thumbnail' });
+    toBlob.mockRestore();
   });
 
   it('needs index.html', async () => {

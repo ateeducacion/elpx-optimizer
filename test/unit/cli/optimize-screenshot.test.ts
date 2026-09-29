@@ -64,6 +64,11 @@ describe('optimize --screenshot', () => {
     const plan = singleJson<{ plan: OptimizationPlan }>(r.stdout).plan;
     expect(plan.options.screenshot).toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) as string });
     expect(renderPlan(plan)).toMatch(/• replace screenshot\.png \(/);
+    const added = {
+      ...plan,
+      operations: [{ id: 's', op: 'replace-screenshot', path: 'screenshot.png', size: 0, after: 2048, added: true }],
+    } as OptimizationPlan;
+    expect(renderPlan(added)).toContain('  • add screenshot.png (2.0 KiB)\n');
   });
 
   it.each([

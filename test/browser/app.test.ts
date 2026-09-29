@@ -2262,6 +2262,36 @@ describe('project thumbnail', () => {
     expect(app.readOptions($<HTMLFormElement>('form.options')).screenshot?.size).toBeGreaterThan(0);
   });
 
+  it('reports a first page that cannot be read, and ignores an empty file choice', async () => {
+    thumbs.read = () => Promise.reject(new Error('worker gone'));
+    await toReview(analysisResult({ entries: WITH_PAGE }));
+    const input = $<HTMLInputElement>('.screenshot input[type="file"]');
+    input.dispatchEvent(new Event('change'));
+    expect(status()).toBe('');
+    button('Regenerate from the first page').click();
+    await waitFor(() => status().startsWith('The thumbnail could not'), 5000, 'error');
+    expect(status()).toBe('The thumbnail could not be prepared: worker gone');
+    expect(button('Regenerate from the first page').disabled).toBe(false);
+  });
+
+  it('refuses a drawn thumbnail that breaks the rules, and names an added one in the plan', async () => {
+    // The page checks what the canvas produced before taking it: here an encoder gone wrong.
+    const base = analysisResult({ entries: WITH_PAGE });
+    await toReview(analysisResult({ entries: WITH_PAGE, package: { ...base.package!, hasScreenshot: false } }));
+    const source = await png(1280, 720);
+    const big = new Blob([new Uint8Array(9 * 1024 * 1024)]);
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementationOnce((callback) => callback(big));
+    await upload(source);
+    await waitFor(() => status().startsWith('The thumbnail could not'), 5000, 'refused');
+    expect(status()).toBe(`The thumbnail could not be prepared: larger than ${8 * 1024 * 1024} bytes`);
+    spy.mockRestore();
+    const op = { id: 's', op: 'replace-screenshot', path: 'screenshot.png', size: 0, after: 2048, added: true } as PlanOperation;
+    $<HTMLFormElement>('form.options').requestSubmit();
+    thumbs.plans.resolve(planOf({ operations: [op] }));
+    await waitFor(() => app.currentView === 'plan', 2000, 'plan');
+    expect(text($('.op-replace-screenshot'))).toBe('screenshot.png (new, 2.0 KB)');
+  });
+
   it('sends the new thumbnail with the plan that names it', async () => {
     await toReview(analysisResult({ entries: WITH_PAGE }));
     await upload(await png(1280, 720));

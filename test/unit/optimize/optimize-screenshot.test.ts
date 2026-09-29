@@ -6,7 +6,7 @@ import { optimizeArchive, type OptimizeOutcome } from '../../../src/core/optimiz
 import { buildOptimizationPlan, type OptimizationPlan } from '../../../src/core/plan/plan.js';
 import { normalizeOptions, type OptionsInput } from '../../../src/core/plan/options.js';
 import { sha256Hex } from '../../../src/core/io/hash.js';
-import { pngSize, screenshotProblem, screenshotRatioOk } from '../../../src/core/format/screenshot.js';
+import { pngSize, SCREENSHOT_MAX_BYTES, screenshotProblem, screenshotRatioOk } from '../../../src/core/format/screenshot.js';
 import { parseManifest } from '../../../src/core/format/manifest.js';
 import type { Analysis } from '../../../src/core/analyze/model.js';
 import { analyzeBytes, buildElpx, dec, limits, page } from '../../helpers/core-kit.js';
@@ -77,6 +77,17 @@ describe('screenshot rules', () => {
     expect(screenshotRatioOk(1280, 740)).toBe(true);
     expect(screenshotRatioOk(1280, 800)).toBe(false);
     expect(screenshotRatioOk(599, 337)).toBe(false);
+  });
+
+  it('refuses truncated PNGs, a first chunk that is not IHDR, and files over the size limit', async () => {
+    const good = await png(1280, 720);
+    expect(pngSize(good.subarray(0, 20))).toBeUndefined();
+    const notIhdr = good.slice();
+    notIhdr.set(new TextEncoder().encode('IDAT'), 12);
+    expect(pngSize(notIhdr)).toBeUndefined();
+    const huge = new Uint8Array(SCREENSHOT_MAX_BYTES + 1);
+    huge.set(good);
+    expect(screenshotProblem(huge)).toBe(`larger than ${SCREENSHOT_MAX_BYTES} bytes`);
   });
 
   it('refuses a JPEG', async () => {

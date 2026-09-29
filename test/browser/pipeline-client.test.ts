@@ -52,6 +52,7 @@ function cooperative(m: ClientMessage, w: FakeWorker): void {
   if (m.type === 'plan') queueMicrotask(() => w.send({ type: 'plan', id: m.id, plan }));
   if (m.type === 'optimize') queueMicrotask(() => w.send({ type: 'result', id: m.id, report, fileName: 'a_optimized.elpx', output: new Blob(['zip']) }));
   if (m.type === 'preview') queueMicrotask(() => w.send({ type: 'preview', id: m.id, blob: new Blob([m.path], { type: 'image/png' }) }));
+  if (m.type === 'read') queueMicrotask(() => w.send({ type: 'read', id: m.id, ...(m.path === 'missing' ? {} : { blob: new Blob([m.path]) }) }));
 }
 
 const file = new File(['PK'], 'a.elpx');
@@ -255,6 +256,20 @@ describe('PipelineClient', () => {
     workers[0]!.onerror!({ message: 'crash' });
     await expect(client.optimize('h')).rejects.toMatchObject({ code: 'io', message: 'file moved' });
     expect(workers[1]!.posted.map((m) => m.type)).toEqual(['analyze']);
+  });
+
+  it('reads files for a new thumbnail and sends it with the plan to run', async () => {
+    const { client, workers } = setup(cooperative);
+    await client.analyze(file);
+    expect(await (await client.read('index.html'))!.text()).toBe('index.html');
+    expect(await client.read('missing')).toBeUndefined();
+    const screenshot = new Blob(['png']);
+    await client.optimize('h1', undefined, screenshot);
+    expect(workers[0]!.posted.slice(1)).toEqual([
+      { type: 'read', id: 2, path: 'index.html' },
+      { type: 'read', id: 3, path: 'missing' },
+      { type: 'optimize', id: 4, planHash: 'h1', screenshot },
+    ]);
   });
 
   it('asks the worker for a preview of a resource', async () => {
