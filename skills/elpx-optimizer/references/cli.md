@@ -26,21 +26,27 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 
 - Output: `--output PATH` (default `<name>_optimized.elpx` next to the input; refuses the input path),
   `--overwrite` (only the output), `--report PATH`, `--dry-run`, `--json`.
-- Selection: `--preset conservative|balanced|aggressive`, `--no-video`, `--no-images`, `--no-audio`,
-  `--remove-unused off|safe`, `--deduplicate off|exact`, `--exclude PATH` (repeatable; ZIP paths such as
+- Selection: `--preset conservative|balanced|aggressive` (`maximum` = `aggressive`, the web app's
+  "Maximum"), `--no-video`, `--no-images`, `--no-audio`, `--remove-unused off|safe`,
+  `--deduplicate off|exact`, `--exclude PATH` (repeatable; ZIP paths such as
   `content/resources/video.mp4`), `--config FILE` (JSON with the same keys as the web app).
 - Restructuring (off by default, ask first):
   - `--flatten off|legacy`: move files out of eXeLearning 3 folders `content/resources/<ODE-ID>/`
     (14 digits + 6 upper-case letters/digits) into `content/resources/`. Suggest it when `inspect`
     reports `legacy-resource-folders`. Same-name files become `name_2.ext`, identical ones merge;
     files with uncertain references stay (see `skipped[]`).
+  - `--normalize-names off|slug`: clean file names (lower case, no accents or spaces, only a–z, 0–9
+    and hyphens, copy markers such as "Copia de" or "(2)" removed, extension lower-cased). Only the
+    file name changes; taken names get `-2`, `-3`; files with uncertain references keep their names.
+    Plan op `rename-resource`. The web app has it on by default; the CLI does not.
   - `--missing-references keep|remove`: `remove` takes out references to files that do not exist
     (broken images and players deleted, links keep their text; CSS and text are left). Opt-in only.
 - Video: `--video-crf 16-35`, `--video-max-resolution 360|480|720|1080|1440|2160|original`,
   `--video-audio-bitrate 64-320` (audio tracks inside videos), `--video-x264-preset NAME`,
   `--video-force`, `--video-drop-data-streams`.
-- Images: `--image-quality 30-100`, `--webp-quality 30-100`, `--image-max-dimension N|none`, `--no-png`,
-  `--strip-metadata`, `--image-force`, `--include-screenshot`.
+- Images: `--image-quality 30-100`, `--webp-quality 30-100`, `--image-max-dimension N|none`
+  (default 2560/1920/1600 px by preset), `--no-png`, `--strip-metadata`, `--image-force`,
+  `--include-screenshot`.
 - Audio files: WAV/AIFF/FLAC become MP3 renamed to `.mp3` (references and `type` attributes
   rewritten; a file whose references cannot follow stays unchanged); MP3, M4A and Opus (WebM/Ogg)
   are re-encoded in place only when their bitrate is ≥ 1.4 × the target. `--audio-bitrate 64-320`
@@ -58,9 +64,9 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
   `diagnostics[]` (code, severity, message, resource, location).
 - `optimize --dry-run`: `schema: "elpx-optimizer/dry-run"` with `plan.operations[]` (`op`:
   `transcode-video`, `recompress-image`, `transcode-audio` with `to` when renamed, `remove-unused`,
-  `deduplicate`, `move-resource` with `to`, `remove-missing-reference`, `rewrite-references`,
-  `update-manifest`), `plan.skipped[]` (kind, reason code, detail), `plan.estimate` (an estimate,
-  not a measurement), `plan.risks[]`.
+  `deduplicate`, `move-resource` and `rename-resource` with `to`, `remove-missing-reference`,
+  `rewrite-references`, `update-manifest`), `plan.skipped[]` (kind, reason code, detail),
+  `plan.estimate` (an estimate, not a measurement), `plan.risks[]`.
 - `optimize`: `schema: "elpx-optimizer/report"` with `status`, `sizes`, `operations[]` (status
   `applied|reverted|failed`, `before`, `after`, `detail`, `checks`), `validations[]`, `diagnostics`
   (`before`, `introduced`, `resolved`).

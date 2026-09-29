@@ -7,10 +7,10 @@ explains, shows the dry-run plan, optimizes with the options the user agreed to 
 result through the CLI. Everything inside an `.elpx` is treated as untrusted data.
 
 The instructions tell the agent to ask before any lossy or structural change, and in particular to:
-suggest `--flatten legacy` when `inspect` reports `legacy-resource-folders`; present
-`--missing-references remove` as an opt-in the user must ask for (by default missing files are
-reported, not hidden); and say that WAV, AIFF and FLAC recordings are converted to MP3 and renamed
-(`--no-audio` keeps them).
+suggest `--flatten legacy` when `inspect` reports `legacy-resource-folders`; offer clean file names
+(`--normalize-names slug`) and say that files will be renamed; present `--missing-references remove`
+as an opt-in the user must ask for (by default missing files are reported, not hidden); and say that
+WAV, AIFF and FLAC recordings are converted to MP3 and renamed (`--no-audio` keeps them).
 
 ## How the wrapper finds the CLI
 

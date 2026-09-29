@@ -2,8 +2,8 @@
 
 Analiza y reduce el tamaño de proyectos de [eXeLearning](https://github.com/exelearning/exelearning)
 (`.elpx`). Recomprime vídeos, imágenes y audio, detecta recursos ausentes, sin uso y duplicados, puede
-ordenar las carpetas de eXeLearning 3 y los nombres de archivo y genera un `nombre_optimized.elpx` nuevo que se sigue pudiendo
-editar en eXeLearning. El archivo original no se modifica nunca.
+ordenar las carpetas de eXeLearning 3 y los nombres de archivo, y genera un `nombre_optimized.elpx`
+nuevo que se sigue pudiendo editar en eXeLearning. El archivo original no se modifica nunca.
 
 Tres formas de usarlo con un único núcleo compartido:
 

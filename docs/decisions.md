@@ -160,22 +160,22 @@ blocks and components (ids, types, order) and no new missing or unresolved asset
 ## D12. WAV, AIFF and FLAC become MP3, with references and `type` attributes rewritten
 
 Options: (a) leave audio alone (skip every recording whose format would change); (b) convert to a
-compressed format and rename the file. (a) leaves most of the size of audio-heavy courses
-untouched: in a real 210.7 MiB course, 174 MiB were audio, 162 MiB of it in 106 WAV files, and
-runs without audio support reduced the package by about 9 % ([web.md](web.md#measured-cases)). Chosen (b) with MP3, which every browser and
-eXeLearning's audio players accept and which both engines can encode (native ffmpeg with
-libmp3lame; LAME inside `@ffmpeg/core` for the web).
+compressed format and rename the file. (a) leaves most of the size of audio-heavy courses untouched:
+in a real 210.7 MiB course, 174 MiB were audio, 162 MiB of it in 106 WAV files, and runs without
+audio support reduced the package by about 9 % ([web.md](web.md#measured-cases)). Chosen (b) with
+MP3, which every browser and eXeLearning's audio players accept and which both engines can encode
+(native ffmpeg with libmp3lame; LAME inside `@ffmpeg/core` for the web).
 
 The rename is handled by the restructuring planner like a move: every reference is rewritten and
 verified, and a reference that cannot follow (dynamic, lenient, ambiguous, not rewritable) keeps the
 original file unchanged. An element's `type` attribute is rewritten too (`audio/wav` becomes
 `audio/mpeg`), because browsers use the declared type to choose a source and a stale one would be
 wrong metadata for the new file; a `type` that cannot be edited blocks the conversion rather than
-leaving it wrong. MP3, M4A and Opus are re-encoded in place only when their bitrate is at least 1.4 × the
-target, to avoid generation loss for little gain. In that same course the CLI, with every option at
-its default (balanced, no clean-up), went from 210.7 MiB to 65.5 MiB (−68.9 %) in 59 s on a
-10-core Mac (122 audio files: 106 WAV converted to MP3, 16 MP3 re-encoded); converting the audio
-alone gave 69.6 MiB.
+leaving it wrong. MP3, M4A and Opus are re-encoded in place only when their bitrate is at least 1.4
+× the target, to avoid generation loss for little gain. In that same course the CLI, with the
+balanced preset, no clean-up and no image size limit (the defaults at the time), went from 210.7 MiB
+to 65.5 MiB (−68.9 %) in 59 s on a 10-core Mac (122 audio files: 106 WAV converted to MP3, 16 MP3
+re-encoded); converting the audio alone gave 69.6 MiB.
 
 Opus is handled the same way as MP3 and M4A, in place and in its own container: eXeLearning's audio
 recorder writes mono Opus in WebM at about 130 kb/s or more, four times the 32 kb/s balanced mono
@@ -185,7 +185,7 @@ about half the bitrate of MP3 for the same quality; Vorbis is left alone. Many b
 carry no duration in their header, which would normally skip them (`unknown-duration`); for Opus they
 are still re-encoded, with FFmpeg's `-xerror` so any read error fails the job, a full decode, and a
 required known duration in the result. In a real 128.2 MiB course with 255 such recordings (185
-without a duration; the others at 129–136 kb/s), the CLI with default options produced 91.1 MiB
+without a duration; the others at 129–136 kb/s), the CLI with the same options produced 91.1 MiB
 (−28.9 %, together with 111 recompressed images) in 106 s.
 
 Both courses' outputs were checked by hand with the `test/compat` harness: eXeLearning's own import,
@@ -216,10 +216,10 @@ Options: (a) no previews; (b) render the project's pages; (c) show individual im
 video. (b) would render and run project HTML and JavaScript, which the app never does. Chosen (c):
 the page asks the pipeline worker for one entry; the worker returns a Blob typed with the entry's
 MIME type (a zero-copy slice of the input File when the entry is stored, as media usually are;
-inflated up to 256 MiB otherwise). The page shows it through a `blob:` URL in an `<img>`,
-`<video>` or audio element (images and video in a dialog, audio played and paused from its row in
-the table) and revokes the URL afterwards. Other kinds of entries are refused by the worker. SVG images are shown
-through `<img>`, where their scripts do not run. Nothing leaves the browser.
+inflated up to 256 MiB otherwise). The page shows it through a `blob:` URL in an `<img>`, `<video>`
+or audio element (images and video in a dialog, audio played and paused from its row in the table)
+and revokes the URL afterwards. Other kinds of entries are refused by the worker. SVG images are
+shown through `<img>`, where their scripts do not run. Nothing leaves the browser.
 
 ## D16. Clean file names, off in the CLI and on in the web app
 

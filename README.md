@@ -2,8 +2,8 @@
 
 Analyze and shrink [eXeLearning](https://github.com/exelearning/exelearning) projects (`.elpx`).
 It recompresses videos, images and audio, finds missing, unused and duplicate resources, can tidy
-eXeLearning 3 folders and file names, and writes a new `name_optimized.elpx` that stays editable in eXeLearning.
-The original file is never modified.
+eXeLearning 3 folders and file names, and writes a new `name_optimized.elpx` that stays editable in
+eXeLearning. The original file is never modified.
 
 Three ways to use it, one shared core:
 

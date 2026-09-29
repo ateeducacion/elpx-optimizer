@@ -169,7 +169,7 @@ Engines differ in capabilities, and plans and reports say which engine and versi
 | VP9 (WebM)              | yes                                                                       | too slow; skipped unless forced                                          |
 | Audio files             | ffmpeg processes (libmp3lame, aac, libopus), several at once              | the same ffmpeg.wasm core (LAME, AAC, libopus), one at a time            |
 | JPEG / PNG / WebP       | sharp 0.35.5 (mozjpeg, libpng, libwebp)                                   | jSquash MozJPEG, OxiPNG, libwebp (WASM)                                  |
-| Playback check          | —                                                                         | detached `<video>` element, compared with the original                   |
+| Playback check          | —                                                                         | detached `<video>` or `<audio>` element, compared with the original      |
 | Cancellation            | process-group SIGTERM/SIGKILL                                             | `FFmpeg.terminate()` (worker killed, reloaded for the next job)          |
 
 Encoders produce different bytes; tests check equivalent semantics (streams, duration, size,
@@ -186,7 +186,8 @@ Videos run one at a time; audio files and images run with bounded concurrency na
 browser engine queues FFmpeg jobs). Each candidate is validated (probe + full decode + playback in
 the browser) and must save at least the configured minimum; otherwise the original is kept and the
 reason recorded. The restructuring is then replayed with the conversions that succeeded, so a
-recording that was not converted keeps its name and its references. The output is written to a
+recording that was not converted keeps its name and its references, and converted files keep the
+names the plan showed. The output is written to a
 temporary file next to the destination (CLI) or to a Blob (web), then reopened and analyzed from
 scratch: same entries minus the removed ones and under their new names, unchanged entries with
 identical CRC and size (moved files compared under their original name), no new

@@ -85,9 +85,9 @@ for the same quality).
   that cannot be rewritten in its encoding, a `type` attribute that cannot be updated, or a file
   that is excluded, protected or uncertain. The plan lists it under `skipped` with the reason.
 - **MP3, M4A (AAC) and Opus** (in WebM, as eXeLearning's audio recorder writes mono recordings, or
-  in Ogg/`.opus`) keep their codec, container and name. They are re-encoded only when their bitrate is at least 1.4 ×
-  the target (`already-efficient` otherwise), or always with `--audio-force`. A WebM file with no
-  video stream counts as audio.
+  in Ogg/`.opus`) keep their codec, container and name. They are re-encoded only when their bitrate
+  is at least 1.4 × the target (`already-efficient` otherwise), or always with `--audio-force`. A
+  WebM file with no video stream counts as audio.
 - Browser recordings (MediaRecorder WebM/Opus) often have no duration in their header. They are
   still re-encoded: FFmpeg stops at the first read error (`-xerror`), and the new file must have a
   duration and decode completely. The plan gives no size estimate for them.
@@ -100,8 +100,9 @@ for the same quality).
   carried over), several audio streams, no audio stream, unknown duration (except the recordings
   above), files above the video size or duration limits.
 - Every candidate is probed (exactly one audio stream and nothing else, expected codec, channels and
-  sample rate, duration within max(0.2 s, 0.5 %) of the original) and fully decoded; the browser
-  also records a playback check. Natively, several audio files are encoded at once (as many as
+  sample rate, duration within max(0.2 s, 0.5 %) of the original) and fully decoded. The browser
+  also loads it in a detached `<audio>` element and rejects it when the original played and the new
+  file does not. Natively, several audio files are encoded at once (as many as
   `--image-concurrency`); the browser engine runs them one after another.
 - `--no-audio` (options `audio.enabled: false`) leaves every audio file untouched.
 

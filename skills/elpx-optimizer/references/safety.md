@@ -27,14 +27,16 @@ analyzes files without executing them.
   cannot be rewritten safely, both files stay.
 - `--flatten legacy` moves files only out of eXeLearning 3 folders named like `20251009090601SQPBIF`;
   folders the user created are never touched, and a file whose references cannot all follow stays.
+- `--normalize-names slug` renames files (not folders) to clean names and rewrites their references;
+  links to the old names from outside the package do not follow.
 - Missing resources are reported, never "repaired" by inventing files. Their references are kept
   unless the user explicitly asks for `--missing-references remove`; then broken images and players
   are deleted and links keep their text. Do not enable it on your own.
 
 ## Before running
 
-- Ask before enabling lossy presets, `--remove-unused`, `--deduplicate`, `--flatten` or
-  `--missing-references remove` unless the user asked.
+- Ask before enabling lossy presets, `--remove-unused`, `--deduplicate`, `--normalize-names`,
+  `--flatten` or `--missing-references remove` unless the user asked.
 - Prefer `--dry-run` first and show the plan.
 - Never pass arbitrary ffmpeg arguments; the CLI does not accept them.
 - Do not install software globally or without telling the user.

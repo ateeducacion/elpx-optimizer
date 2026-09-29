@@ -11,10 +11,10 @@ Guidance for AI agents that develop elpx-optimizer (the Agent Skill for _using_ 
   - `zip/` hostile-input ZIP reader/writer · `parse/` XML, JSON, HTML (parse5), CSS, URI decoders
     with offset maps · `format/` package detection, `content.xml` model, manifest, DataGame codec,
     eXeLearning 3 ODE-ID folders (`legacy-folders.ts`) · `refs/` reference discovery (`scan.ts`),
-    resolution (`resolve.ts`), retargeting (`rewrite.ts`), and every move, merge, rename or
-    reference removal with its verification (`restructure.ts`) · `analyze/`, `plan/`, `optimize/`,
-    `validate/`, `report/` · `media/` shared video, image and audio policies and the `MediaEngine`
-    contract.
+    resolution (`resolve.ts`), retargeting (`rewrite.ts`), clean names (`slug.ts`), and every move,
+    merge, rename or reference removal with its verification (`restructure.ts`) · `analyze/`,
+    `plan/`, `optimize/`, `validate/`, `report/` · `media/` shared video, image and audio policies
+    and the `MediaEngine` contract.
 - `src/adapters/node/` — FFmpeg/ffprobe processes, sharp, temp files, atomic output.
 - `src/adapters/browser/` — Blob I/O, ffmpeg.wasm engine, jSquash codecs, pipeline worker/client.
 - `src/cli/` — `main(argv, io)` and commands. `src/web/` — the static UI (Bootstrap compiled from
@@ -36,7 +36,8 @@ After changing diagnostics run `bun scripts/generate-diagnostics-doc.ts`.
 
 - The input file is never modified; outputs are atomic and validated after writing.
 - Formats and extensions are preserved, except WAV/AIFF/FLAC audio converted to MP3 (renamed, with
-  references and `type` attributes rewritten). References are rewritten only by lifting edits
+  references and `type` attributes rewritten). File names change only through that conversion,
+  `--flatten legacy` or `--normalize-names slug` (which also lower-cases extensions). References are rewritten only by lifting edits
   through their encoding layers (never by global string replacement, never by basename), and every
   move, merge or rename is verified by resolving every reference again.
 - Anything uncertain (dynamic, lenient, ambiguous, opaque bundles) protects files from removal, moves

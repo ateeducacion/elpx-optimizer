@@ -74,8 +74,8 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
 - The output is a Blob made of the unchanged entries (zero-copy slices of the input File), the new
   media and the rewritten text; it is re-read and fully validated before the download is enabled.
 - Candidates are checked with ffprobe.wasm (streams, duration, size), fully decoded with ffmpeg.wasm
-  and played in a detached `<video>` element when the browser supports the format (compared with the
-  original's playability).
+  and played in a detached `<video>` (or, for audio, `<audio>`) element when the browser supports the
+  format (compared with the original's playability).
 
 ## Single-thread and multi-thread
 
@@ -140,11 +140,11 @@ footage; the two real projects are private eXeLearning courses that are not part
 | Real course, 211 MB (174 MB of WAV audio, not optimized) | single            | 4.8 s    | 47.5 s       | package −9 %           | 1.2 GiB             |
 | same                                                     | multi             | 4.9 s    | 60.5 s       | same                   | 1.3 GiB             |
 
-This table predates audio processing: the two real courses were measured while audio files were
-kept as they were (the 211 MB course's WAV files and the 128 MB course's Opus recordings). With
-audio support, the CLI with default options on the same machine takes the 211 MB course from
-210.7 MiB to 65.5 MiB (−68.9 %) in 59 s and the 128 MB course from 128.2 MiB to 91.1 MiB (−28.9 %)
-in 106 s (see [decisions](decisions.md) D12).
+This table predates audio processing: the two real courses were measured while audio files were kept
+as they were (the 211 MB course's WAV files and the 128 MB course's Opus recordings). With audio
+support, the CLI (balanced, no clean-up, no image size limit) on the same machine takes the 211 MB
+course from 210.7 MiB to 65.5 MiB (−68.9 %) in 59 s and the 128 MB course from 128.2 MiB to 91.1 MiB
+(−28.9 %) in 106 s (see [decisions](decisions.md) D12).
 
 Before audio support, the CLI processed the same real courses in about 7 s (211 MB) and 19 s
 (128 MB) with native FFmpeg and libvips on the same machine. Peak memory
