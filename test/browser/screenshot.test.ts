@@ -105,12 +105,30 @@ describe('renderFirstPage', () => {
 
   it('reports a page the browser cannot draw or encode', async () => {
     const files = reader({ 'index.html': '<p>x</p>' });
-    const decode = vi.spyOn(HTMLImageElement.prototype, 'decode').mockRejectedValueOnce(new Error(''));
+    const decode = vi.spyOn(HTMLImageElement.prototype, 'decode').mockRejectedValue(new Error(''));
     await expect(renderFirstPage(files)).rejects.toMatchObject({ code: 'render', message: 'The page could not be drawn' });
     decode.mockRestore();
     const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementationOnce((callback) => callback(null));
     await expect(renderFirstPage(files)).rejects.toMatchObject({ code: 'render', message: 'The browser could not encode the thumbnail' });
     toBlob.mockRestore();
+  });
+
+  it('draws a page whose text carries characters XML does not allow', async () => {
+    const html = '<html><body style="margin:0;min-height:720px;background:#00ff00"><p>Pegado\u000B desde\u0008 Word\u0001</p></body></html>';
+    const png = await renderFirstPage(reader({ 'index.html': html }));
+    expect(await pixel(png, 640, 360)).toEqual([0, 255, 0, 255]);
+  });
+
+  it('tries again without images when the page with them cannot be drawn', async () => {
+    const log: string[] = [];
+    const html = '<html><body style="margin:0;min-height:720px;background:#0000ff"><img src="a.png"></body></html>';
+    const files = reader({ 'index.html': html, 'a.png': await solidPng(8, 8, '#ff0000') }, log);
+    const decode = vi.spyOn(HTMLImageElement.prototype, 'decode').mockRejectedValueOnce(new Error('The source image cannot be decoded.'));
+    const png = await renderFirstPage(files);
+    decode.mockRestore();
+    expect(await pixel(png, 640, 360)).toEqual([0, 0, 255, 255]);
+    // The image was read once, for the first attempt only.
+    expect(log.filter((p) => p === 'a.png')).toHaveLength(1);
   });
 
   it('needs index.html', async () => {

@@ -53,6 +53,7 @@
     "entities": "8.1.0",
     "fflate": "0.8.3",
     "parse5": "8.0.1",
+    "pdfjs-dist": "6.3.289",
     "sharp": "0.35.5"
   },
   "devDependencies": {

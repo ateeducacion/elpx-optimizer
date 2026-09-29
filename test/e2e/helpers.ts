@@ -64,12 +64,17 @@ export const ui = {
     const name = /^(Elegir archivo…|Choose file…)$/;
     return page.getByRole('button', { name }).and(page.getByText(name));
   },
-  reviewPlan: (page: Page): Locator => page.getByRole('button', { name: /^(Revisar el plan|Review the plan)$/ }),
-  optimize: (page: Page): Locator => page.getByRole('button', { name: /^(Optimizar|Optimize)$/ }),
+  /** The button that runs the plan, in the options column (a bar repeats it on narrow screens). */
+  optimize: (page: Page): Locator => page.locator('.options-card').getByRole('button', { name: /^(Optimizar proyecto|Optimize project)$/ }),
   cancel: (page: Page): Locator => page.getByRole('button', { name: /^(Cancelar|Cancel)$/ }),
   startOver: (page: Page): Locator => page.getByRole('button', { name: /^(Volver a empezar|Start over)$/ }),
   another: (page: Page): Locator => page.getByRole('button', { name: /^(Optimizar otro proyecto|Optimize another project)$/ }),
-  planHeading: (page: Page): Locator => page.getByRole('heading', { name: /^(Confirma el plan|Confirm the plan)$/ }),
+  /** The estimated result, ready once the options are planned. */
+  estimate: (page: Page): Locator => page.locator('.estimate-block'),
+  /** The "remove unused files" and "merge repeated files" switches. */
+  removeUnused: (page: Page): Locator =>
+    page.getByRole('switch', { name: /^(Quitar \d+ archivos? que no se usan?|Remove \d+ files? that (is|are) not used)$/ }),
+  deduplicate: (page: Page): Locator => page.getByRole('switch', { name: /^(Unificar \d+ archivos? repetidos?|Merge \d+ repeated files?)$/ }),
   /** "Clean file names": on by default in the web app (the CLI keeps names unless asked). */
   cleanNames: (page: Page): Locator => page.getByRole('switch', { name: /^(Limpiar nombres de archivo|Clean file names)$/ }),
 };

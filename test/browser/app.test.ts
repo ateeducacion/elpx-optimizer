@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
 import { App, brokenReferences, type PipelineApi, type UrlApi } from '../../src/web/app.js';
 import { translate } from '../../src/web/i18n.js';
 import { icon, type IconName } from '../../src/web/icons.js';
@@ -14,6 +13,7 @@ import type { OptimizationPlan, PlanOperation } from '../../src/core/plan/plan.j
 import type { OperationResult, OptimizationReport } from '../../src/core/report/report.js';
 import { TOOL_VERSION } from '../../src/core/version.js';
 import { waitFor } from './helpers.js';
+import { craftPdf } from '../helpers/pdf-craft.js';
 
 // ------------------------------------------------------------------ test data
 
@@ -218,8 +218,9 @@ function resultOf(
   output: Blob | undefined,
   operations: OperationResult[] = [],
   sizes = { before: 3_000_000, after: 1_500_000, saved: 1_500_000, savedPercent: 50 },
+  validations: OptimizationReport['validations'] = [],
 ): OptimizeResult {
-  const report = { status, sizes, operations } as unknown as OptimizationReport;
+  const report = { status, sizes, operations, validations } as unknown as OptimizationReport;
   return { report, fileName: 'curso_optimized.elpx', ...(output ? { output } : {}) };
 }
 
@@ -335,9 +336,15 @@ function languageButton(): HTMLButtonElement {
   return b;
 }
 
-/** Inventory row names in display order. */
+/** Inventory rows in display order, as paths under content/resources/. */
 function rowNames(): string[] {
-  return $$('.inventory tbody th').map((x) => text(x));
+  return $$('.inventory tbody tr').map((tr) => tr.dataset['path']!.replace(/^content\/resources\//, ''));
+}
+
+/** Opens the side panel with the technical findings. */
+function openProblems(): HTMLDialogElement {
+  $<HTMLButtonElement>('.problems-link').click();
+  return $<HTMLDialogElement>('dialog.problems-panel');
 }
 
 /** The stepper as "label:state" items. */
@@ -348,17 +355,7 @@ function stepper(): string[] {
   });
 }
 
-/** The plan groups as [title, count, open, items]. */
-function planGroups(): [string, string, boolean, string[]][] {
-  return $$<HTMLDetailsElement>('.plan-ops details.plan-group').map((d) => [
-    d.querySelector('.op-kind')!.textContent!,
-    d.querySelector('.badge')!.textContent!,
-    d.open,
-    [...d.querySelectorAll('li')].map((li) => text(li)),
-  ]);
-}
-
-/** The risk notes shown with the plan. */
+/** The risk notes shown with the estimate. */
 function riskNotes(): string[] {
   return $$('.risks li.note').map((li) => li.textContent!);
 }
@@ -385,18 +382,22 @@ async function toReview(result = analysisResult()): Promise<void> {
   await waitFor(() => app.currentView === 'review', 2000, 'review');
 }
 
-/** Drives the app to the plan step with the given plan. */
-async function toPlan(plan = planOf(), result = analysisResult()): Promise<void> {
+/** Drives the app to the review step and answers its first plan (made as soon as the options show). */
+async function toPlanned(plan = planOf(), result = analysisResult()): Promise<void> {
   await toReview(result);
-  $<HTMLFormElement>('form.options').requestSubmit();
   pipeline.plans.resolve(plan);
-  await waitFor(() => app.currentView === 'plan', 2000, 'plan');
+  await waitFor(() => root.querySelector('.estimate-block .estimate-detail, .estimate-block .plan-empty') !== null, 2000, 'planned');
+}
+
+/** The button that runs the plan (in the options column). */
+function optimizeButton(): HTMLButtonElement {
+  return $<HTMLButtonElement>('.options-card .optimize-button');
 }
 
 /** Drives the app to the running step. */
 async function toRunning(): Promise<void> {
-  await toPlan();
-  button('Optimize').click();
+  await toPlanned();
+  optimizeButton().click();
   await waitFor(() => app.currentView === 'running', 2000, 'running');
 }
 
@@ -429,7 +430,7 @@ describe('App shell', () => {
     expect(document.title).toBe('eXeLearning project optimizer');
     expect($('header.navbar h1').textContent).toBe('eXeLearning project optimizer');
     expect($('#h-step1').textContent).toBe('Make your eXeLearning project lighter');
-    expect($('.hero-lead').textContent).toMatch(/^Recompress videos, images and audio/);
+    expect($('.hero-lead').textContent).toMatch(/^Lighten videos, images, audio and PDFs/);
     expect($('[data-testid="dropzone"]')).toBeTruthy();
     expect($$('.features li strong').map((s) => s.textContent)).toEqual(['Private', 'Lighter', 'Still editable']);
     expect($('.app-footer').textContent).toMatch(/AGPL-3.0/);
@@ -474,14 +475,15 @@ describe('App shell', () => {
     toggle.click();
     expect(document.documentElement.lang).toBe('es');
     expect($('h1').textContent).toBe('Optimizador de proyectos eXeLearning');
-    expect($('#h-step2').textContent).toBe('Revisa el contenido');
+    expect($('#h-step2').textContent).toBe('Mi curso <b>');
+    expect($('#h-actions').textContent).toBe('Qué vamos a hacer');
     expect($('#h-step3').textContent).toBe('Elige cómo optimizar');
-    expect(stepper()).toEqual(['Proyecto:done', 'Opciones:current', 'Plan:todo', 'Resultado:todo']);
+    expect(stepper()).toEqual(['Proyecto:done', 'Optimizar:current', 'Descargar:todo']);
     expect($('.stepper-nav').getAttribute('aria-label')).toBe('Pasos');
     expect(app.currentView).toBe('review');
     expect(languageButton().getAttribute('aria-label')).toBe('Cambiar idioma a inglés');
     languageButton().click();
-    expect($('#h-step2').textContent).toBe('Review the contents');
+    expect($('#h-actions').textContent).toBe('What will be done');
   });
 
   it('switches between light and dark with a sun or moon button, remembered in this browser', async () => {
@@ -561,10 +563,9 @@ describe('App shell', () => {
     void real.start(new File(['PK'], 'x.elpx'));
     p.analysis.resolve(analysisResult());
     await waitFor(() => real.currentView === 'review', 2000);
-    own.querySelector<HTMLFormElement>('form.options')!.requestSubmit();
     p.plans.resolve(planOf());
-    await waitFor(() => real.currentView === 'plan', 2000);
-    [...own.querySelectorAll('button')].find((b) => b.textContent === 'Optimizar')!.click();
+    await waitFor(() => own.querySelector('.estimate-detail') !== null, 2000);
+    own.querySelector<HTMLButtonElement>('.options-card .optimize-button')!.click();
     p.optimization.resolve(resultOf('optimized', new Blob(['zip'])));
     await waitFor(() => real.currentView === 'result', 2000);
     expect(createObjectURL).toHaveBeenCalledTimes(2);
@@ -577,48 +578,45 @@ describe('stepper', () => {
   it('marks the current step of every view, with the finished ones checked', async () => {
     const nav = $('nav.stepper-nav');
     expect(nav.getAttribute('aria-label')).toBe('Steps');
-    expect($$('.stepper > li')).toHaveLength(4);
+    expect($$('.stepper > li')).toHaveLength(3);
     const current = (): string[] => $$('.stepper-item[aria-current="step"]').map((li) => li.querySelector('.stepper-label')!.textContent!);
     const dots = (): (string | null)[] => $$('.stepper-dot').map((d) => (d.querySelector('svg') ? 'check' : d.textContent));
     // start
-    expect(stepper()).toEqual(['Project:current', 'Options:todo', 'Plan:todo', 'Result:todo']);
+    expect(stepper()).toEqual(['Project:current', 'Optimize:todo', 'Download:todo']);
     expect(current()).toEqual(['Project']);
-    expect(dots()).toEqual(['1', '2', '3', '4']);
+    expect(dots()).toEqual(['1', '2', '3']);
     expect($('.stepper-dot').getAttribute('aria-hidden')).toBe('true');
     // analyzing
     void app.start(new File(['PK'], 'curso.elpx'));
     expect(app.currentView).toBe('analyzing');
-    expect(stepper()).toEqual(['Project:current', 'Options:todo', 'Plan:todo', 'Result:todo']);
-    // review
+    expect(stepper()).toEqual(['Project:current', 'Optimize:todo', 'Download:todo']);
+    // review, where the plan is made and run
     pipeline.analysis.resolve(analysisResult());
     await waitFor(() => app.currentView === 'review', 2000);
-    expect(stepper()).toEqual(['Project:done', 'Options:current', 'Plan:todo', 'Result:todo']);
-    expect(dots()).toEqual(['check', '2', '3', '4']);
-    // plan
-    $<HTMLFormElement>('form.options').requestSubmit();
+    expect(stepper()).toEqual(['Project:done', 'Optimize:current', 'Download:todo']);
+    expect(dots()).toEqual(['check', '2', '3']);
     pipeline.plans.resolve(planOf());
-    await waitFor(() => app.currentView === 'plan', 2000);
-    expect(stepper()).toEqual(['Project:done', 'Options:done', 'Plan:current', 'Result:todo']);
-    expect(current()).toEqual(['Plan']);
+    await waitFor(() => !optimizeButton().disabled, 2000);
     // running
-    button('Optimize').click();
-    expect(app.currentView).toBe('running');
-    expect(stepper()).toEqual(['Project:done', 'Options:done', 'Plan:done', 'Result:current']);
+    optimizeButton().click();
+    await waitFor(() => app.currentView === 'running', 2000);
+    expect(stepper()).toEqual(['Project:done', 'Optimize:current', 'Download:todo']);
+    expect(current()).toEqual(['Optimize']);
     // result
     pipeline.optimization.resolve(resultOf('optimized', new Blob(['zip'])));
     await waitFor(() => app.currentView === 'result', 2000);
-    expect(stepper()).toEqual(['Project:done', 'Options:done', 'Plan:done', 'Result:current']);
-    expect(dots()).toEqual(['check', 'check', 'check', '4']);
+    expect(stepper()).toEqual(['Project:done', 'Optimize:done', 'Download:current']);
+    expect(dots()).toEqual(['check', 'check', '3']);
     // back to the start
     button('Optimize another project').click();
-    expect(stepper()).toEqual(['Project:current', 'Options:todo', 'Plan:todo', 'Result:todo']);
+    expect(stepper()).toEqual(['Project:current', 'Optimize:todo', 'Download:todo']);
   });
 
   it('marks no step on the error view', async () => {
     void app.start(new File(['x'], 'a.elpx'));
     pipeline.analysis.reject(new Error('broken'));
     await waitFor(() => app.currentView === 'error', 2000);
-    expect(stepper()).toEqual(['Project:todo', 'Options:todo', 'Plan:todo', 'Result:todo']);
+    expect(stepper()).toEqual(['Project:todo', 'Optimize:todo', 'Download:todo']);
     expect(root.querySelector('.stepper-item[aria-current]')).toBeNull();
   });
 });
@@ -716,26 +714,31 @@ describe('analysis', () => {
   it('moves focus to the step heading and announces the review', async () => {
     await toReview();
     expect(document.activeElement).toBe($('#h-step2'));
+    expect($('#h-step2').textContent).toBe('Mi curso <b>');
     expect($('[role="status"]').textContent).toBe('Review the contents');
   });
 
   it('shows the project summary, weight, issues and resources', async () => {
     await toReview();
-    expect($$('.project-meta > *').map((x) => x.textContent)).toEqual(['Mi curso <b>', 'eXeLearning 4 format', '3 pages · 7 iDevices', '2.9 MB']);
+    expect($('.project-title').textContent).toBe('Mi curso <b>');
+    expect($('.project-meta').textContent).toBe('curso.elpx · 2.9 MB · 3 pages · 9 files · eXeLearning 4 format');
     // The title is text, never markup.
-    expect($('.project-meta b.project-title').children).toHaveLength(0);
+    expect($('.project-title').children).toHaveLength(0);
     const legend = $$('.weight-legend li').map((li) => li.textContent);
     expect(legend).toEqual(['Video 1.9 MB', 'Images 58.6 KB', 'Everything else 125 KB']);
     expect($$('.weight-bar .seg')).toHaveLength(3);
     expect($('.weight-bar').getAttribute('aria-label')).toBe('Video 1.9 MB, Images 58.6 KB, Audio 0 B, Everything else 125 KB');
     expect($('.weight figcaption').textContent).toBe('What takes up space');
-    // No eXeLearning 3 folders and no broken references: no alerts.
-    expect(root.querySelector('[data-testid="legacy-alert"]')).toBeNull();
-    expect(root.querySelector('[data-testid="broken-alert"]')).toBeNull();
-    const problems = $<HTMLDetailsElement>('details.problems');
-    expect(problems.open).toBe(true);
-    expect($('details.problems summary strong').textContent).toBe('Issues');
-    expect($('details.problems summary span').textContent).toBe('1 errors, 1 warnings, 3 notes');
+    // No eXeLearning 3 folders and no broken references: no card for them.
+    expect(root.querySelector('.action-flatten')).toBeNull();
+    expect(root.querySelector('.action-missingReferences')).toBeNull();
+    // The technical findings are one click away, in a side panel.
+    expect(root.querySelector('.diagnostics')).toBeNull();
+    expect($('.problems-link').textContent).toBe('See the technical findings (1 errors, 1 warnings, 3 notes)');
+    const panel = openProblems();
+    expect(panel.open).toBe(true);
+    expect(panel.querySelector('h2')!.textContent).toBe('Technical findings');
+    expect(panel.querySelector('.problems-summary')!.textContent).toBe('1 errors, 1 warnings, 3 notes');
     const items = $$('.diagnostics li').map((li) => [
       li.querySelector('.diag-code')!.textContent,
       li.childNodes[1]!.textContent,
@@ -753,8 +756,13 @@ describe('analysis', () => {
       'badge text-bg-info me-2 diag-code',
       'badge text-bg-info me-2 diag-code',
     ]);
-    expect($('.inventory-card .card-header h3').textContent).toBe('Project resources');
-    expect($('.inventory-card .card-header span').textContent).toBe('9 files');
+    panel.close();
+    await waitFor(() => root.querySelector('dialog.problems-panel') === null, 2000, 'panel removed');
+    // The files are where they matter: folded under the card that recompresses them.
+    const files = $<HTMLDetailsElement>('.action-recompress details.action-details');
+    expect(files.open).toBe(false);
+    expect(files.querySelector('summary')!.textContent).toBe('See the project’s 9 files');
+    expect(files.querySelector('.inventory')).not.toBeNull();
     expect(rowNames()).toEqual([
       'media/clase.mp4',
       'fotos/foto.jpg',
@@ -812,7 +820,11 @@ describe('analysis', () => {
     expect(switches.map((x) => x.getAttribute('aria-label'))).toContain('Optimize content/resources/audio/voz.mp3');
     expect(switches.every((s) => s.getAttribute('role') === 'switch' && s.checked)).toBe(true);
     expect($('.table-wrap').getAttribute('role')).toBe('region');
-    expect($('.table-wrap').getAttribute('aria-label')).toBe('Project resources');
+    expect($('.table-wrap').getAttribute('aria-label')).toBe('Project files');
+    // A file's name, with where it is underneath.
+    const name = (path: string): string[] => [...$(`.inventory tr[data-path="${CSS.escape(path)}"] .file-name`).children].map((x) => x.textContent!);
+    expect(name('content/resources/media/clase.mp4')).toEqual(['clase.mp4', 'media/']);
+    expect(name('screenshot.png')).toEqual(['screenshot.png', 'Project thumbnail']);
   });
 
   it('describes audio by codec, channels, sample rate, bit rate and duration', async () => {
@@ -829,7 +841,9 @@ describe('analysis', () => {
       }),
     );
     const detailsOf = (): Record<string, string> =>
-      Object.fromEntries($$('.inventory tbody tr').map((tr) => [text(tr.querySelector('th')), tr.querySelector('td.details')!.textContent!]));
+      Object.fromEntries(
+        $$('.inventory tbody tr').map((tr) => [tr.dataset['path']!.replace(/^content\/resources\//, ''), tr.querySelector('td.details')!.textContent!]),
+      );
     expect(detailsOf()).toEqual({
       'audio/a.wav': 'pcm_s16le mono 22.05 kHz, —',
       'audio/b.flac': 'flac 6 ch 900 kb/s, 1:02:05',
@@ -855,7 +869,7 @@ describe('analysis', () => {
     );
     const rows = (): [string, string, boolean][] =>
       $$('.inventory tbody tr').map((tr) => [
-        text(tr.querySelector('th')),
+        tr.dataset['path']!.replace(/^content\/resources\//, ''),
         tr.querySelector('td.details')!.textContent!,
         tr.querySelector('input[type="checkbox"]') !== null,
       ]);
@@ -876,20 +890,21 @@ describe('analysis', () => {
         totals: { ...analysisResult().totals, uncompressedBytes: 0, videoBytes: 0, imageBytes: 0 },
       }),
     );
-    expect($$('.project-meta > *').map((x) => x.textContent)).toEqual(['curso.elpx', 'eXeLearning 3.0 format', '3 pages · 7 iDevices', '2.9 MB']);
-    expect($('details.problems summary span').textContent).toBe('No issues found.');
-    expect($<HTMLDetailsElement>('details.problems').open).toBe(false);
-    expect($$('.diagnostics li')).toHaveLength(0);
+    expect($('.project-title').textContent).toBe('curso.elpx');
+    expect($('.project-meta').textContent).toBe('curso.elpx · 2.9 MB · 3 pages · 9 files · eXeLearning 3.0 format');
+    // Nothing to show: the link to the findings says so and does not open.
+    expect($('.problems-link').textContent).toBe('No issues found.');
+    expect($<HTMLButtonElement>('.problems-link').disabled).toBe(true);
     expect($$('.weight-bar .seg')).toHaveLength(0);
   });
 
   it('lists at most 200 issues, with a neutral badge for unknown severities', async () => {
     const many = Array.from({ length: 250 }, (_, i) => diag(`w${i}`, 'warning'));
     await toReview(analysisResult({ diagnostics: [diag('odd', 'debug' as Diagnostic['severity']), ...many] }));
-    expect($$('.diagnostics li')).toHaveLength(200);
-    expect($('.diagnostics .diag-code').className).toBe('badge text-bg-secondary me-2 diag-code');
-    expect($('details.problems summary span').textContent).toBe('0 errors, 250 warnings, 0 notes');
-    expect($<HTMLDetailsElement>('details.problems').open).toBe(false);
+    const panel = openProblems();
+    expect(panel.querySelectorAll('.diagnostics li')).toHaveLength(200);
+    expect(panel.querySelector('.diagnostics .diag-code')!.className).toBe('badge text-bg-secondary me-2 diag-code');
+    expect(panel.querySelector('.problems-summary')!.textContent).toBe('0 errors, 250 warnings, 0 notes');
   });
 
   it('sorts the resources table by each column', async () => {
@@ -962,23 +977,18 @@ describe('analysis', () => {
 });
 
 describe('eXeLearning 3 folders and broken references', () => {
-  it('warns about both and offers the matching clean-ups', async () => {
+  it('offers to tidy the folders and take out broken references, as cards with a switch', async () => {
     await toReview(legacyAnalysis());
-    const legacy = $('[data-testid="legacy-alert"]');
-    expect(legacy.classList.contains('alert-info')).toBe(true);
-    expect(legacy.querySelector('strong')!.textContent).toBe('eXeLearning 3 folders');
-    expect(legacy.textContent).toContain('5 files are in 2 folders named by eXeLearning 3 (content/resources/<ID>/).');
-    expect(legacy.getAttribute('role')).toBeNull();
-    const broken = $('[data-testid="broken-alert"]');
-    expect(broken.classList.contains('alert-warning')).toBe(true);
-    expect(broken.querySelector('strong')!.textContent).toBe('References to files that do not exist');
-    // The resolved reference is not counted.
-    expect(broken.textContent).toContain('There are 2 references to files missing from the project.');
-    // The alerts come after the weight and before the issues.
-    expect(legacy.previousElementSibling).toBe($('.weight'));
-    expect(broken.nextElementSibling).toBe($('details.problems'));
-    // The legacy diagnostic is listed even though it is only informative.
-    expect($$('.diagnostics .diag-code').map((b) => b.textContent)).toEqual(['legacy-resource-folders']);
+    const flattenCard = $('.action-flatten');
+    expect(text(flattenCard.querySelector('.action-title'))).toBe('Tidy 5 files out of eXeLearning 3 folders');
+    expect(flattenCard.querySelector('.action-desc')!.textContent).toMatch(/^They move to content\/resources\//);
+    const brokenCard = $('.action-missingReferences');
+    expect(brokenCard.classList.contains('action-warning')).toBe(true);
+    // Two missing files (the resolved reference is not counted), each referenced once.
+    expect(text(brokenCard.querySelector('.action-title'))).toBe('Remove references to 2 missing files');
+    expect(brokenCard.querySelector('.action-desc')!.textContent).toBe('Used in 2 places. Broken images and players are removed; links keep their text.');
+    // The legacy diagnostic is listed with the findings even though it is only informative.
+    expect([...openProblems().querySelectorAll('.diagnostics .diag-code')].map((b) => b.textContent)).toEqual(['legacy-resource-folders']);
 
     const form = $<HTMLFormElement>('form.options');
     const flatten = $<HTMLInputElement>('form.options input[name="flatten"]');
@@ -988,47 +998,38 @@ describe('eXeLearning 3 folders and broken references', () => {
       expect(s.checked).toBe(false);
       expect(s.closest('.form-check')!.classList.contains('form-switch')).toBe(true);
     }
-    expect($('label[for="opt-flatten"]').textContent).toBe('Flatten eXeLearning 3 folders');
-    expect(flatten.parentElement!.querySelector('.form-text')!.textContent).toMatch(/^Moves 5 files to content\/resources\//);
-    expect($('label[for="opt-missingReferences"]').textContent).toBe('Remove broken references');
-    expect(missing.parentElement!.querySelector('.form-text')!.textContent).toMatch(/^2 references to files that do not exist/);
+    expect(flatten.getAttribute('aria-label')).toBe('Tidy 5 files out of eXeLearning 3 folders');
+    expect($('label[for="opt-flatten"] .action-title').textContent).toBe('Tidy 5 files out of eXeLearning 3 folders');
     expect(app.readOptions(form)).toMatchObject({ flatten: 'off', missingReferences: 'keep' });
     flatten.checked = true;
     expect(app.readOptions(form)).toMatchObject({ flatten: 'legacy', missingReferences: 'keep' });
     missing.checked = true;
     expect(app.readOptions(form)).toMatchObject({ flatten: 'legacy', missingReferences: 'remove' });
-    flatten.checked = false;
-    expect(app.readOptions(form)).toMatchObject({ flatten: 'off', missingReferences: 'remove' });
 
-    // The choices reach the planner and survive a return from the plan.
-    flatten.checked = true;
-    form.requestSubmit();
-    expect(pipeline.planCalls[0]).toMatchObject({ flatten: 'legacy', missingReferences: 'remove' });
-    pipeline.plans.resolve(planOf({ operations: RESTRUCTURE_OPS }));
-    await waitFor(() => app.currentView === 'plan', 2000);
-    button('Change options').click();
+    // A change reaches the planner, and the choices survive a change of language.
+    flatten.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => pipeline.planCalls.some((o) => o.flatten === 'legacy' && o.missingReferences === 'remove'), 2000, 'replanned');
+    languageButton().click();
     expect($<HTMLInputElement>('form.options input[name="flatten"]').checked).toBe(true);
     expect($<HTMLInputElement>('form.options input[name="missingReferences"]').checked).toBe(true);
-    // Both texts follow the interface language.
-    languageButton().click();
-    expect($('[data-testid="legacy-alert"] strong').textContent).toBe('Carpetas de eXeLearning 3');
-    expect($('[data-testid="broken-alert"]').textContent).toContain('Hay 2 referencias a archivos que faltan en el proyecto.');
-    expect($('label[for="opt-flatten"]').textContent).toBe('Aplanar carpetas de eXeLearning 3');
-    expect($('label[for="opt-missingReferences"]').textContent).toBe('Quitar referencias rotas');
+    expect(text($('.action-flatten .action-title'))).toBe('Ordenar 5 archivos de carpetas de eXeLearning 3');
+    expect(text($('.action-missingReferences .action-title'))).toBe('Quitar referencias a 2 archivos que faltan');
   });
 
-  it('shows only the alert and switch that apply', async () => {
+  it('names the one missing file, and shows only the cards that apply', async () => {
     const base = legacyAnalysis();
+    await toReview({ ...base, references: [reference(1), reference(4, { value: 'content/resources/r1.jpg', representation: 'published' })] });
+    expect(text($('.action-missingReferences .action-title'))).toBe('Remove references to a missing file: r1.jpg');
+    expect($('.action-missingReferences .action-desc').textContent).toBe('Used in 2 places. Broken images and players are removed; links keep their text.');
+    app.reset();
+    pipeline.analysis = deferred();
     await toReview({ ...base, references: [] });
-    expect(root.querySelector('[data-testid="legacy-alert"]')).not.toBeNull();
-    expect(root.querySelector('[data-testid="broken-alert"]')).toBeNull();
-    expect(root.querySelector('form.options [name="flatten"]')).not.toBeNull();
-    expect(root.querySelector('form.options [name="missingReferences"]')).toBeNull();
+    expect(root.querySelector('.action-flatten')).not.toBeNull();
+    expect(root.querySelector('.action-missingReferences')).toBeNull();
     app.reset();
     pipeline.analysis = deferred();
     await toReview({ ...base, package: { ...base.package!, legacyFolders: { folders: 0, files: 0 } } });
-    expect(root.querySelector('[data-testid="legacy-alert"]')).toBeNull();
-    expect($('[data-testid="broken-alert"]').textContent).toContain('There are 2 references');
+    expect(root.querySelector('.action-flatten')).toBeNull();
     expect(root.querySelector('form.options [name="flatten"]')).toBeNull();
     expect(root.querySelector('form.options [name="missingReferences"]')).not.toBeNull();
   });
@@ -1056,9 +1057,12 @@ describe('brokenReferences', () => {
 
 describe('options', () => {
   it('maps every advanced field and the excluded resources to OptionsInput', async () => {
-    await toReview();
+    await toReview(
+      analysisResult({ duplicates: [{ id: 1, sha256: 'x', size: 1000, format: 'jpeg', paths: ['content/resources/a.jpg', 'content/resources/b.jpg'] }] }),
+    );
     const form = $<HTMLFormElement>('form.options');
-    expect(form.closest('aside.options-card')).not.toBeNull();
+    // One form: the cards on the left and the level on the right.
+    expect(form.querySelector('aside.options-card')).not.toBeNull();
     expect($('aside.options-card #h-step3').textContent).toBe('Choose how to optimize');
     const field = <T extends HTMLElement>(name: string): T => form.querySelector<T>(`[name="${name}"]`)!;
     const input = (name: string): HTMLInputElement => field<HTMLInputElement>(name);
@@ -1072,13 +1076,14 @@ describe('options', () => {
     expect($('label[for="opt-audio"]').textContent).toBe('Recompress audio (WAV, AIFF and FLAC become MP3)');
     // Levels, with the aggressive one shown as the maximum.
     expect($$('.preset-group strong').map((x) => x.textContent)).toEqual(['Conservative', 'Balanced', 'Maximum']);
-    // The image size is chosen next to the level, outside the advanced options.
+    // The image size is an advanced option; its default names the level's value.
     const size = field<HTMLSelectElement>('imageSize');
     expect(size.id).toBe('opt-imageSize');
-    expect(size.closest('details')).toBeNull();
-    expect($('label[for="opt-imageSize"]').textContent).toBe('Maximum image size');
+    expect(size.closest('details.advanced')).not.toBeNull();
+    expect($<HTMLDetailsElement>('details.advanced').open).toBe(false);
+    expect($('label[for="opt-imageSize"]').textContent).toBe('Maximum size (long side)');
     expect([...size.options].map((o) => [o.value, o.textContent])).toEqual([
-      ['profile', 'From the level'],
+      ['profile', 'From the level (1920 px)'],
       ['1280', '1280 px'],
       ['1600', '1600 px'],
       ['1920', '1920 px'],
@@ -1087,7 +1092,6 @@ describe('options', () => {
     ]);
     expect(size.value).toBe('profile');
     expect(form.querySelector('[name="maxDimension"]')).toBeNull();
-    expect($('form.options .note').textContent).toMatch(/videos, photos, audio and the images inside PDFs/);
     expect(input('pdf').checked).toBe(true);
     expect(input('pdfLossless').checked).toBe(false);
     expect($('label[for="opt-pdf"]').textContent).toBe('Optimize PDFs (signed or encrypted ones are not touched)');
@@ -1101,7 +1105,8 @@ describe('options', () => {
       images: { enabled: true, png: true, stripMetadata: false, includeScreenshot: false },
       audio: { enabled: true },
       pdf: { enabled: true },
-      removeUnused: 'off',
+      // Removing unused files and clean names are on by default in the web app.
+      removeUnused: 'safe',
       deduplicate: 'off',
       flatten: 'off',
       missingReferences: 'keep',
@@ -1171,11 +1176,16 @@ describe('options', () => {
     });
   });
 
-  it('explains what the clean-ups would take out', async () => {
+  it('explains what the clean-ups would take out, and what they save', async () => {
     await toReview();
-    const help = (name: string): string | null | undefined => $(`form.options input[name="${name}"]`).parentElement!.querySelector('.form-text')?.textContent;
-    expect(help('removeUnused')).toBe('1 file (6.8 KB) that nothing uses.');
-    expect(help('deduplicate')).toBeUndefined();
+    const card = (name: string): [string, string, string] | undefined => {
+      const el = root.querySelector(`.action-${name}`);
+      return el
+        ? [text(el.querySelector('.action-title')), el.querySelector('.action-desc')!.textContent!, el.querySelector('.action-amount')?.textContent ?? '']
+        : undefined;
+    };
+    expect(card('removeUnused')).toEqual(['Remove 1 file that is not used', 'They appear on no page: sin-probar.webm.', '−6.8 KB']);
+    expect(card('deduplicate')).toBeUndefined();
     const group = (id: number): AnalysisResult['duplicates'][number] => ({
       id,
       sha256: String(id),
@@ -1189,20 +1199,23 @@ describe('options', () => {
       await toReview(analysisResult(extra));
     };
     await again({ entries: ENTRIES.filter((e) => e.usage !== 'unreferenced'), duplicates: [group(1)] });
-    expect(help('removeUnused')).toBeUndefined();
-    expect(help('deduplicate')).toBe('1 group of identical files.');
+    expect(card('removeUnused')).toBeUndefined();
+    expect(card('deduplicate')).toEqual(['Merge 1 repeated file', 'One copy of a1.jpg is kept and the references are updated.', '−10 B']);
     await again({
       entries: ENTRIES.map((e) => (e.role === 'user-asset' && e.kind === 'image' ? { ...e, usage: 'unreferenced' as const } : e)),
       duplicates: [group(1), group(2)],
     });
-    expect(help('removeUnused')).toBe('4 files (53.1 KB) that nothing uses.');
-    expect(help('deduplicate')).toBe('2 groups of identical files.');
+    expect(card('removeUnused')).toEqual(['Remove 4 files that are not used', 'They appear on no page: sin-probar.webm, foto.jpg, anim.gif….', '−53.1 KB']);
+    expect(card('deduplicate')).toEqual(['Merge 2 repeated files', 'One copy of a1.jpg, a2.jpg is kept and the references are updated.', '−20 B']);
+    // Both start off, as in the CLI.
+    expect($<HTMLInputElement>('input[name="removeUnused"]').checked).toBe(false);
+    expect($<HTMLInputElement>('input[name="deduplicate"]').checked).toBe(false);
   });
 
   it('says how many file names would be cleaned, with an example', async () => {
-    const help = (): string => $('form.options input[name="normalizeNames"]').parentElement!.querySelector('.form-text')!.textContent!;
+    const help = (): string => $('.action-normalizeNames .action-desc').textContent!;
     await toReview();
-    expect($('label[for="opt-normalizeNames"]').textContent).toBe('Clean file names');
+    expect($('label[for="opt-normalizeNames"] .action-title').textContent).toBe('Clean file names');
     expect(help()).toBe('The names are already clean.');
     const again = async (entries: InventoryEntry[]): Promise<void> => {
       app.reset();
@@ -1222,11 +1235,11 @@ describe('options', () => {
     await again([entry('content/resources/Mi Vídeo.mp4', 'video'), entry('content/resources/limpio.png', 'image')]);
     expect(help()).toBe('1 file will get a clean name: Mi Vídeo.mp4 → mi-video.mp4.');
     languageButton().click();
-    expect($('label[for="opt-normalizeNames"]').textContent).toBe('Limpiar nombres de archivo');
+    expect($('label[for="opt-normalizeNames"] .action-title').textContent).toBe('Limpiar nombres de archivo');
     expect(help()).toBe('1 archivo tendrá un nombre limpio: Mi Vídeo.mp4 → mi-video.mp4.');
   });
 
-  it('keeps the chosen options and exclusions when returning from the plan', async () => {
+  it('plans every change, and keeps the chosen options and exclusions across a re-render', async () => {
     await toReview();
     const form = $<HTMLFormElement>('form.options');
     form.querySelector<HTMLInputElement>('input[name="preset"][value="conservative"]')!.checked = true;
@@ -1240,37 +1253,34 @@ describe('options', () => {
     form.querySelector<HTMLInputElement>('[name="audio"]')!.checked = false;
     form.querySelector<HTMLInputElement>('[name="audioFilesBitrate"]')!.value = '160';
     $$<HTMLInputElement>('.inventory tbody input[type="checkbox"]')[0]!.click();
-    form.requestSubmit();
-    expect(pipeline.planCalls[0]).toMatchObject({ preset: 'conservative', exclude: ['content/resources/media/clase.mp4'] });
-    pipeline.plans.resolve(planOf());
-    await waitFor(() => app.currentView === 'plan', 2000);
-    button('Change options').click();
+    await waitFor(() => pipeline.planCalls.some((o) => o.preset === 'conservative'), 2000, 'replanned');
+    expect(pipeline.planCalls.at(-1)).toMatchObject({ preset: 'conservative', exclude: ['content/resources/media/clase.mp4'] });
+    // The level's values follow the chosen level.
+    expect(form.querySelector<HTMLInputElement>('[name="jpegQuality"]')!.placeholder).toBe('From the level (82)');
+    form.querySelector<HTMLInputElement>('input[name="preset"][value="conservative"]')!.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(form.querySelector<HTMLInputElement>('[name="jpegQuality"]')!.placeholder).toBe('From the level (90)');
+    expect(form.querySelector('option[data-level="imageSize"]')!.textContent).toBe('From the level (2560 px)');
+    // Another language renders the form again, with every choice.
+    languageButton().click();
+    languageButton().click();
     expect(app.currentView).toBe('review');
-    expect(document.activeElement).toBe($('#h-step2'));
     const again = $<HTMLFormElement>('form.options');
+    expect(again).not.toBe(form);
     expect(again.querySelector<HTMLInputElement>('input[name="preset"]:checked')!.value).toBe('conservative');
     expect(again.querySelector<HTMLSelectElement>('[name="maxResolution"]')!.value).toBe('1080');
     expect(again.querySelector<HTMLInputElement>('[name="crf"]')!.value).toBe('20');
     expect(again.querySelector<HTMLSelectElement>('[name="imageSize"]')!.value).toBe('none');
     expect(again.querySelector<HTMLInputElement>('[name="normalizeNames"]')!.checked).toBe(false);
-    // A size in pixels is kept as well.
-    again.querySelector<HTMLSelectElement>('[name="imageSize"]')!.value = '2560';
-    again.requestSubmit();
-    expect(pipeline.planCalls[1]!.images).toMatchObject({ maxDimension: 2560 });
-    await waitFor(() => app.currentView === 'plan', 2000);
-    button('Change options').click();
-    expect($<HTMLSelectElement>('form.options [name="imageSize"]').value).toBe('2560');
     expect(again.querySelector<HTMLInputElement>('[name="multithread"]')!.checked).toBe(false);
     expect(again.querySelector<HTMLInputElement>('[name="video"]')!.checked).toBe(false);
     expect(again.querySelector<HTMLInputElement>('[name="removeUnused"]')!.checked).toBe(true);
-    expect(again.querySelector<HTMLInputElement>('[name="deduplicate"]')!.checked).toBe(false);
     expect(again.querySelector<HTMLInputElement>('[name="audio"]')!.checked).toBe(false);
     expect(again.querySelector<HTMLInputElement>('[name="audioFilesBitrate"]')!.value).toBe('160');
     expect($$<HTMLInputElement>('.inventory tbody input[type="checkbox"]')[0]!.checked).toBe(false);
-    // The single-thread choice applies to the next analysis.
-    app.reset();
-    void app.start(new File(['PK'], 'otro.elpx'));
-    expect(pipeline.analyzeCalls.at(-1)!.threading).toBe('single');
+    // A size in pixels is kept as well.
+    again.querySelector<HTMLSelectElement>('[name="imageSize"]')!.value = '2560';
+    again.dispatchEvent(new Event('change'));
+    await waitFor(() => pipeline.planCalls.at(-1)?.images?.maxDimension === 2560, 2000, 'size planned');
   });
 
   it('shows planning errors', async () => {
@@ -1290,7 +1300,7 @@ describe('options', () => {
   });
 });
 
-describe('plan', () => {
+describe('estimate and plan', () => {
   const LOSSY = 'Re-encoding videos, audio and photos changes their quality; when a result is not valid or not smaller, the original is kept.';
   const DOWNSCALE = 'Some videos or images will be downscaled.';
   const AUDIO_RENAME = 'WAV, AIFF and FLAC become MP3 with the .mp3 extension; their references are updated.';
@@ -1317,94 +1327,65 @@ describe('plan', () => {
       ...(to ? { to: `content/resources/audio/${to}` } : {}),
     }) as unknown as PlanOperation;
 
-  it('groups the operations, lists the skipped resources, the estimate and localized risk notes', async () => {
-    await toPlan();
-    expect(document.activeElement).toBe($('#h-step4'));
-    expect($('#h-step4').textContent).toBe('Confirm the plan');
-    expect($('.step-step4 h3').textContent).toBe('Will do');
-    expect(planGroups()).toEqual([
-      ['Videos to recompress', '1', true, ['media/clase.mp4 (1.9 MB): video: h264 → h264; audio kept']],
-      ['Images to recompress', '1', true, ['fotos/foto.jpg (43.9 KB): JPEG q82']],
-      ['Unused files to remove', '1', true, ['sin-uso/viejo.webp (21.5 KB)']],
-      ['Identical copies to merge', '1', true, ['b.jpg, c.jpg: merged with a.jpg']],
-      ['Documents with updated references', '1', true, ['content.xml']],
-    ]);
-    expect($('.estimate').textContent).toBe('Estimate before processing (not measured): about 1.1 MB less.');
-    expect($('details.skipped summary').textContent).toBe('Left as is (1)');
-    expect($('ul.plan-skipped li').textContent).toBe('media/raro.mp4: Duration is unknown');
+  it('shows the estimated result, what the level recompresses and localized risk notes', async () => {
+    await toReview();
+    // Before the first plan arrives.
+    expect($('.estimate-block').textContent).toBe('Estimated resultWorking it out…');
+    expect(text($('.action-media .action-title'))).toBe('Working out what can be recompressed…');
+    expect(optimizeButton().disabled).toBe(true);
+    pipeline.plans.resolve(planOf());
+    await waitFor(() => root.querySelector('.estimate-figure') !== null, 2000, 'estimate');
+    expect(pipeline.planCalls).toHaveLength(1);
+    expect($('.estimate-figure').textContent).toBe('≈ −40 %');
+    expect($('.estimate-detail').textContent).toBe('About 1.1 MB smaller (estimated before processing).');
+    expect($$('.estimate-block .compare-row').map((r) => text(r))).toEqual(['Before2.9 MB', 'After≈ 1.7 MB']);
+    expect(text($('.action-media .action-title'))).toBe('Recompress 1 video, 1 image');
     // The notes come from the operations, not from the (English) risks of the plan.
-    expect($('.risks').getAttribute('role')).toBe('note');
-    expect($('.risks strong').textContent).toBe('Keep in mind');
+    expect($('.risks summary').textContent).toBe('Keep in mind');
     expect(riskNotes()).toEqual([
       LOSSY,
       'Files nothing uses will be removed; only files with no reference of any kind are selected.',
       'Identical copies will be merged and their references updated.',
     ]);
-    expect($('.step-step4').textContent).not.toContain('Lossy video re-encoding');
-    const optimize = button('Optimize');
-    expect(optimize.disabled).toBe(false);
-    expect(optimize.classList.contains('btn-primary')).toBe(true);
+    expect($('.options-card').textContent).not.toContain('Lossy video re-encoding');
+    // What is left as it is, with the reason.
+    expect($('details.skipped summary').textContent).toBe('Left as is (1)');
+    expect($('ul.plan-skipped li').textContent).toBe('media/raro.mp4: Duration is unknown');
+    expect(optimizeButton().disabled).toBe(false);
+    expect(optimizeButton().textContent).toBe('Optimize project');
+    expect($('.mobile-bar .mobile-bar-figure').textContent).toBe('≈ −40 %');
     languageButton().click();
     expect(riskNotes()[0]).toBe('Recodificar vídeos, audio y fotos cambia su calidad; si un resultado no es válido o no ocupa menos, se conserva el original.');
-    expect(planGroups()[3]![3]).toEqual(['b.jpg, c.jpg: se unifica con a.jpg']);
+    expect(text($('.action-media .action-title'))).toBe('Recomprimir 1 vídeo, 1 imagen');
   });
 
-  it('shows every kind of operation in a fixed order with its icon', async () => {
+  it('counts every kind of media and what it saves', async () => {
     const audio = [audioOp('voz.wav', 'voz.mp3'), audioOp('musica.mp3')];
-    await toPlan(planOf({ operations: [...RESTRUCTURE_OPS, pdfOp('guia.pdf', true), ...audio, ...OPS].reverse(), skipped: [] }), legacyAnalysis());
-    expect(planGroups()).toEqual([
-      ['Videos to recompress', '1', true, ['media/clase.mp4 (1.9 MB): video: h264 → h264; audio kept']],
-      ['Images to recompress', '1', true, ['fotos/foto.jpg (43.9 KB): JPEG q82']],
-      // Converted files show their new name.
-      ['Audio to recompress', '2', true, ['audio/musica.mp3 (488 KB): MP3 128 kb/s', 'audio/voz.wav → audio/voz.mp3 (488 KB): MP3 128 kb/s']],
-      ['PDFs to optimize', '1', true, ['docs/guia.pdf (1.9 MB): streams recompressed; images to JPEG']],
-      ['Unused files to remove', '1', true, ['sin-uso/viejo.webp (21.5 KB)']],
-      ['Identical copies to merge', '1', true, ['b.jpg, c.jpg: merged with a.jpg']],
-      ['Files to move', '1', true, ['content/resources/20240101120000AAAAAA/foto.jpg → content/resources/foto_2.jpg']],
-      ['Files with a clean name', '1', true, ['fotos/Copia de Foto (2).JPG → fotos/foto.jpg']],
-      ['Missing files whose references are removed', '1', true, ['borrada.jpg: 3 references']],
-      ['Documents with updated references', '1', true, ['content.xml']],
-      ['Download manifest', '1', true, ['libs/elpx-manifest.js']],
-    ]);
-    const icons: IconName[] = [
-      'camera-video',
-      'image',
-      'music-note-beamed',
-      'file-earmark-pdf',
-      'trash3',
-      'files',
-      'folder-symlink',
-      'pencil-square',
-      'eraser',
-      'pencil-square',
-      'file-earmark',
-    ];
-    expect($$('.plan-group .op-icon svg').map((svg) => svg.outerHTML)).toEqual(icons.map((n) => icon(n).outerHTML));
-    expect($$('.plan-group li').map((li) => li.className)).toEqual([
-      'op op-transcode-video',
-      'op op-recompress-image',
-      'op op-transcode-audio',
-      'op op-transcode-audio',
-      'op op-optimize-pdf',
-      'op op-remove-unused',
-      'op op-deduplicate',
-      'op op-move-resource',
-      'op op-rename-resource',
-      'op op-remove-missing-reference',
-      'op op-rewrite-references',
-      'op op-update-manifest',
-    ]);
+    const pdf = { ...pdfOp('guia.pdf', true), estimatedBytes: 1_000_000 } as PlanOperation;
+    await toPlanned(planOf({ operations: [pdf, ...audio, ...OPS], skipped: [] }), legacyAnalysis());
+    expect(text($('.action-media .action-title'))).toBe('Recompress 1 video, 1 image, 2 audio files, 1 PDF');
+    expect($('.action-media .action-amount').textContent).toBe('≈ −977 KB');
     expect(riskNotes()).toEqual([
       LOSSY,
       AUDIO_RENAME,
       PDF_IMAGES,
       'Files nothing uses will be removed; only files with no reference of any kind are selected.',
       'Identical copies will be merged and their references updated.',
-      'Files in eXeLearning 3 folders will be moved to content/resources/ and their references updated.',
-      'Some files get a clean name; all their references are updated.',
-      'References to files that do not exist will be removed: broken images and players are deleted, and links keep their text.',
     ]);
-    expect(root.querySelector('details.skipped')).toBeNull();
+  });
+
+  it('says when the level recompresses nothing', async () => {
+    await toPlanned(
+      planOf({
+        operations: RESTRUCTURE_OPS.filter((o) => o.op === 'rename-resource'),
+        estimate: { kind: 'estimate', savedBytes: 0, note: '' },
+      } as Partial<OptimizationPlan>),
+    );
+    expect(text($('.action-media .action-title'))).toBe('Nothing to recompress at this level');
+    expect($('.action-media .action-desc').textContent).toMatch(/^They are already well compressed/);
+    expect(root.querySelector('.estimate-figure')).toBeNull();
+    expect($('.estimate-detail').textContent).toBe('No space saving expected: the chosen changes are applied.');
+    expect(optimizeButton().disabled).toBe(false);
   });
 
   const image = (id: string, lossy: boolean, resize?: { width: number; height: number }): PlanOperation =>
@@ -1430,38 +1411,52 @@ describe('plan', () => {
     ],
     ['a rename only', RESTRUCTURE_OPS.filter((o) => o.op === 'rename-resource'), ['Some files get a clean name; all their references are updated.']],
   ])('derives the risk notes of %s', async (_, operations, notes) => {
-    await toPlan(planOf({ operations, skipped: [] }));
+    await toPlanned(planOf({ operations, skipped: [] }));
     expect(riskNotes()).toEqual(notes);
     expect(root.querySelector('.risks') !== null).toBe(notes.length > 0);
   });
 
-  it('closes large groups and caps long lists', async () => {
-    const unused = Array.from(
-      { length: 305 },
-      (_, i) => ({ id: `r${i}`, op: 'remove-unused', path: `content/resources/x/${i}.png`, size: 1024, reason: '' }) as unknown as PlanOperation,
-    );
-    const images = Array.from({ length: 5 }, (_, i) => image(`i${i}`, false));
-    const skipped = Array.from({ length: 250 }, (_, i) => ({ path: `content/resources/s${i}.mp4`, kind: 'video', reason: 'x', detail: 'kept' }));
-    await toPlan(planOf({ operations: [...unused, ...images], skipped } as Partial<OptimizationPlan>));
-    const [imagesGroup, unusedGroup] = planGroups();
-    expect(imagesGroup!.slice(0, 3)).toEqual(['Images to recompress', '5', true]);
-    expect(unusedGroup!.slice(0, 3)).toEqual(['Unused files to remove', '305', false]);
-    expect(unusedGroup![3]).toHaveLength(301);
-    expect(unusedGroup![3][0]).toBe('x/0.png (1.0 KB)');
-    expect(unusedGroup![3].at(-1)).toBe('… +5');
-    expect($('details.skipped summary').textContent).toBe('Left as is (250)');
-    expect($$('ul.plan-skipped li')).toHaveLength(200);
+  it('explains an empty plan and does not allow running it', async () => {
+    await toReview();
+    pipeline.plans.resolve(planOf({ operations: [], skipped: [], risks: [] }));
+    await waitFor(() => root.querySelector('.plan-empty') !== null, 2000, 'empty');
+    expect($('.plan-empty').textContent).toBe('With these options there is nothing to optimize.');
+    expect(optimizeButton().disabled).toBe(true);
+    // Submitting anyway (e.g. with Enter in a field) does not run it.
+    $<HTMLFormElement>('form.options').requestSubmit();
+    await settle();
+    expect(app.currentView).toBe('review');
+    expect(pipeline.optimizeCalls).toEqual([]);
   });
 
-  it('explains an empty plan and does not allow running it', async () => {
-    await toPlan(planOf({ operations: [], skipped: [], risks: [] }));
-    expect($('.step-step4 p').textContent).toBe('With these options there is nothing to optimize.');
-    expect(root.querySelector('.step-step4 h3')).toBeNull();
-    expect(root.querySelector('.plan-ops')).toBeNull();
-    expect(root.querySelector('.estimate')).toBeNull();
-    expect(root.querySelector('.risks')).toBeNull();
-    expect(root.querySelector('.step-step4 details')).toBeNull();
-    expect(button('Optimize').disabled).toBe(true);
+  it('shows why the options cannot be planned, and keeps the button off', async () => {
+    await toReview();
+    pipeline.plans.reject(Object.assign(new Error('video.crf must be an integer between 16 and 35'), { code: 'invalid-options' }));
+    await waitFor(() => root.querySelector('.estimate-block .text-danger') !== null, 2000, 'error');
+    expect($('.estimate-block .text-danger').textContent).toBe('Check the options: video.crf must be an integer between 16 and 35');
+    expect(optimizeButton().disabled).toBe(true);
+  });
+
+  it('plans the current options again before running when they changed', async () => {
+    await toPlanned();
+    expect(pipeline.planCalls).toHaveLength(1);
+    const form = $<HTMLFormElement>('form.options');
+    form.querySelector<HTMLInputElement>('input[name="preset"][value="aggressive"]')!.checked = true;
+    optimizeButton().click();
+    await waitFor(() => app.currentView === 'running', 2000, 'running');
+    expect(pipeline.planCalls).toHaveLength(2);
+    expect(pipeline.planCalls[1]).toMatchObject({ preset: 'aggressive' });
+    expect(pipeline.optimizeCalls).toEqual(['plan-1']);
+  });
+
+  it('shows a planning failure when running', async () => {
+    await toPlanned();
+    pipeline.plans = deferred();
+    $<HTMLFormElement>('form.options').querySelector<HTMLInputElement>('input[name="preset"][value="aggressive"]')!.checked = true;
+    optimizeButton().click();
+    pipeline.plans.reject(Object.assign(new Error('The plan failed'), { code: 'internal' }));
+    await waitFor(() => app.currentView === 'error', 2000, 'error');
+    expect($('[role="alert"] p').textContent).toBe('The plan failed');
   });
 });
 
@@ -1581,21 +1576,22 @@ describe('result', () => {
     expect(document.activeElement).toBe($('#h-step6'));
     expect($('#h-step6').textContent).toBe('Result');
     expect($('[role="status"]').textContent).toBe('Project optimized; some operations failed and those resources stay as they were.');
-    expect($('.result-status').className).toBe('result-status status-partial alert alert-warning d-flex align-items-center gap-2');
-    expect($('.saved-hero .saved-figure').textContent).toBe('50 % smaller');
-    expect($('.saved-hero .saved').textContent).toBe('1.4 MB smaller than the original (measured on the final file).');
+    expect($('.result-status').className).toBe('result-status status-partial text-warning d-flex align-items-center justify-content-center gap-2 fw-bold mb-0');
+    expect($('.result-hero .saved-figure').textContent).toBe('50 % smaller');
+    expect($('.result-hero .saved').textContent).toBe('1.4 MB smaller: from 2.9 MB to 1.4 MB.');
     expect($$('.compare .compare-row').map((r) => r.textContent)).toEqual(['Before2.9 MB', 'After1.4 MB']);
     expect($<HTMLElement>('.fill-before').style.width).toBe('100%');
     expect($<HTMLElement>('.fill-after').style.width).toBe('50%');
     const download = $<HTMLAnchorElement>('[data-testid="download"]');
     expect(download.getAttribute('href')).toBe('blob:test/1');
     expect(download.getAttribute('download')).toBe('curso_optimized.elpx');
-    expect(text(download)).toBe('Download curso_optimized.elpx');
+    expect(text(download)).toBe('Download the optimized project');
     expect(download.classList.contains('btn-primary')).toBe(true);
+    expect($('.download-name').textContent).toBe('curso_optimized.elpx · opens in eXeLearning like any project');
     const reportLink = $<HTMLAnchorElement>('[data-testid="download-report"]');
     expect(reportLink.getAttribute('href')).toBe('blob:test/2');
     expect(reportLink.getAttribute('download')).toBe('curso_optimized_report.json');
-    expect(text(reportLink)).toBe('Download report (JSON)');
+    expect(text(reportLink)).toBe('Download the technical report (JSON)');
     // A named File, for browsers that ignore the download attribute of blob: URLs.
     const named = urls.created[0] as File;
     expect(named).toBeInstanceOf(File);
@@ -1604,8 +1600,15 @@ describe('result', () => {
     expect(await named.text()).toBe('optimized zip');
     expect(urls.created[1]!.type).toBe('application/json');
     expect(JSON.parse(await urls.created[1]!.text())).toMatchObject({ status: 'partial' });
-    expect($('details.op-details summary').textContent).toBe('Operation details (4)');
-    expect($<HTMLDetailsElement>('details.op-details').open).toBe(true);
+    // What changed, in plain words; the list per file is folded underneath.
+    expect($('#h-changes').textContent).toBe('What changed');
+    expect($$('.changes-list li').map((li) => text(li))).toEqual([
+      '1 lighter video (−1.4 MB)',
+      '2 files are left as they were: already well compressed or not improving.',
+      '1 file could not be processed: the original is kept.',
+    ]);
+    expect($('details.op-details summary').textContent).toBe('Details of each file (4)');
+    expect($<HTMLDetailsElement>('details.op-details').open).toBe(false);
     expect(opResults()).toEqual([
       ['Applied media/clase.mp4 1.9 MB → 488 KB', ''],
       ['Discarded (original kept) fotos/foto.jpg 43.9 KB → 44.9 KB', 'not smaller enough'],
@@ -1628,10 +1631,10 @@ describe('result', () => {
   });
 
   it.each<[OptimizationReport['status'], string, string]>([
-    ['optimized', 'alert-success', 'Project optimized.'],
-    ['partial', 'alert-warning', 'Project optimized; some operations failed and those resources stay as they were.'],
-    ['no-improvement', 'alert-secondary', 'The size could not be reduced. The download is an identical copy of the original.'],
-    ['failed', 'alert-danger', 'The optimization did not pass the final validation; no file is delivered.'],
+    ['optimized', 'text-success', 'Project optimized.'],
+    ['partial', 'text-warning', 'Project optimized; some operations failed and those resources stay as they were.'],
+    ['no-improvement', 'text-secondary', 'The size could not be reduced. The download is an identical copy of the original.'],
+    ['failed', 'text-danger', 'The optimization did not pass the final validation; no file is delivered.'],
   ])('shows the "%s" status with its tone', async (status, tone, label) => {
     await toResult(resultOf(status, new Blob(['zip'])));
     const line = $('.result-status');
@@ -1656,11 +1659,12 @@ describe('result', () => {
     // The type of the output is kept when it has one.
     expect(urls.created[0]!.type).toBe('application/octet-stream');
     expect(text($('.result-status'))).toBe('The size could not be reduced. The download is an identical copy of the original.');
-    expect(root.querySelector('.saved-hero')).toBeNull();
+    expect(root.querySelector('.saved-figure')).toBeNull();
     expect(root.querySelector('.saved')).toBeNull();
     expect($<HTMLElement>('.fill-before').style.width).toBe('100%');
     expect(root.querySelector('[data-testid="download"]')).not.toBeNull();
-    expect($('details.op-details summary').textContent).toBe('Operation details (0)');
+    expect($('details.op-details summary').textContent).toBe('Details of each file (0)');
+    expect($$('.changes-list li')).toHaveLength(0);
   });
 
   it('says clearly when no planned video was recompressed', async () => {
@@ -1681,10 +1685,11 @@ describe('result', () => {
     expect(text($('.result-status'))).toBe('Project optimized.');
     const note = $('main [role="note"]');
     expect(note.textContent).toBe('No video was recompressed; the originals were kept (see reasons below).');
-    expect(note.className).toBe('callout alert alert-light border');
+    expect(note.className).toBe('callout alert alert-light border mb-0 result-width');
     expect(note.closest('[role="alert"]')).toBeNull();
-    // It sits right under the status, before the per-resource reasons.
-    expect(note.previousElementSibling).toBe($('.result-status'));
+    // It sits right under the result, before what changed.
+    expect(note.previousElementSibling).toBe($('.result-hero'));
+    expect(note.nextElementSibling).toBe($('.changes'));
     expect(opResults()[1]![1]).toContain('ran out of memory');
     languageButton().click();
     expect($('main [role="note"]').textContent).toBe('Ningún vídeo se ha recomprimido; se conservan los originales (ver motivos abajo).');
@@ -1695,22 +1700,54 @@ describe('result', () => {
     expect(root.querySelector('main [role="note"]')).toBeNull();
   });
 
-  it('closes the operation details when there are many', async () => {
-    const many = Array.from({ length: 9 }, (_, i) => ({ ...operations[0]!, id: `v${i}` }));
-    await toResult(resultOf('optimized', new Blob(['zip']), many));
+  it('sums what changed per kind, and states the checks that passed', async () => {
+    const many: OperationResult[] = [
+      ...Array.from({ length: 3 }, (_, i) => ({ ...operations[0]!, id: `v${i}` })),
+      { id: 'a', op: 'transcode-audio', path: 'a.wav', status: 'applied', before: 1000, after: 400 },
+      { id: 'd', op: 'optimize-pdf', path: 'd.pdf', status: 'applied', before: 1000, after: 900 },
+      { id: 'i1', op: 'recompress-image', path: 'i1.png', status: 'applied', before: 1000, after: 500 },
+      { id: 'u', op: 'remove-unused', path: 'u.png', status: 'applied', before: 10, after: 0 },
+      { id: 'u2', op: 'remove-unused', path: 'u2.png', status: 'applied', before: 10, after: 0 },
+      { id: 'dd', op: 'deduplicate', path: 'x.png', status: 'applied' },
+      { id: 'm', op: 'move-resource', path: 'm.png', status: 'applied' },
+      { id: 'r', op: 'rename-resource', path: 'r.png', status: 'applied' },
+      { id: 'x', op: 'remove-missing-reference', path: 'x.jpg', status: 'applied' },
+      { id: 's', op: 'replace-screenshot', path: 'screenshot.png', status: 'applied' },
+    ];
+    const checks = [
+      { name: 'zip-written', ok: true },
+      { name: 'output-analyzable', ok: true },
+      { name: 'no-new-problems', ok: false },
+    ];
+    await toResult(resultOf('optimized', new Blob(['zip']), many, undefined, checks));
+    expect($$('.changes-list li').map((li) => text(li))).toEqual([
+      '3 lighter videos (−4.3 MB)',
+      '1 lighter image (−500 B)',
+      '1 lighter audio file (−600 B)',
+      '1 lighter PDF (−100 B)',
+      '2 unused files removed.',
+      '1 group of repeated files merged.',
+      '1 file tidied out of eXeLearning 3 folders.',
+      '1 file with a clean name.',
+      'References to 1 missing file removed.',
+      'New thumbnail.',
+      'Verified: pages, iDevices and links are as in the original (2 of 3 checks).',
+    ]);
     expect($<HTMLDetailsElement>('details.op-details').open).toBe(false);
-    expect($('details.op-details summary').textContent).toBe('Operation details (9)');
-    expect($$('.op-results li')).toHaveLength(9);
+    expect($('details.op-details summary').textContent).toBe('Details of each file (13)');
   });
 
   it('offers nothing to download when the run failed', async () => {
     await toResult(resultOf('failed', undefined, operations.slice(0, 1), { before: 0, after: 0, saved: 0, savedPercent: 0 }));
     expect(text($('.result-status'))).toBe('The optimization did not pass the final validation; no file is delivered.');
-    expect($('.result-status').classList.contains('alert-danger')).toBe(true);
+    expect($('.result-status').classList.contains('text-danger')).toBe(true);
     expect(root.querySelector('.compare')).toBeNull();
-    expect(root.querySelector('.saved-hero')).toBeNull();
+    expect(root.querySelector('.saved-figure')).toBeNull();
     expect(root.querySelector('[data-testid="download"]')).toBeNull();
-    expect(urls.created).toEqual([]);
+    // The technical report is still offered: it says why.
+    expect(urls.created).toHaveLength(1);
+    expect(urls.created[0]!.type).toBe('application/json');
+    expect(root.querySelector('[data-testid="download-report"]')).not.toBeNull();
     expect($$('.op-results li')).toHaveLength(1);
     expect(button('Optimize another project')).toBeTruthy();
   });
@@ -1719,9 +1756,9 @@ describe('result', () => {
     await toResult(resultOf('optimized', new Blob(['zip'])));
     languageButton().click();
     expect(text($('.result-status'))).toBe('Proyecto optimizado.');
-    expect($('.saved-figure').textContent).toBe('50 % menos');
-    expect($('.saved').textContent).toBe('Ocupa 1,4 MB menos que el original (medido en el archivo final).');
-    expect(stepper()).toEqual(['Proyecto:done', 'Opciones:done', 'Plan:done', 'Resultado:current']);
+    expect($('.saved-figure').textContent).toBe('50 % más ligero');
+    expect($('.saved').textContent).toBe('Ocupa 1,4 MB menos: de 2,9 MB a 1,4 MB.');
+    expect(stepper()).toEqual(['Proyecto:done', 'Optimizar:done', 'Descargar:current']);
     await settle();
     app.reset();
     expect(urls.revoked).toEqual(urls.created.map((_, i) => `blob:test/${i + 1}`));
@@ -1804,32 +1841,37 @@ describe('side panels', () => {
     expect(helpButton.querySelector('.visually-hidden')!.textContent).toBe('Use it from the terminal and with agents');
     const dialog = open('header button.help-button', 'help-panel');
     expect(dialog.querySelector('#help-title')!.textContent).toBe('Use it from the terminal and with agents');
-    // Docker first (the published image), then npx (the npm package).
-    expect([...dialog.querySelectorAll('h4')].map((x) => x.textContent)).toEqual(['With Docker (the simplest)', 'With npx (Node.js 22 or newer)']);
-    const [docker, local] = [...dialog.querySelectorAll('ol.help-steps')];
+    // npx first (the npm package), then Docker (the image on Docker Hub, with everything included).
+    expect([...dialog.querySelectorAll('h4')].map((x) => x.textContent)).toEqual(['With npx (Node.js 22 or newer)', 'With Docker (nothing else to install)']);
+    const [local, docker] = [...dialog.querySelectorAll('ol.help-steps')];
     const titles = (list: Element): (string | null)[] => [...list.querySelectorAll(':scope > li .fw-bold')].map((x) => x.textContent);
-    expect(titles(docker!)).toEqual(['Review a project without changing anything', 'See the plan before applying it', 'Optimize']);
-    expect(
-      [...docker!.querySelectorAll('code')].every((c) =>
-        c.textContent!.startsWith('docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/ateeducacion/elpx-optimizer '),
-      ),
-    ).toBe(true);
     expect(titles(local!)).toEqual([
       'Install FFmpeg for video and audio',
       'Check that everything is available',
       'Review a project without changing anything',
       'See the plan before applying it',
       'Optimize',
+      'Optionally, remove what is not used and merge what is repeated',
+    ]);
+    expect(titles(docker!)).toEqual(['Review a project without changing anything', 'See the plan before applying it', 'Optimize']);
+    // The image's working directory is /work: a plain file name is enough.
+    expect([...docker!.querySelectorAll('code')].map((c) => c.textContent)).toEqual([
+      'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ateeducacion/elpx-optimizer inspect curso.elpx',
+      'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ateeducacion/elpx-optimizer optimize curso.elpx --dry-run',
+      'docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ateeducacion/elpx-optimizer optimize curso.elpx',
     ]);
     // Notes only where they help.
     const notes = (list: Element): boolean[] =>
       [...list.querySelectorAll(':scope > li')].map((li) => li.querySelector(':scope > .text-body-secondary') !== null);
+    expect(notes(local!)).toEqual([true, false, false, false, true, false]);
     expect(notes(docker!)).toEqual([false, false, true]);
-    expect(notes(local!)).toEqual([true, false, false, false, true]);
     expect([...local!.querySelectorAll('code')].slice(1).every((c) => c.textContent!.startsWith('npx elpx-optimizer '))).toBe(true);
     const codes = [...dialog.querySelectorAll('.code-block code')].map((c) => c.textContent!);
     expect(codes).toContain('npx elpx-optimizer doctor');
-    expect(codes.some((c) => c.includes('--flatten legacy --missing-references remove'))).toBe(true);
+    // Structural changes are opt-in: not in the examples.
+    expect(codes.some((c) => c.includes('--flatten') || c.includes('--missing-references'))).toBe(false);
+    expect(codes.some((c) => c.startsWith('elpx() {'))).toBe(true);
+    expect(codes.some((c) => c.includes('/releases/latest/download/elpx-optimizer-skill.zip'))).toBe(true);
     expect(dialog.textContent).toContain('On Windows (PowerShell), drop --user and use -v "${PWD}:/work".');
     expectExternal([...dialog.querySelectorAll<HTMLAnchorElement>('a')]);
     expect([...dialog.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
@@ -1854,7 +1896,7 @@ describe('side panels', () => {
     expect($('[role="status"]').textContent).toBe('Copied to the clipboard');
     // A refused copy changes nothing.
     write.mockImplementation(() => Promise.reject(new Error('denied')));
-    const other = copyOf(codes.find((c) => c.endsWith('inspect /work/curso.elpx'))!);
+    const other = copyOf(codes.find((c) => c.endsWith('elpx-optimizer inspect curso.elpx') && c.startsWith('docker'))!);
     const otherBefore = other.innerHTML;
     other.click();
     await settle();
@@ -1979,11 +2021,12 @@ describe('resource previews', () => {
     return root.querySelector<HTMLDialogElement>('dialog.preview-dialog');
   }
 
-  it('offers a preview button for images, videos and audio', () => {
+  it('offers the same round button for every file, with its kind, to open it in a window', () => {
     const buttons = $$<HTMLButtonElement>('.inventory .preview-button');
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Watch the video media/clase.mp4',
       'View the image fotos/foto.jpg',
+      'View docs/guia.pdf',
       'Watch the video media/raro.mp4',
       'Watch the video media/alto.mp4',
       'Play audio/"voz" 1.mp3',
@@ -1992,14 +2035,20 @@ describe('resource previews', () => {
       'View the image fotos/sin-info.png',
     ]);
     expect(buttons.every((b) => b.getAttribute('title') === b.getAttribute('aria-label'))).toBe(true);
-    expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual([null, null, null, null, 'false', 'false', null, null]);
-    const names: IconName[] = ['play-circle', 'eye', 'play-fill'];
+    expect(buttons.every((b) => b.getAttribute('aria-haspopup') === 'dialog' && !b.hasAttribute('aria-pressed'))).toBe(true);
+    const names: IconName[] = ['camera-video', 'image', 'file-earmark-pdf', 'music-note-beamed'];
     const iconOf = (b: Element): IconName | undefined => names.find((n) => icon(n).outerHTML === b.querySelector('svg')!.outerHTML);
-    expect(buttons.map(iconOf)).toEqual(['play-circle', 'eye', 'play-circle', 'play-circle', 'play-fill', 'play-fill', 'eye', 'eye']);
-    // A document has no preview: it keeps its kind icon.
-    const pdfRow = $$('.inventory tbody tr').find((tr) => text(tr.querySelector('th')).endsWith('docs/guia.pdf'))!;
-    expect(pdfRow.querySelector('.preview-button')).toBeNull();
-    expect(pdfRow.querySelector('.kind-icon svg')).not.toBeNull();
+    expect(buttons.map(iconOf)).toEqual([
+      'camera-video',
+      'image',
+      'file-earmark-pdf',
+      'camera-video',
+      'camera-video',
+      'music-note-beamed',
+      'music-note-beamed',
+      'image',
+      'image',
+    ]);
   });
 
   it('shows an image in a modal window and releases it when closed', async () => {
@@ -2082,110 +2131,59 @@ describe('resource previews', () => {
     expect(button.querySelector('.spinner-border')).toBeNull();
   });
 
-  it('plays and pauses audio in the table and stops it when leaving the review', async () => {
-    // Real clicks: the browser only plays audio after a user gesture.
+  it('plays an audio in a window with its player, and stops it when the window closes', async () => {
     previews.answer = () => Promise.resolve(silentWav());
-    const pressed = (path: string): string | null => previewButton(path).getAttribute('aria-pressed');
-    await userEvent.click(previewButton(AUDIO));
-    await waitFor(() => pressed(AUDIO) === 'true', 5000, 'playing');
-    expect(previewButton(AUDIO).getAttribute('aria-label')).toBe('Pause audio/"voz" 1.mp3');
-    expect(previewButton(AUDIO).querySelector('svg')!.outerHTML).toBe(icon('pause-fill').outerHTML);
-    expect(previews.previewCalls).toEqual([AUDIO]);
-    // Pause and resume without reading the file again.
-    await userEvent.click(previewButton(AUDIO));
-    await waitFor(() => pressed(AUDIO) === 'false', 5000, 'paused');
-    expect(previewButton(AUDIO).getAttribute('aria-label')).toBe('Play audio/"voz" 1.mp3');
-    await userEvent.click(previewButton(AUDIO));
-    await waitFor(() => pressed(AUDIO) === 'true', 5000, 'playing again');
-    expect(previews.previewCalls).toEqual([AUDIO]);
-    // The state survives sorting and a language switch.
-    $<HTMLButtonElement>('button.sort[aria-label="Sort by File"]').click();
-    expect(pressed(AUDIO)).toBe('true');
-    languageButton().click();
-    expect(previewButton(AUDIO).getAttribute('aria-label')).toBe('Pausar audio/"voz" 1.mp3');
-    languageButton().click();
-    // Another audio replaces the first one, which is released.
-    await userEvent.click(previewButton('content/resources/audio/otra.wav'));
-    await waitFor(() => pressed('content/resources/audio/otra.wav') === 'true', 5000, 'second audio');
-    expect(pressed(AUDIO)).toBe('false');
-    expect(live.revoked).toEqual([live.created[0]]);
-    // Opening an image stops the audio too.
-    previewButton('content/resources/fotos/foto.jpg').click();
-    await waitFor(() => previewDialog() !== null, 2000, 'preview window');
-    expect(live.revoked).toEqual(live.created.slice(0, 2));
-    previewDialog()!.close();
-    await waitFor(() => previewDialog() === null, 2000, 'window removed');
-    // Leaving the review stops and releases the audio.
-    await userEvent.click(previewButton(AUDIO));
-    await waitFor(() => pressed(AUDIO) === 'true', 5000, 'playing before leaving');
-    const playing = live.created.at(-1)!;
-    $<HTMLFormElement>('form.options').requestSubmit();
-    previews.plans.resolve(planOf());
-    await waitFor(() => app.currentView === 'plan', 2000);
-    expect(live.revoked).toContain(playing);
-    expect(live.revoked).toHaveLength(live.created.length);
-  });
-
-  it('says when the audio cannot be played, and offers to try again', async () => {
-    previews.answer = () => Promise.resolve(new Blob(['not audio'], { type: 'audio/mpeg' }));
-    const failed = 'Cannot show audio/"voz" 1.mp3. ';
-    await userEvent.click(previewButton(AUDIO));
-    await waitFor(() => $('[role="status"]').textContent === failed, 5000, 'failure');
-    // Nothing plays: the button offers to play again and the file is released.
-    await waitFor(() => previewButton(AUDIO).getAttribute('aria-pressed') === 'false', 2000, 'not pressed');
-    expect(previewButton(AUDIO).getAttribute('aria-label')).toBe('Play audio/"voz" 1.mp3');
-    expect(live.created).toHaveLength(1);
-    expect(live.revoked).toEqual(live.created);
-    // A second press reads the file again.
-    $('[role="status"]').textContent = '';
-    await userEvent.click(previewButton(AUDIO));
-    await waitFor(() => $('[role="status"]').textContent === failed, 5000, 'second failure');
-    expect(previews.previewCalls).toEqual([AUDIO, AUDIO]);
-  });
-
-  it('treats an interrupted start as a pause and keeps the current audio on a late failure', async () => {
-    const plays: ReturnType<typeof deferred<void>>[] = [];
-    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => {
-      plays.push(deferred<void>());
-      return plays.at(-1)!.promise;
-    });
-    const status = $('[role="status"]');
     previewButton(AUDIO).click();
-    await waitFor(() => plays.length === 1, 2000, 'first play');
-    previewButton('content/resources/audio/otra.wav').click();
-    await waitFor(() => plays.length === 2, 2000, 'second play');
-    // The first audio was released when the second one was chosen.
-    expect(live.revoked).toEqual([live.created[0]]);
-    // A start interrupted by a pause is not a failure: nothing is said or released.
-    plays[1]!.reject(new DOMException('The play() request was interrupted by a call to pause().', 'AbortError'));
-    await settle();
-    expect(status.textContent).toBe('Review the contents');
-    expect(live.revoked).toEqual([live.created[0]]);
-    // A late failure of the first audio is reported but does not stop the second one.
-    plays[0]!.reject(new DOMException('unsupported', 'NotSupportedError'));
-    await settle();
-    expect(status.textContent).toBe('Cannot show audio/"voz" 1.mp3. ');
-    expect(live.revoked).toEqual([live.created[0]]);
-    // A refused resume of the current audio changes nothing either.
-    previewButton('content/resources/audio/otra.wav').click();
-    await waitFor(() => plays.length === 3, 2000, 'resume');
-    plays[2]!.reject(new DOMException('denied', 'NotAllowedError'));
-    await settle();
-    expect(previews.previewCalls).toHaveLength(2);
-    expect(live.revoked).toEqual([live.created[0]]);
+    await waitFor(() => previewDialog() !== null, 2000, 'preview window');
+    const dialog = previewDialog()!;
+    expect(dialog.querySelector('#preview-title')!.textContent).toBe('audio/"voz" 1.mp3');
+    const audio = dialog.querySelector<HTMLAudioElement>('audio.preview-audio')!;
+    expect(audio.controls).toBe(true);
+    expect(audio.autoplay).toBe(true);
+    expect(audio.getAttribute('src')).toBe(live.created[0]);
+    expect(dialog.querySelector('.preview-header a[download]')!.getAttribute('download')).toBe('"voz" 1.mp3');
+    const pause = vi.spyOn(audio, 'pause');
+    dialog.close();
+    await waitFor(() => previewDialog() === null, 2000, 'window removed');
+    expect(pause).toHaveBeenCalled();
+    expect(audio.hasAttribute('src')).toBe(false);
+    expect(live.revoked).toEqual(live.created);
+  });
+
+  it('shows the pages of a PDF, drawn by pdf.js', async () => {
+    const pdf = new Blob([craftPdf({ pages: 2 }) as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+    previews.answer = () => Promise.resolve(pdf);
+    previewButton('content/resources/docs/guia.pdf').click();
+    await waitFor(() => previewDialog() !== null, 2000, 'preview window');
+    const dialog = previewDialog()!;
+    expect(dialog.querySelector('.preview-header p')!.textContent).toBe('12 pages · 29.3 KB');
+    await waitFor(() => dialog.querySelector('.pdf-view [aria-live]')!.textContent === 'Page 1 of 2', 10_000, 'first page');
+    const canvas = dialog.querySelector<HTMLCanvasElement>('canvas.preview-pdf')!;
+    expect(canvas.width).toBeGreaterThan(0);
+    const [prev, next] = [...dialog.querySelectorAll<HTMLButtonElement>('.pdf-view button')];
+    expect(prev!.disabled).toBe(true);
+    next!.click();
+    await waitFor(() => dialog.querySelector('.pdf-view [aria-live]')!.textContent === 'Page 2 of 2', 5000, 'second page');
+    expect(next!.disabled).toBe(true);
+    prev!.click();
+    await waitFor(() => dialog.querySelector('.pdf-view [aria-live]')!.textContent === 'Page 1 of 2', 5000, 'back');
+    dialog.close();
+    await waitFor(() => previewDialog() === null, 2000, 'window removed');
+    expect(live.revoked).toEqual(live.created);
   });
 
   it('drops a preview that arrives after leaving the review', async () => {
     const pending = deferred<Blob>();
     previews.answer = () => pending.promise;
     previewButton(AUDIO).click();
-    $<HTMLFormElement>('form.options').requestSubmit();
     previews.plans.resolve(planOf());
-    await waitFor(() => app.currentView === 'plan', 2000);
+    await waitFor(() => !optimizeButton().disabled, 2000, 'planned');
+    optimizeButton().click();
+    await waitFor(() => app.currentView === 'running', 2000, 'running');
     pending.resolve(silentWav());
     await settle();
     await new Promise((r) => setTimeout(r, 200));
-    // Nothing plays behind the plan and nothing is left allocated.
+    // Nothing plays while optimizing and nothing is left allocated.
     expect(live.created).toEqual([]);
     expect(previewDialog()).toBeNull();
   });
@@ -2194,16 +2192,16 @@ describe('resource previews', () => {
     const first = deferred<Blob>();
     const second = deferred<Blob>();
     previews.answer = (path) => (path === AUDIO ? first.promise : second.promise);
-    await userEvent.click(previewButton(AUDIO));
-    await userEvent.click(previewButton('content/resources/audio/otra.wav'));
+    previewButton(AUDIO).click();
+    previewButton('content/resources/audio/otra.wav').click();
     second.resolve(silentWav());
-    await waitFor(() => previewButton('content/resources/audio/otra.wav').getAttribute('aria-pressed') === 'true', 5000, 'second audio');
+    await waitFor(() => previewDialog() !== null, 2000, 'second window');
     first.resolve(silentWav());
     await new Promise((r) => setTimeout(r, 200));
-    // The earlier answer does not start a second, unstoppable player.
-    expect(previewButton(AUDIO).getAttribute('aria-pressed')).toBe('false');
-    expect(previewButton('content/resources/audio/otra.wav').getAttribute('aria-pressed')).toBe('true');
-    expect(live.created.length - live.revoked.length).toBe(1);
+    // The earlier answer opens nothing and allocates nothing.
+    expect($$('dialog.preview-dialog')).toHaveLength(1);
+    expect(previewDialog()!.querySelector('#preview-title')!.textContent).toBe('audio/otra.wav');
+    expect(live.created).toHaveLength(1);
   });
 });
 
@@ -2256,8 +2254,8 @@ describe('project thumbnail', () => {
 
   it('points to the current thumbnail, regenerates it from the first page and can discard the new one', async () => {
     await toReview(analysisResult({ entries: WITH_PAGE }));
-    expect(text($('.screenshot legend'))).toBe('Project thumbnail (screenshot.png)');
-    const current = 'The project already has a thumbnail: view it from its row in the contents.';
+    expect(text($('#h-screenshot'))).toBe('Project thumbnail (screenshot.png)');
+    const current = 'The one eXeLearning shows when it opens the project. The current one can be seen in the file list.';
     expect(text($('.screenshot'))).toContain(current);
     // The current one is previewed from the contents.
     expect(root.querySelector('.preview-button[data-path="screenshot.png"]')).not.toBeNull();
@@ -2266,8 +2264,11 @@ describe('project thumbnail', () => {
     button('Regenerate from the first page').click();
     await waitFor(() => status().startsWith('New thumbnail ready'), 5000, 'regenerated');
     expect($('.screenshot img').getAttribute('alt')).toBe('New project thumbnail');
+    expect($('.screenshot-current').textContent).toBe('New thumbnail ready.');
     const options = app.readOptions($<HTMLFormElement>('form.options'));
     expect(options.screenshot).toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) as string, size: expect.any(Number) as number });
+    // A new thumbnail changes the options: they are planned again.
+    await waitFor(() => thumbs.planCalls.at(-1)?.screenshot?.sha256 === options.screenshot!.sha256, 2000, 'replanned');
 
     button('Discard the new one').click();
     expect(root.querySelector('.screenshot img')).toBeNull();
@@ -2304,7 +2305,7 @@ describe('project thumbnail', () => {
     expect(button('Regenerate from the first page').disabled).toBe(false);
   });
 
-  it('refuses a drawn thumbnail that breaks the rules, and names an added one in the plan', async () => {
+  it('refuses a drawn thumbnail that breaks the rules', async () => {
     // The page checks what the canvas produced before taking it: here an encoder gone wrong.
     const base = analysisResult({ entries: WITH_PAGE });
     await toReview(analysisResult({ entries: WITH_PAGE, package: { ...base.package!, hasScreenshot: false } }));
@@ -2315,11 +2316,8 @@ describe('project thumbnail', () => {
     await waitFor(() => status().startsWith('The thumbnail could not'), 5000, 'refused');
     expect(status()).toBe(`The thumbnail could not be prepared: larger than ${8 * 1024 * 1024} bytes`);
     spy.mockRestore();
-    const op = { id: 's', op: 'replace-screenshot', path: 'screenshot.png', size: 0, after: 2048, added: true } as PlanOperation;
-    $<HTMLFormElement>('form.options').requestSubmit();
-    thumbs.plans.resolve(planOf({ operations: [op] }));
-    await waitFor(() => app.currentView === 'plan', 2000, 'plan');
-    expect(text($('.op-replace-screenshot'))).toBe('screenshot.png (new, 2.0 KB)');
+    expect(root.querySelector('.screenshot img')).toBeNull();
+    expect(app.readOptions($<HTMLFormElement>('form.options'))).not.toHaveProperty('screenshot');
   });
 
   it('sends the new thumbnail with the plan that names it', async () => {
@@ -2327,14 +2325,11 @@ describe('project thumbnail', () => {
     await upload(await png(1280, 720));
     await waitFor(() => status().startsWith('New thumbnail ready'), 5000, 'uploaded');
     const options = app.readOptions($<HTMLFormElement>('form.options'));
-    $<HTMLFormElement>('form.options').requestSubmit();
-    expect(thumbs.planCalls.at(-1)?.screenshot).toEqual(options.screenshot);
+    await waitFor(() => thumbs.planCalls.at(-1)?.screenshot?.sha256 === options.screenshot!.sha256, 2000, 'planned');
     const op = { id: 's', op: 'replace-screenshot', path: 'screenshot.png', size: 13_917, after: options.screenshot!.size, added: false } as PlanOperation;
     thumbs.plans.resolve(planOf({ operations: [op] }));
-    await waitFor(() => app.currentView === 'plan', 2000, 'plan');
-    expect(planGroups().map(([title]) => title)).toContain('Project thumbnail');
-    expect(text($('.op-replace-screenshot'))).toMatch(/^screenshot\.png \(replaced, [\d.,]+ [kK]?B\)$/);
-    button('Optimize').click();
+    await waitFor(() => !optimizeButton().disabled, 2000, 'plan');
+    optimizeButton().click();
     await waitFor(() => thumbs.screenshots.length === 1, 2000, 'optimize');
     expect(thumbs.screenshots[0]?.size).toBe(options.screenshot!.size);
   });

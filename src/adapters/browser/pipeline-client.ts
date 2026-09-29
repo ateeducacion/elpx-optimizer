@@ -138,7 +138,7 @@ export class PipelineClient {
     return this.request((id) => ({ type: 'plan', id, options }));
   }
 
-  /** Returns an image, audio or video of the analyzed project as a typed Blob, for a local preview. */
+  /** Returns an image, audio, video or PDF of the analyzed project as a typed Blob, for a local preview. */
   async preview(path: string): Promise<Blob> {
     await this.ensureAnalyzed();
     return this.request((id) => ({ type: 'preview', id, path }));

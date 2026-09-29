@@ -220,7 +220,7 @@ do. This avoids shipping and initializing Bootstrap's JavaScript components for 
 ## D15. Previews of media only, extracted on demand
 
 Options: (a) no previews; (b) render the project's pages; (c) show individual images, audio and
-video. (b) would render and run project HTML and JavaScript, which the app never does. Chosen (c):
+video (and, later, PDFs drawn by PDF.js into a canvas: D24). (b) would render and run project HTML and JavaScript, which the app never does. Chosen (c):
 the page asks the pipeline worker for one entry; the worker returns a Blob typed with the entry's
 MIME type (a zero-copy slice of the input File when the entry is stored, as media usually are;
 inflated up to 256 MiB otherwise). The page shows it through a `blob:` URL in an `<img>`, `<video>`
@@ -410,3 +410,33 @@ The same image is also published on Docker Hub as `ateeducacion/elpx-optimizer`,
 finds it without a registry prefix. It is not built twice: the release copies the multi-platform
 image from GHCR with `docker buildx imagetools create` (tested by hand: amd64 and arm64 copied in
 16 seconds), and only when the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets exist.
+
+## D24. Three steps, findings in plain words, a plan made on every change
+
+The web app had four steps: the review with the options, a confirmation of the plan, the progress
+and the result. The review showed technical diagnostics (codes, JSON paths, `{{context_path}}`
+references) and a long options panel; the plan step repeated what the options already said. Now
+there are three steps (Project, Optimize, Download):
+
+- The findings are cards in plain words, each with its switch and what it saves; a missing file is
+  named once however many forms reference it (editable, published, search index). The technical
+  findings stay one click away, in a side panel; the files and the advanced options are folded
+  sections of the same form.
+- The plan is made again whenever an option changes: planning encodes nothing and takes
+  milliseconds, so the estimated result shown next to the button is the core's estimate, and the
+  button runs that exact plan (the worker keeps only its last plan, so a plan overtaken by a newer
+  request is made again before running). What is left as is and the risk notes, formerly on the plan
+  step, are folded under the estimate.
+- The result says what changed in sentences built from the report; the per-file list and the JSON
+  report remain.
+
+Nothing changes in the core, the CLI or the options: the form's fields keep their names, so the same
+`OptionsInput` reaches the planner.
+
+Later changes to the same screen: the recompress card has its own switch and holds the project's
+files (folded), which is where they matter; every card unfolds to the files it concerns (what is
+renamed and to what, what is removed, merged or moved); removing unused files is on by default in the
+web app, and files it removes leave the list of files to recompress. A file named `favicon.*` is
+always protected, since sites and themes find it by its name without a reference. Every preview opens
+in a dialog, audio included (the inline player is gone), and PDFs are previewed with PDF.js drawing
+into a canvas, loaded only for that.

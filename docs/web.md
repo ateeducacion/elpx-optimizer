@@ -8,8 +8,8 @@ computer still processes the files in that visitor's browser.
 
 ## Flow
 
-A stepper at the top shows the four steps: Project, Options, Plan, Result (Proyecto, Opciones,
-Plan, Resultado in Spanish; the language follows the browser, Spanish by default).
+A stepper at the top shows three steps: Project, Optimize, Download (Proyecto, Optimizar, Descargar
+in Spanish; the language follows the browser, Spanish by default).
 
 1. **Project.** Drop an `.elpx` on the page or choose it with the file button (keyboard: Tab to the
    button, Enter). The pipeline worker reads the file locally (ranged `Blob` slices, never the whole
@@ -17,26 +17,33 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
    separate status line shows the engine loading, about 32 MB the first time) and probes them with
    ffprobe.wasm. If it has PDFs, it inspects them (pages, encryption, signatures) with qpdf
    (WebAssembly, 1.3 MB, in its own worker).
-2. **Options.** On the left, the review: title, variant, pages and size; a size breakdown (video,
-   images, audio, other); a notice when files sit in eXeLearning 3 folders or when references point
-   to files that do not exist; issues with their location; and a sortable inventory with video,
-   audio, image and PDF properties (a PDF shows its page count and whether it is encrypted, signed
-   or PDF/A-1), usage, a preview button (not for PDFs) and a checkbox per resource to keep it as
-   original. On the right, the options: preset (Conservador/Conservative, Equilibrado/Balanced,
-   Máximo/Maximum, which is the `aggressive` preset); maximum image size (by level, 1280, 1600,
-   1920, 2560 px or no limit); clean-up switches: remove unused files, merge duplicates, clean file
-   names (on by default, with the number of files that would be renamed and one example) and, only
-   when the project needs them, "flatten eXeLearning 3 folders" and "remove broken references"; all
-   but clean names are off by default; advanced video, audio, image and PDF settings (the PDF ones are
-   "Optimize PDFs" / "Optimizar PDF", on by default, and "PDFs lossless only" / "PDF solo sin
-   pérdida"); single/multi-thread FFmpeg.
-3. **Plan.** The exact operations (grouped by type, including moves, clean names, audio conversions
-   and removed references), what stays unchanged and why, risks, and an estimate labelled as such.
-4. **Result.** While optimizing: real progress from the engines (engine load, extraction, processed
+2. **Optimize.** One form (decisions D24):
+   - On the left, the project (title, file, size, pages, files and variant, with a size breakdown)
+     and **what will be done**, in plain words: one card per finding, with its switch, what it saves
+     and, folded underneath, the files it concerns. Recompress media (what the level recompresses,
+     counted from the plan; its files are the project's table, each with a round button to open it
+     and a switch to keep it as it is; files being removed leave it), remove unused files, merge
+     repeated files (each group), clean file names (each name and the new one; the switch cannot be
+     changed when the names are already clean) and, only when the project needs them, tidy eXeLearning
+     3 folders (each file and where it goes) and remove references to missing files (each missing file,
+     named once however many forms reference it, with the number of places). Recompressing, removing
+     unused files and clean names are on by default; the CLI changes nothing unless asked.
+   - Then the project thumbnail (redraw or upload), the **advanced options** (folded: video, images
+     including the maximum size, audio, PDFs and single/multi-thread FFmpeg; each field left empty uses
+     the level's value, shown as its placeholder) and a link to the **technical findings** in a side
+     panel.
+   - On the right (on narrow screens right after the project, with a bar that keeps the button at
+     the bottom of the screen): the level (Conservador/Conservative, Equilibrado/Balanced,
+     Máximo/Maximum, the `aggressive` preset, each saying what it does to video, images and audio),
+     the **estimated result** and **Optimize project**. Every change of an option makes the plan
+     again (planning encodes nothing): the estimate, what is left as is and why, and the risk notes
+     are the core's, and the button runs exactly that plan.
+3. **Download.** While optimizing: real progress from the engines (engine load, extraction, processed
    video or audio time, image and PDF optimization, validation, packaging, verification;
    indeterminate when a fraction is not reliable, never 100 % before the final validation), with
-   Cancel always available. Then: measured
-   sizes, applied/discarded/failed operations, download of `name_optimized.elpx` and of the JSON
+   Cancel always available. Then the measured saving, a download of `name_optimized.elpx`, **what
+   changed** in plain words (lighter files per kind with what they saved, files left as they were,
+   clean-ups, the checks that passed), the details of each file (folded) and the technical JSON
    report. "Optimize another project" releases the downloads (Object URLs revoked).
 
 ## Interface
@@ -48,18 +55,19 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
 - Dark mode follows the system setting (`prefers-color-scheme`, applied through `data-bs-theme`)
   until the sun/moon button in the header is used; that choice is remembered in the browser
   (`localStorage`, `src/web/theme.ts`).
-- Previews: images and videos open in a dialog (with a button to download that file), audio plays
-  and pauses inline from its row. The worker extracts only that entry (a zero-copy slice for stored
-  entries) and the page shows it through a `blob:` URL; the project's HTML and JavaScript are still
-  never rendered (D15).
+- Previews: images, videos, audio (with its player) and PDFs open in a dialog, with a button to
+  download that file. The worker extracts only that entry (a zero-copy slice for stored entries) and
+  the page shows it through a `blob:` URL. PDFs are drawn page by page into a canvas by PDF.js, loaded
+  only then (its worker is served by the site; the document's scripts, forms and XFA are not run).
+  The project's HTML and JavaScript are still never rendered (D15).
 - Project thumbnail: the options can replace `screenshot.png` (or add one), either redrawn from the
   first page, as eXeLearning does, or from an image the user chooses (16:9, at least 600 px wide, up
   to 2 MB). The page is drawn as an SVG image, with its style sheets, images and fonts inlined from
   the package, so its scripts never run and nothing is fetched (D22). The current thumbnail is
   previewed from its row in the contents.
 - Side panels (native `<dialog>` elements): licenses of the app and of every bundled component, with
-  the texts served from `licenses/` on the same site; and how to use the CLI (the Docker image first,
-  then `npx elpx-optimizer`) and the Agent Skill. The header links to `SKILL.md` on
+  the texts served from `licenses/` on the same site; and how to use the CLI (`npx elpx-optimizer` first, then
+  the Docker image) and the Agent Skill. The header links to `SKILL.md` on
   GitHub.
 - The footer carries the ATE logo with "Hecho por el Área de Tecnología Educativa del Gobierno de
   Canarias" ("Made by the Educational Technology Area of the Government of the Canary Islands") and
