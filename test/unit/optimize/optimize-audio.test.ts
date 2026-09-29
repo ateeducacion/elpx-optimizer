@@ -9,7 +9,7 @@ import type { Analysis } from '../../../src/core/analyze/model.js';
 import type { ProgressEvent } from '../../../src/core/media/engine.js';
 import type { AudioJob } from '../../../src/core/media/audio-policy.js';
 import { parseManifest } from '../../../src/core/format/manifest.js';
-import { analyzeBytes, buildElpx, dec, elpxFixture } from '../../helpers/core-kit.js';
+import { analyzeBytes, buildElpx, dec, elpxFixture, media } from '../../helpers/core-kit.js';
 import {
   MemoryResource,
   MemoryStore,
@@ -397,5 +397,36 @@ describe('optimizeArchive: audio', () => {
       'content/resources/otro-nombre.pdf',
     ]);
     expect(r.outcome.report.validations.filter((v) => !v.ok)).toEqual([]);
+  });
+
+  it('leaves a file in its editor folder when its planned conversion does not happen, while the others move', async () => {
+    const P = '20240101120000PPPPPP';
+    const bytes = buildElpx({
+      components: [{ html: `<audio src="{{context_path}}/${P}/voz.wav"></audio><img src="{{context_path}}/${P}/foto.png">` }],
+      manifest: true,
+      files: { [`content/resources/${P}/voz.wav`]: fakeWav(50_000, 1), [`content/resources/${P}/foto.png`]: media('palette-efficient.png') },
+    });
+    const planned = await run(bytes, { flatten: 'legacy' });
+    // Planned: the recording moves out of the editor folder as voz.mp3, the image as foto.png.
+    expect(
+      planned.plan.operations.filter((o) => o.op === 'transcode-audio' || o.op === 'move-resource').map((o) => [o.op, o.path, 'to' in o ? o.to : undefined]),
+    ).toEqual([
+      ['transcode-audio', `content/resources/${P}/voz.wav`, 'content/resources/voz.mp3'],
+      ['move-resource', `content/resources/${P}/foto.png`, 'content/resources/foto.png'],
+    ]);
+    expect([...planned.files.keys()].filter((n) => n.startsWith('content/resources/'))).toEqual(['content/resources/voz.mp3', 'content/resources/foto.png']);
+    const failed = await run(bytes, { flatten: 'legacy' }, (engine) => {
+      engine.audioCandidateBytes = () => fakeMp3(90_000);
+    });
+    expect(audioResults(failed)).toEqual([[`content/resources/${P}/voz.wav`, 'reverted', 'not smaller enough (50000 → 90000 bytes)']]);
+    // Only the planned move of the image happens; the recording stays where it was, with its references.
+    expect(failed.outcome.report.operations.filter((o) => o.op === 'move-resource').map((o) => o.path)).toEqual([`content/resources/${P}/foto.png`]);
+    expect([...failed.files.keys()].filter((n) => n.startsWith('content/resources/'))).toEqual([
+      `content/resources/${P}/voz.wav`,
+      'content/resources/foto.png',
+    ]);
+    expect(text(failed, 'content.xml')).toContain(`<audio src="{{context_path}}/${P}/voz.wav"></audio><img src="${R}/foto.png">`);
+    expect(failed.outcome.report.status).toBe('optimized');
+    expect(failed.outcome.report.validations.filter((v) => !v.ok)).toEqual([]);
   });
 });
