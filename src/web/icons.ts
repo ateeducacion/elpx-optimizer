@@ -36,6 +36,8 @@ import pencilSquare from 'bootstrap-icons/icons/pencil-square.svg?raw';
 import shieldLock from 'bootstrap-icons/icons/shield-lock.svg?raw';
 import feather from 'bootstrap-icons/icons/feather.svg?raw';
 import translate from 'bootstrap-icons/icons/translate.svg?raw';
+import sun from 'bootstrap-icons/icons/sun.svg?raw';
+import moonStars from 'bootstrap-icons/icons/moon-stars.svg?raw';
 import trash3 from 'bootstrap-icons/icons/trash3.svg?raw';
 import xCircleFill from 'bootstrap-icons/icons/x-circle-fill.svg?raw';
 
@@ -73,6 +75,8 @@ const SOURCES = {
   'shield-lock': shieldLock,
   feather,
   translate,
+  sun,
+  'moon-stars': moonStars,
   trash3,
   'x-circle-fill': xCircleFill,
 } as const;

@@ -45,7 +45,9 @@ Plan, Resultado in Spanish; the language follows the browser, Spanish by default
   the indigo of the Área de Tecnología Educativa (ATE) as primary colour and the Atkinson
   Hyperlegible font. Icons are Bootstrap Icons 1.13.1, bundled as SVG text. Nothing is loaded from a
   CDN and the Content-Security-Policy is the same as before (see [decisions](decisions.md) D13).
-- Dark mode follows the system setting (`prefers-color-scheme`, applied through `data-bs-theme`).
+- Dark mode follows the system setting (`prefers-color-scheme`, applied through `data-bs-theme`)
+  until the sun/moon button in the header is used; that choice is remembered in the browser
+  (`localStorage`, `src/web/theme.ts`).
 - Previews: images and videos open in a dialog (with a button to download that file), audio plays
   and pauses inline from its row. The worker extracts only that entry (a zero-copy slice for stored
   entries) and the page shows it through a `blob:` URL; the project's HTML and JavaScript are still

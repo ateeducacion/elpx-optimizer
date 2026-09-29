@@ -18,6 +18,7 @@ import { TOOL_VERSION } from '../core/version.js';
 import { screenshotProblem } from '../core/format/screenshot.js';
 import { sha256Hex } from '../core/io/hash.js';
 import { renderFirstPage, ScreenshotError, thumbnailFromImage } from './screenshot.js';
+import { chooseTheme } from './theme.js';
 
 /** What the UI needs from the pipeline (the real client or a test double). */
 export interface PipelineApi {
@@ -115,6 +116,7 @@ export class App {
   private threading: ThreadingPreference;
   private cancelling = false;
   private objectUrls: string[] = [];
+  private themeObserver: MutationObserver | undefined;
   /** The new screenshot.png chosen in the options. */
   private screenshot: { readonly blob: Blob; readonly url: string; readonly sha256: string; readonly size: number } | undefined;
   private readonly main: HTMLElement;
@@ -205,8 +207,9 @@ export class App {
               onclick: () => this.switchLanguage(),
             },
             icon('translate'),
-            this.t('language'),
+            h('span', { className: 'd-none d-sm-inline' }, this.t('language')),
           ),
+          this.themeButton(),
         ),
       ),
     );
@@ -419,6 +422,29 @@ export class App {
       icon('clipboard'),
     );
     return h('div', { className: 'code-block' }, h('pre', { className: 'mb-0' }, h('code', {}, code)), copy);
+  }
+
+  /** Sun or moon: switches between light and dark, and shows the scheme it switches to. */
+  private themeButton(): HTMLButtonElement {
+    const html = document.documentElement;
+    const button = h('button', {
+      type: 'button',
+      className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center theme-button',
+      onclick: () => chooseTheme(html.dataset['bsTheme'] === 'dark' ? 'light' : 'dark'),
+    });
+    const paint = (): void => {
+      const dark = html.dataset['bsTheme'] === 'dark';
+      const label = this.t(dark ? 'themeLight' : 'themeDark');
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      replace(button, icon(dark ? 'sun' : 'moon-stars'));
+    };
+    paint();
+    // Repaints for the button and for system changes followed by main.ts; one observer per page.
+    this.themeObserver?.disconnect();
+    this.themeObserver = new MutationObserver(paint);
+    this.themeObserver.observe(html, { attributes: true, attributeFilter: ['data-bs-theme'] });
+    return button;
   }
 
   private switchLanguage(): void {

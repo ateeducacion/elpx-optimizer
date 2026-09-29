@@ -7,11 +7,19 @@ import { checkPlayback } from '../adapters/browser/playback.js';
 import { App } from './app.js';
 import { detectLang } from './i18n.js';
 import { readUrlSettings } from './url-settings.js';
+import { chosenTheme, type Theme } from './theme.js';
 
-/** Follows the system colour scheme with Bootstrap's data-bs-theme (exported for tests). */
-export function followColorScheme(target: HTMLElement = document.documentElement, media = window.matchMedia('(prefers-color-scheme: dark)')): void {
+/**
+ * Applies Bootstrap's data-bs-theme: the scheme chosen with the header button, or else the
+ * system's, followed while the page is open (exported for tests).
+ */
+export function followColorScheme(
+  target: HTMLElement = document.documentElement,
+  media = window.matchMedia('(prefers-color-scheme: dark)'),
+  chosen: () => Theme | undefined = chosenTheme,
+): void {
   const apply = (): void => {
-    target.dataset['bsTheme'] = media.matches ? 'dark' : 'light';
+    target.dataset['bsTheme'] = chosen() ?? (media.matches ? 'dark' : 'light');
   };
   apply();
   media.addEventListener('change', apply);

@@ -484,6 +484,37 @@ describe('App shell', () => {
     expect($('#h-step2').textContent).toBe('Review the contents');
   });
 
+  it('switches between light and dark with a sun or moon button, remembered in this browser', async () => {
+    const html = document.documentElement;
+    const previous = html.dataset['bsTheme'];
+    try {
+      html.dataset['bsTheme'] = 'light';
+      root.replaceChildren();
+      app = new App(root, pipeline, 'en', urls);
+      app.mount();
+      const theme = (): HTMLButtonElement => $<HTMLButtonElement>('header .theme-button');
+      expect(theme().getAttribute('aria-label')).toBe('Switch to dark mode');
+      expect(theme().title).toBe('Switch to dark mode');
+      expect(theme().querySelector('svg')!.outerHTML).toBe(icon('moon-stars').outerHTML);
+      theme().click();
+      expect(html.dataset['bsTheme']).toBe('dark');
+      expect(localStorage.getItem('elpx-optimizer-theme')).toBe('dark');
+      await waitFor(() => theme().getAttribute('aria-label') === 'Switch to light mode', 2000, 'repainted');
+      expect(theme().querySelector('svg')!.outerHTML).toBe(icon('sun').outerHTML);
+      // In the other language, and after a change made elsewhere (the system scheme, followed by main.ts).
+      languageButton().click();
+      expect(theme().getAttribute('aria-label')).toBe('Cambiar a modo claro');
+      html.dataset['bsTheme'] = 'light';
+      await waitFor(() => theme().getAttribute('aria-label') === 'Cambiar a modo oscuro', 2000, 'followed');
+      theme().click();
+      expect(localStorage.getItem('elpx-optimizer-theme')).toBe('dark');
+    } finally {
+      localStorage.removeItem('elpx-optimizer-theme');
+      if (previous === undefined) delete html.dataset['bsTheme'];
+      else html.dataset['bsTheme'] = previous;
+    }
+  });
+
   it('shows the video engine status', () => {
     const line = $('.engine-line');
     expect(line.textContent).toBe('Video engine: loaded when needed.');

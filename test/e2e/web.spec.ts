@@ -292,11 +292,14 @@ test('rejects a legacy .elp with a concrete message', async ({ page }) => {
 });
 
 test('is usable with the keyboard and fits a phone screen', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/');
+  // Every header control, the last one included, is within the screen.
+  const themeBox = await page.locator('header .theme-button').boundingBox();
+  expect(themeBox!.x + themeBox!.width).toBeLessThanOrEqual(360);
   // The file button is reached with Tab, right after the header controls.
   const choose = ui.chooseFile(page);
-  for (let i = 0; i < 8 && !(await choose.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab');
+  for (let i = 0; i < 10 && !(await choose.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab');
   await expect(choose).toBeFocused();
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
   await chooser.setFiles(COURSE);
@@ -353,7 +356,7 @@ test('flattens eXeLearning 3 folders and takes out broken references @cross-brow
   expect(analysis.diagnostics.filter((d) => d.severity === 'error' || d.code === 'missing-resource')).toEqual([]);
 });
 
-test('follows the system colour scheme @cross-browser', async ({ page }) => {
+test('follows the system colour scheme, unless chosen with the sun/moon button @cross-browser', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/');
   const html = page.locator('html');
@@ -363,6 +366,14 @@ test('follows the system colour scheme @cross-browser', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(html).toHaveAttribute('data-bs-theme', 'light');
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(243, 244, 248)');
+  // The sun/moon button wins over the system scheme, and is remembered after a reload.
+  await page.getByRole('button', { name: /Cambiar a modo oscuro|Switch to dark mode/ }).click();
+  await expect(html).toHaveAttribute('data-bs-theme', 'dark');
+  await page.reload();
+  await expect(html).toHaveAttribute('data-bs-theme', 'dark');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(18, 21, 31)');
+  await page.getByRole('button', { name: /Cambiar a modo claro|Switch to light mode/ }).click();
+  await expect(html).toHaveAttribute('data-bs-theme', 'light');
 });
 
 test('previews an image and a video of the project in the browser', async ({ page }) => {
