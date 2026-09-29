@@ -1,0 +1,75 @@
+{
+  "name": "elpx-optimizer",
+  "version": "0.1.0",
+  "description": "Analyze and shrink eXeLearning .elpx projects: recompress videos and images, detect missing, unused and duplicate resources. CLI, static in-browser web app and Agent Skill.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ateeducacion/elpx-optimizer.git"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "bun": ">=1.3.0"
+  },
+  "bin": {
+    "elpx-optimizer": "dist/cli/elpx-optimizer.mjs"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "bun run build:web && bun run build:cli",
+    "build:web": "vite build",
+    "build:cli": "bun scripts/build-cli.ts",
+    "serve": "bun src/cli/bin.ts serve",
+    "cli": "bun src/cli/bin.ts",
+    "typecheck": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.json && tsc -p tsconfig.web.json && tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:node": "vitest run --project node",
+    "test:browser": "vitest run --project browser",
+    "test:bun": "bun test test/bun",
+    "coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "fixtures": "node scripts/generate-media-fixtures.mjs && bun scripts/generate-elpx-fixtures.ts",
+    "skill:validate": "bun scripts/validate-skill.ts"
+  },
+  "dependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/core-mt": "0.12.10",
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "@fontsource/atkinson-hyperlegible": "5.3.0",
+    "@jsquash/jpeg": "1.6.0",
+    "@jsquash/oxipng": "2.3.0",
+    "@jsquash/png": "3.1.1",
+    "@jsquash/resize": "2.1.1",
+    "@jsquash/webp": "1.5.0",
+    "@noble/hashes": "2.4.0",
+    "bootstrap": "5.3.8",
+    "bootstrap-icons": "1.13.1",
+    "entities": "8.1.0",
+    "fflate": "0.8.3",
+    "parse5": "8.0.1",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/bun": "1.4.2",
+    "@types/node": "26.6.3",
+    "@vitest/browser": "4.1.11",
+    "@vitest/browser-playwright": "4.1.11",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "10.11.0",
+    "globals": "17.12.0",
+    "playwright": "1.63.0",
+    "prettier": "3.9.9",
+    "sass": "1.105.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0",
+    "vite": "8.3.1",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.4.0
+  NODE_VERSION: 24
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - run: bun install --frozen-lockfile
+      - run: npx eslint .
+      - run: npx prettier --check .
+      - run: bun run typecheck
+
+  test:
+    name: Tests and coverage (Node + Chromium, native ffmpeg)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: bun install --frozen-lockfile
+      - run: npx playwright install --with-deps chromium
+      - name: Coverage (fails under 90% lines/statements/functions/branches)
+        run: npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+      - name: Bun runtime tests
+        run: bun test test/bun
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-and-test-reports
+          path: |
+            coverage/
+            test-results/junit.xml
+
+  build:
+    name: Build and test packaged distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: bun install --frozen-lockfile
+      - run: make build
+      - name: Package artifacts
+        run: |
+          (cd dist/cli && npm pack --pack-destination ..)
+          (cd dist/skill && zip -qr ../elpx-optimizer-skill.zip elpx-optimizer)
+          tar -C dist -czf dist/elpx-optimizer-web.tar.gz web
+      - name: CLI from a clean directory (npm install of the packed tarball)
+        run: |
+          CLEAN=$(mktemp -d "/tmp/clean cli XXXX")
+          cp dist/elpx-optimizer-cli-*.tgz "$CLEAN/"
+          cp test/fixtures/elpx/course-video.elpx "$CLEAN/mi curso.elpx"
+          cd "$CLEAN"
+          npm init -y > /dev/null && npm install --no-audit --no-fund ./elpx-optimizer-cli-*.tgz
+          npx elpx-optimizer doctor
+          npx elpx-optimizer inspect "mi curso.elpx" --json > inspect.json
+          npx elpx-optimizer optimize "mi curso.elpx" --remove-unused safe --deduplicate exact --json > report.json
+          node -e "const r=require('./report.json'); if (r.status!=='optimized' || r.sizes.saved<=0) process.exit(1)"
+          npx elpx-optimizer validate "mi curso_optimized.elpx"
+      - name: Skill from a clean directory outside the repository
+        run: |
+          CLEAN=$(mktemp -d "/tmp/clean skill XXXX")
+          cp -R dist/skill/elpx-optimizer "$CLEAN/"
+          (cd "$CLEAN/elpx-optimizer/vendor" && npm install --no-audit --no-fund)
+          cp test/fixtures/elpx/course-video.elpx "$CLEAN/curso con espacios.elpx"
+          cd /tmp
+          node "$CLEAN/elpx-optimizer/scripts/run.mjs" inspect "$CLEAN/curso con espacios.elpx" --json > /dev/null
+          node "$CLEAN/elpx-optimizer/scripts/run.mjs" optimize "$CLEAN/curso con espacios.elpx" --json > "$CLEAN/report.json"
+          node "$CLEAN/elpx-optimizer/scripts/run.mjs" validate "$CLEAN/curso con espacios_optimized.elpx" --json > /dev/null
+      - name: Static web build served from a clean directory
+        run: |
+          CLEAN=$(mktemp -d)
+          tar -C "$CLEAN" -xzf dist/elpx-optimizer-web.tar.gz
+          node dist/cli/elpx-optimizer.mjs serve --root "$CLEAN/web" --port 8099 &
+          sleep 2
+          curl -fsS http://127.0.0.1:8099/ | grep -q "elpx\|eXeLearning"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8099/)" = "405"
+          kill %1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: |
+            dist/elpx-optimizer-cli-*.tgz
+            dist/elpx-optimizer-skill.zip
+            dist/elpx-optimizer-web.tar.gz
+
+  skill:
+    name: Agent Skill validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install skills-ref==0.1.1
+      - run: bun scripts/validate-skill.ts
+
+  e2e:
+    name: E2E (static web app, ffmpeg.wasm in the browser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: bun install --frozen-lockfile
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: bun run build:web
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/e2e-results.json
+
+  compat:
+    name: Compatibility with eXeLearning (pinned upstream)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: bun install --frozen-lockfile
+      - run: sh scripts/fetch-upstream.sh
+      - run: bun test/compat/run-compat.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compat-reports
+          path: test-results/compat/
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target web -t elpx-optimizer-web .
+      - run: docker build --target cli -t elpx-optimizer-cli .
+      - name: Web image serves static files only
+        run: |
+          docker run -d --rm --name web -p 8080:8080 --read-only --tmpfs /tmp --tmpfs /var/cache/nginx elpx-optimizer-web
+          sleep 3
+          curl -fsS http://127.0.0.1:8080/ > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/)" = "403"
+          curl -sI http://127.0.0.1:8080/ | grep -qi "x-content-type-options"
+          docker stop web
+      - name: CLI image optimizes a project
+        run: |
+          # The image runs as a non-root user: run it as the runner's user so it can write to the mounted folder.
+          docker run --rm --user "$(id -u):$(id -g)" --memory 2g --cpus 2 --pids-limit 256 -v "$PWD/test/fixtures/elpx:/in:ro" -v "$RUNNER_TEMP:/work" elpx-optimizer-cli optimize "/in/course-video.elpx" --output /work/out.elpx --json > report.json
+          node -e "const r=require('./report.json'); if (r.status!=='optimized') process.exit(1)"
