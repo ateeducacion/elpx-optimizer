@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.cache/
+.tools/
+.spike/
+*.log
+.DS_Store
+/tmp/
+coverage-*/
+*.tgz

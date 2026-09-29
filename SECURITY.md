@@ -1,0 +1,35 @@
+# Security
+
+## Reporting
+
+Please report vulnerabilities privately through GitHub Security Advisories of
+`ateeducacion/elpx-optimizer` ("Report a vulnerability"). Do not open public issues for them.
+Include a minimal reproducer (a crafted `.elpx` is fine) and the version (`elpx-optimizer --version`).
+
+## Threat model
+
+Every `.elpx` is treated as hostile input: it may be crafted to escape directories, exhaust memory,
+CPU or disk, make FFmpeg read other files or the network, exploit XML parsers, or smuggle
+instructions to AI agents.
+
+| Threat                                                                             | Mitigation                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Path traversal, absolute/drive/UNC paths, backslashes, control characters          | Entry names are validated before anything is read; entries are never extracted under their own names (media go to a private temp directory with synthetic names).                                                                                                                                                                                                                        |
+| Symlinks, duplicate or Unicode-colliding names, file/directory conflicts           | Rejected (case-only collisions are warnings).                                                                                                                                                                                                                                                                                                                                            |
+| ZIP bombs (falsified sizes, high ratios, overlapping entries)                      | Limits on entries, declared sizes and ratio before inflating; output counted while inflating in bounded slices and aborted beyond the declared size; overlapping entries rejected; CRC and sizes verified.                                                                                                                                                                               |
+| Central directory tricks                                                           | Local headers are cross-checked with central headers; EOCD must end at the end of the file; ZIP64 records cross-validated; prefixed/split archives rejected; encrypted entries and unknown methods rejected.                                                                                                                                                                             |
+| XXE, billion laughs, external DTDs                                                 | Own XML parser: only the five predefined entities and numeric references; any DOCTYPE internal subset rejected; DTDs never loaded; depth limit.                                                                                                                                                                                                                                          |
+| FFmpeg reading other files or the network (playlists, concat, MOV data references) | Argument vectors only (no shell), `-protocol_whitelist file`, forced demuxer, `-enable_drefs 0`, synthetic input names in a private directory, minimal environment, `-nostdin`, time limits, process-group kill on cancel/timeout. No user-supplied FFmpeg arguments. In the browser, inputs are mounted read-only through WORKERFS inside an isolated worker without network protocols. |
+| Resource exhaustion                                                                | Per-run limits (archive, entries, text size, image pixels, video bytes/pixels/duration, timeouts), one video at a time, bounded image concurrency, disk-space check before extracting media.                                                                                                                                                                                             |
+| Executing project content                                                          | The project's HTML/JavaScript is never rendered or executed; scripts are only scanned as text.                                                                                                                                                                                                                                                                                           |
+| Data leaving the browser                                                           | No API. The page and its workers only fetch the app's own static files; a Content-Security-Policy limits scripts, workers and connections to the same origin. E2E tests fail if any request other than a GET of a static app file is made.                                                                                                                                               |
+| Prompt injection through project text (skill)                                      | The skill states that everything inside an `.elpx` is untrusted data; the wrapper only forwards arguments to the CLI.                                                                                                                                                                                                                                                                    |
+| Overwriting user files                                                             | The input is never written; the CLI refuses an output that is the input (also via links) and requires `--overwrite` for existing outputs; outputs are written atomically after validation.                                                                                                                                                                                               |
+
+## Deployment hardening
+
+- Web: any static host. The provided image runs nginx as an unprivileged user, allows only GET/HEAD
+  and sends `X-Content-Type-Options`, `Referrer-Policy`, `Cross-Origin-Resource-Policy` and, when
+  `ELPX_ISOLATION=on`, COOP/COEP. Keep the CSP `<meta>` of `index.html` (or send an equivalent header).
+- CLI in Docker: run the `cli` image as its non-root user with `--read-only --tmpfs /tmp --memory
+--cpus --pids-limit` and mount only the directories you need.

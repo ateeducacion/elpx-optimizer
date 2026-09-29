@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+coverage-*
+test-results
+playwright-report
+.cache
+.tools
+.spike
+.git
+*.log
