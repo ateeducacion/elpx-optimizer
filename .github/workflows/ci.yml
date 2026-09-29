@@ -41,6 +41,9 @@ jobs:
   test:
     name: Tests and coverage (Node + Chromium, native ffmpeg)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Codecov upload with OIDC (no token secret)
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -52,6 +55,14 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Coverage (fails under 90% lines/statements/functions/branches)
         run: npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage/lcov.info
+          disable_search: true
+          use_oidc: true
+          fail_ci_if_error: false
       - name: Bun runtime tests
         run: bun test test/bun
       - uses: actions/upload-artifact@v7
