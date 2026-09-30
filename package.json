@@ -1,6 +1,6 @@
 {
   "name": "elpx-optimizer",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Analyze and shrink eXeLearning .elpx projects: recompress videos and images, detect missing, unused and duplicate resources. CLI, static in-browser web app and Agent Skill.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
