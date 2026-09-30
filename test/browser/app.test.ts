@@ -1107,7 +1107,7 @@ describe('options', () => {
       pdf: { enabled: true },
       // Removing unused files and clean names are on by default in the web app.
       removeUnused: 'safe',
-      deduplicate: 'off',
+      deduplicate: 'exact',
       flatten: 'off',
       missingReferences: 'keep',
       normalizeNames: 'slug',
@@ -1169,7 +1169,7 @@ describe('options', () => {
       pdf: { enabled: false },
       // Clean-ups without a switch keep the choice so far (on by default for unused files).
       removeUnused: 'safe',
-      deduplicate: 'off',
+      deduplicate: 'exact',
       flatten: 'off',
       missingReferences: 'keep',
       normalizeNames: 'off',
@@ -1211,7 +1211,7 @@ describe('options', () => {
     // Removing unused files starts on in the web app, merging repeated files off (as in the CLI);
     // a project without unused files does not turn the first one off for the next.
     expect($<HTMLInputElement>('input[name="removeUnused"]').checked).toBe(true);
-    expect($<HTMLInputElement>('input[name="deduplicate"]').checked).toBe(false);
+    expect($<HTMLInputElement>('input[name="deduplicate"]').checked).toBe(true);
   });
 
   it('says how many file names would be cleaned, with an example', async () => {

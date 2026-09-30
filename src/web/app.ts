@@ -113,7 +113,7 @@ export class App {
   private planTimer: ReturnType<typeof setTimeout> | undefined;
   private sort: { key: SortKey; dir: 1 | -1 } = { key: 'size', dir: -1 };
   // Clean names and removing unused files are on by default in the web app (the CLI changes nothing unless asked).
-  private options: OptionsInput = { preset: 'balanced', normalizeNames: 'slug', removeUnused: 'safe' };
+  private options: OptionsInput = { preset: 'balanced', normalizeNames: 'slug', removeUnused: 'safe', deduplicate: 'exact' };
   private threading: ThreadingPreference;
   private cancelling = false;
   private objectUrls: string[] = [];
@@ -1017,6 +1017,9 @@ export class App {
   private syncRemoved(form: HTMLFormElement): void {
     const removing = form.querySelector<HTMLInputElement>('input[name="removeUnused"]')?.checked === true;
     for (const tr of form.querySelectorAll<HTMLElement>('.inventory tr[data-unused]')) tr.hidden = removing;
+    // The table shows the names the files will have while "clean file names" is on, the original ones otherwise.
+    const clean = form.querySelector<HTMLInputElement>('input[name="normalizeNames"]')?.checked === true;
+    for (const n of form.querySelectorAll<HTMLElement>('.inventory [data-clean]')) n.textContent = clean ? n.dataset.clean! : n.dataset.original!;
   }
 
   private renderWeight(a: AnalysisResult): HTMLElement {
@@ -1178,7 +1181,7 @@ export class App {
               'span',
               { className: 'd-flex gap-2 align-items-baseline' },
               lead ?? h('span', { className: 'kind-icon preview-button text-body-secondary', 'aria-hidden': 'true' }, icon(kindIcon)),
-              this.fileName(e.path),
+              this.fileName(e.path, e.role === 'user-asset' && !e.path.startsWith('custom/')),
             ),
           ),
           h('td', {}, e.format),
@@ -1218,7 +1221,7 @@ export class App {
   }
 
   /** A file's name, with where it is underneath (eXeLearning 3 folders named by their ID's end). */
-  private fileName(path: string): HTMLElement {
+  private fileName(path: string, renamable = false): HTMLElement {
     const slash = path.lastIndexOf('/');
     const folder = path.slice(0, slash + 1);
     const legacy = LEGACY_FOLDER.exec(folder);
@@ -1233,7 +1236,16 @@ export class App {
     return h(
       'span',
       { className: 'file-name min-w-0' },
-      h('span', { className: 'd-block text-break' }, path.slice(slash + 1)),
+      h(
+        'span',
+        {
+          className: 'd-block text-break',
+          ...(renamable && cleanFileName(path.slice(slash + 1)) !== path.slice(slash + 1)
+            ? { 'data-original': path.slice(slash + 1), 'data-clean': cleanFileName(path.slice(slash + 1)) }
+            : {}),
+        },
+        path.slice(slash + 1),
+      ),
       where ? h('span', { className: 'file-where d-block small text-body-secondary text-break' }, where) : false,
     );
   }
