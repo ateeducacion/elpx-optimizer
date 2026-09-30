@@ -136,9 +136,61 @@ const STATUS_TEXT: Record<RunStatus, string> = {
   'dry-run': 'Dry run: nothing was changed',
 };
 
-/** Renders a report as plain text (used by the CLI and the skill). */
-export function renderReportText(report: OptimizationReport): string {
+/** Groups of more than this many items are one summary line in the short text output. */
+const COLLAPSE_AFTER = 3;
+
+/**
+ * Lines for a list of items. Verbose: one per item (up to `cap`). Otherwise, items of a kind that
+ * has more than COLLAPSE_AFTER of them become one line for the whole kind. `collapsed` says if any did.
+ */
+export function listLines<T>(
+  items: readonly T[],
+  kind: (item: T) => string,
+  line: (item: T) => string,
+  summary: (kind: string, group: readonly T[]) => string,
+  verbose: boolean,
+  cap = 50,
+): { lines: string[]; collapsed: boolean } {
+  if (verbose) {
+    const lines = items.slice(0, cap).map(line);
+    if (items.length > cap) lines.push(`  … ${items.length - cap} more`);
+    return { lines, collapsed: false };
+  }
+  const groups = new Map<string, T[]>();
+  for (const item of items) groups.set(kind(item), [...(groups.get(kind(item)) ?? []), item]);
   const lines: string[] = [];
+  let collapsed = false;
+  for (const [k, group] of groups) {
+    if (group.length <= COLLAPSE_AFTER) lines.push(...group.map(line));
+    else {
+      lines.push(summary(k, group));
+      collapsed = true;
+    }
+  }
+  return { lines, collapsed };
+}
+
+/** Total of a number found in each item, when every item has it. */
+export function totalOf<T>(group: readonly T[], value: (item: T) => number | undefined): number | undefined {
+  let sum = 0;
+  for (const item of group) {
+    const v = value(item);
+    if (v === undefined) return undefined;
+    sum += v;
+  }
+  return sum;
+}
+
+/** Hint printed when the short output left files out of its lists. */
+export const VERBOSE_HINT = 'Some lists are summarized: add --verbose to list every file.';
+
+/**
+ * Renders a report as plain text (used by the CLI and the skill): a summary, with every file listed
+ * only for a few of a kind, unless `verbose`. Failures are always listed.
+ */
+export function renderReportText(report: OptimizationReport, verbose = false): string {
+  const lines: string[] = [];
+  let collapsed = false;
   lines.push(`${STATUS_TEXT[report.status]}`);
   if (report.error) lines.push(`  ${report.error}`);
   lines.push(`Input:  ${report.input.name} (${formatBytes(report.input.size)}, sha256 ${report.input.sha256.slice(0, 12)}…)`);
@@ -153,16 +205,35 @@ export function renderReportText(report: OptimizationReport): string {
     const list = byStatus(status);
     if (list.length === 0) continue;
     lines.push(`${label} (${list.length}):`);
-    for (const o of list.slice(0, 50)) {
-      const sizes = o.before !== undefined && o.after !== undefined ? ` ${formatBytes(o.before)} → ${formatBytes(o.after)}` : '';
-      lines.push(`  - ${o.op} ${o.path}${sizes}${o.lossy ? ' [lossy]' : ''}${o.detail ? ` — ${o.detail}` : ''}`);
-    }
-    if (list.length > 50) lines.push(`  … ${list.length - 50} more`);
+    const out = listLines(
+      list,
+      (o) => o.op,
+      (o) => {
+        const sizes = o.before !== undefined && o.after !== undefined ? ` ${formatBytes(o.before)} → ${formatBytes(o.after)}` : '';
+        return `  - ${o.op} ${o.path}${sizes}${o.lossy ? ' [lossy]' : ''}${o.detail ? ` — ${o.detail}` : ''}`;
+      },
+      (op, group) => {
+        const before = totalOf(group, (o) => o.before);
+        const after = totalOf(group, (o) => o.after);
+        return `  - ${group.length} × ${op}${before !== undefined && after !== undefined ? ` ${formatBytes(before)} → ${formatBytes(after)}` : ''}`;
+      },
+      verbose || status === 'failed',
+    );
+    lines.push(...out.lines);
+    collapsed ||= out.collapsed;
   }
   if (report.skipped.length > 0) {
     lines.push(`Left unchanged (${report.skipped.length}):`);
-    for (const s of report.skipped.slice(0, 30)) lines.push(`  - ${s.path}: ${s.reason} (${s.detail})`);
-    if (report.skipped.length > 30) lines.push(`  … ${report.skipped.length - 30} more`);
+    const out = listLines(
+      report.skipped,
+      (s) => s.reason,
+      (s) => `  - ${s.path}: ${s.reason} (${s.detail})`,
+      (reason, group) => `  - ${group.length} × ${reason}`,
+      verbose,
+      30,
+    );
+    lines.push(...out.lines);
+    collapsed ||= out.collapsed;
   }
   const c = report.diagnostics.before.counts;
   lines.push(`Diagnostics in the input: ${c['fatal'] ?? 0} fatal, ${c['error'] ?? 0} errors, ${c['warning'] ?? 0} warnings, ${c['info'] ?? 0} info`);
@@ -171,5 +242,6 @@ export function renderReportText(report: OptimizationReport): string {
   lines.push(`Validations: ${report.validations.length - failedChecks.length}/${report.validations.length} passed`);
   for (const v of failedChecks) lines.push(`  ✗ ${v.name}: ${v.detail ?? ''}`);
   for (const r of report.risks) lines.push(`Note: ${r}`);
+  if (collapsed) lines.push(VERBOSE_HINT);
   return `${lines.join('\n')}\n`;
 }

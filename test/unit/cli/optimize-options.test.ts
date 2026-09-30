@@ -281,7 +281,7 @@ describe('renderPlan', () => {
       estimate: { savedBytes: 1536 },
       risks: ['Lossy re-encoding changes quality'],
     } as unknown as OptimizationPlan;
-    const text = renderPlan(plan);
+    const text = renderPlan(plan, true);
     expect(text).toContain('Plan for p.elpx (4.0 KiB), preset balanced, engine native\n');
     expect(text).toContain('  • transcode-video v.mp4 (2.0 KiB) [lossy]: h264 → h264\n');
     expect(text).toContain('  • recompress-image i.png (1.0 KiB): PNG recompressed losslessly; metadata kept\n');
@@ -293,6 +293,35 @@ describe('renderPlan', () => {
     expect(text.match(/ {2}- s\d+\.png: already-efficient \(fine\)/g)).toHaveLength(40);
     expect(text).toContain('Estimated saving (estimate, not measured): 1.5 KiB\n');
     expect(text).toMatch(/Note: Lossy re-encoding changes quality\n$/);
+  });
+
+  it('summarizes kinds with many files, and lists every file with verbose', () => {
+    const image = (i: number): unknown => ({
+      op: 'recompress-image',
+      path: `i${i}.png`,
+      size: 1024,
+      lossy: false,
+      conversions: ['PNG recompressed losslessly'],
+    });
+    const plan = {
+      input: { name: 'p.elpx', size: 1 },
+      options: { preset: 'balanced' },
+      engine: { engine: 'native' },
+      operations: [...Array.from({ length: 5 }, (_, i) => image(i)), { op: 'remove-unused', path: 'u.png', size: 10, reason: 'no references' }],
+      skipped: Array.from({ length: 4 }, (_, i) => ({ path: `s${i}.png`, reason: 'already-efficient', detail: 'fine' })),
+      estimate: { savedBytes: 0 },
+      risks: [],
+    } as unknown as OptimizationPlan;
+    const short = renderPlan(plan);
+    expect(short).toContain('  • 5 × recompress-image (5.0 KiB)\n');
+    expect(short).toContain('  • remove u.png (10 B): no references\n');
+    expect(short).toContain('  - 4 × already-efficient\n');
+    expect(short).not.toContain('i0.png');
+    expect(short).toContain('add --verbose to list every file');
+    const full = renderPlan(plan, true);
+    expect(full).toContain('  • recompress-image i0.png (1.0 KiB)');
+    expect(full).toContain('  - s3.png: already-efficient (fine)');
+    expect(full).not.toContain('--verbose');
   });
 
   it('omits the unchanged list when nothing was skipped', () => {

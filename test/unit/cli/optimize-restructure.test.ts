@@ -57,7 +57,7 @@ describe('optimize --flatten / --missing-references', () => {
     expect(plan.options).toMatchObject({ flatten: 'legacy', missingReferences: 'remove' });
     expect(plan.operations.filter((o) => o.op === 'move-resource')).toHaveLength(5);
     expect(plan.operations.filter((o) => o.op === 'remove-missing-reference')).toHaveLength(3);
-    const text = await runCli(['optimize', LEGACY, '--dry-run', '--quiet', '--flatten', 'legacy', '--missing-references', 'remove']);
+    const text = await runCli(['optimize', LEGACY, '--dry-run', '--quiet', '--verbose', '--flatten', 'legacy', '--missing-references', 'remove']);
     expect(text.code).toBe(EXIT.SUCCESS);
     expect(text.stdout).toContain(`  • move ${A}/foto.jpg → content/resources/foto.jpg (5 references rewritten)\n`);
     expect(text.stdout).toContain('  • take out 3 references to missing content/resources/fondo-perdido.png (in content.xml, index.html, search_index.js)\n');

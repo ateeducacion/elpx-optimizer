@@ -111,6 +111,28 @@ describe('buildReport', () => {
 });
 
 describe('renderReportText', () => {
+  it('summarizes long lists unless verbose, and always lists failures', async () => {
+    const a = await analyzeBytes(buildElpx({ components: [{ html: `<img src="${R}/nada.png">` }] }));
+    const op = (i: number, status: OperationResult['status']): OperationResult => ({
+      id: `o${i}`,
+      op: 'recompress-image',
+      path: `content/resources/i${i}.png`,
+      status,
+      before: 2048,
+      after: 1024,
+    });
+    const ops = [...Array.from({ length: 5 }, (_, i) => op(i, 'applied')), ...Array.from({ length: 4 }, (_, i) => op(i + 10, 'failed'))];
+    const report = buildReport({ status: 'partial', plan: undefined, engineInfo: undefined, analysis: a, results: ops, validations: [] });
+    const short = renderReportText(report);
+    expect(short).toContain('Applied (5):\n  - 5 × recompress-image 10.0 KiB → 5.0 KiB\n');
+    // Failures are never folded away.
+    expect(short).toContain('content/resources/i13.png');
+    expect(short).toContain('add --verbose to list every file');
+    const full = renderReportText(report, true);
+    expect(full).toContain('  - recompress-image content/resources/i0.png 2.0 KiB → 1.0 KiB');
+    expect(full).not.toContain('--verbose');
+  });
+
   it('renders every section, truncating long lists', async () => {
     const a = await analyzeBytes(buildElpx({ components: [{ html: `<img src="${R}/nada.png">` }] }));
     const ops: OperationResult[] = [
@@ -147,7 +169,7 @@ describe('renderReportText', () => {
       risks: ['Some media will be downscaled.'],
       diagnostics: { ...base.diagnostics, introduced: [diagnostic('missing-resource', 'x')] },
     };
-    const text = renderReportText(report);
+    const text = renderReportText(report, true);
     const lines = text.split('\n');
     expect(lines[0]).toBe('Optimized with some operations failed (originals kept for those)');
     expect(lines[1]).toBe('  partial failure');

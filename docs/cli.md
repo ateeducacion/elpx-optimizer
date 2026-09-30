@@ -16,6 +16,10 @@ Global options: `--json` (exactly one JSON document on stdout, nothing else), `-
 progress on stderr), `--help`/`-h`, `--version`/`-v`. Progress, messages and errors always go to
 stderr; binary data is never written to stdout. `<command> --help` lists every option.
 
+`optimize` prints a short summary as text: kinds of operation with more than three files (and
+skipped resources, grouped by reason) become one line each. `--verbose` lists every file, as the
+output did before; failures are always listed, and `--json` and the report file are unchanged.
+
 ## Examples
 
 ```bash

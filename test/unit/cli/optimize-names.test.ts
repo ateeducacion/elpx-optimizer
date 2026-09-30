@@ -57,7 +57,7 @@ describe('optimize --normalize-names / --preset maximum', () => {
     const off = singleJson<{ plan: OptimizationPlan }>((await runCli(args)).stdout).plan;
     expect(off.options.normalizeNames).toBe('off');
     expect(off.operations.some((o) => o.op === 'rename-resource')).toBe(false);
-    const text = await runCli(['optimize', COURSE, '--dry-run', '--quiet', '--no-video', '--no-images', '--normalize-names', 'slug']);
+    const text = await runCli(['optimize', COURSE, '--dry-run', '--quiet', '--verbose', '--no-video', '--no-images', '--normalize-names', 'slug']);
     expect(text.stdout).toContain('  • rename content/resources/media/clase 1.mp4 → content/resources/media/clase-1.mp4 (11 references rewritten)\n');
     expect(text.stdout).toContain('Note: Files get clean names (lower case, no spaces, accents or copy markers) and their references are rewritten.\n');
   });

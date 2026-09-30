@@ -62,7 +62,7 @@ describe('optimize: audio flags', () => {
       ['content/resources/audio/musica.flac', 'content/resources/audio/musica.mp3', 80],
       ['content/resources/audio/pista.aiff', 'content/resources/audio/pista.mp3', 80],
     ]);
-    const text = await runCli(['optimize', AUDIO, '--dry-run', '--quiet', '--no-images']);
+    const text = await runCli(['optimize', AUDIO, '--dry-run', '--quiet', '--verbose', '--no-images']);
     expect(text.stdout).toContain(
       '  • transcode-audio content/resources/audio/lectura.wav → content/resources/audio/lectura.mp3 (516.9 KiB) [lossy]: WAV (pcm_s16le) converted to MP3 at 128 kb/s (lossy); the file is renamed to .mp3\n',
     );
