@@ -46,6 +46,8 @@ async function waitForReview(page: Page): Promise<void> {
 async function keepFileNames(page: Page): Promise<void> {
   await expect(ui.cleanNames(page)).toBeChecked();
   await ui.cleanNames(page).uncheck();
+  // Merging repeated files is on by default too; tests that expect the project untouched turn it off.
+  if (await ui.deduplicate(page).count()) await ui.deduplicate(page).uncheck();
 }
 
 type OutputInfo = { outputPath: (n: string) => string };
@@ -73,7 +75,7 @@ test('recompresses the video in the browser: single-thread, no isolation, no upl
   expect(env).toEqual({ isolated: false, sab: 'undefined' });
   await dropFile(page, COURSE, 'course-video.elpx');
   await waitForReview(page);
-  await expect(page.locator('.inventory')).toContainText('clase 1.mp4');
+  await expect(page.locator('.inventory')).toContainText('clase-1.mp4');
   await expect(page.locator('.inventory')).toContainText('h264 640×360');
   await expect(page.locator('.engine-line')).toContainText(/un hilo|single-thread/);
   await keepFileNames(page);
@@ -131,10 +133,10 @@ test('merges duplicates and removes unused files with rewritten references', asy
   await page.goto('/');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
-  // Removing unused files is on by default in the web app; merging repeated files is not.
+  // Removing unused files and merging repeated ones are on by default in the web app.
   await expect(ui.removeUnused(page)).toBeChecked();
-  await ui.deduplicate(page).check();
   await keepFileNames(page);
+  await ui.deduplicate(page).check();
   const { path } = await planRunDownload(page, testInfo);
   const analysis = await analyzeFile(path);
   const names = analysis.entries.map((e) => e.path);
@@ -249,6 +251,8 @@ test('keeps working with the network blocked once the components are loaded', as
   await page.goto('/');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
+  // Merging repeated files would drop the PNG copy: keep it so the PNG codec is loaded before going offline.
+  await ui.deduplicate(page).uncheck();
   await planRunDownload(page, testInfo);
   // qpdf is loaded by a project with PDFs.
   await ui.another(page).click();
