@@ -46,6 +46,8 @@ async function waitForReview(page: Page): Promise<void> {
 async function keepFileNames(page: Page): Promise<void> {
   await expect(ui.cleanNames(page)).toBeChecked();
   await ui.cleanNames(page).uncheck();
+  // Merging repeated files is on by default too; tests that expect the project untouched turn it off.
+  if (await ui.deduplicate(page).count()) await ui.deduplicate(page).uncheck();
 }
 
 type OutputInfo = { outputPath: (n: string) => string };
