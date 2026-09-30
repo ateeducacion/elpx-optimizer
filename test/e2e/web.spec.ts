@@ -251,6 +251,8 @@ test('keeps working with the network blocked once the components are loaded', as
   await page.goto('/');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
+  // Merging repeated files would drop the PNG copy: keep it so the PNG codec is loaded before going offline.
+  await ui.deduplicate(page).uncheck();
   await planRunDownload(page, testInfo);
   // qpdf is loaded by a project with PDFs.
   await ui.another(page).click();
