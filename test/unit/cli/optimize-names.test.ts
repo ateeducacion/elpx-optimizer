@@ -1,3 +1,4 @@
+import { APP_DEFAULTS } from '../../../src/core/plan/options.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { optionsFromFlags, renderPlan } from '../../../src/cli/commands/optimize.js';
@@ -22,10 +23,10 @@ afterAll(async () => {
 describe('optimize --normalize-names / --preset maximum', () => {
   it('maps the flags onto the options', async () => {
     const io = captureIO({ cwd: dir }).io;
-    expect(await optionsFromFlags({ 'normalize-names': 'slug' }, io)).toEqual({ normalizeNames: 'slug' });
+    expect(await optionsFromFlags({ 'normalize-names': 'slug' }, io)).toEqual({ ...APP_DEFAULTS, normalizeNames: 'slug' });
     // "maximum" is the web app's name for the aggressive preset; other names pass through for validation.
-    expect(await optionsFromFlags({ preset: 'maximum' }, io)).toEqual({ preset: 'aggressive' });
-    expect(await optionsFromFlags({ preset: 'conservative' }, io)).toEqual({ preset: 'conservative' });
+    expect(await optionsFromFlags({ preset: 'maximum' }, io)).toEqual({ ...APP_DEFAULTS, preset: 'aggressive' });
+    expect(await optionsFromFlags({ preset: 'conservative' }, io)).toEqual({ ...APP_DEFAULTS, preset: 'conservative' });
   });
 
   it.each([
@@ -43,7 +44,7 @@ describe('optimize --normalize-names / --preset maximum', () => {
     expect(stdout).toContain('--image-max-dimension N    Downscale larger images (N px; default 2560/1920/1600), or "none"\n');
   });
 
-  it('plans clean names in dry runs, only when asked, and accepts the maximum preset', async () => {
+  it('plans clean names in dry runs, by default, and accepts the maximum preset', async () => {
     const args = ['optimize', COURSE, '--dry-run', '--json', '--quiet', '--no-video', '--no-images', '--no-audio'];
     const on = singleJson<{ plan: OptimizationPlan }>((await runCli([...args, '--normalize-names', 'slug', '--preset', 'maximum'])).stdout).plan;
     expect(on.options).toMatchObject({ normalizeNames: 'slug', preset: 'aggressive' });
@@ -54,7 +55,9 @@ describe('optimize --normalize-names / --preset maximum', () => {
       ['content/resources/media/clase 1.mp4', 'content/resources/media/clase-1.mp4'],
       ['content/resources/media/clase 1.vtt', 'content/resources/media/clase-1.vtt'],
     ]);
-    const off = singleJson<{ plan: OptimizationPlan }>((await runCli(args)).stdout).plan;
+    const byDefault = singleJson<{ plan: OptimizationPlan }>((await runCli(args)).stdout).plan;
+    expect(byDefault.options.normalizeNames).toBe('slug');
+    const off = singleJson<{ plan: OptimizationPlan }>((await runCli([...args, '--normalize-names', 'off'])).stdout).plan;
     expect(off.options.normalizeNames).toBe('off');
     expect(off.operations.some((o) => o.op === 'rename-resource')).toBe(false);
     const text = await runCli(['optimize', COURSE, '--dry-run', '--quiet', '--no-video', '--no-images', '--normalize-names', 'slug']);

@@ -1,3 +1,4 @@
+import { APP_DEFAULTS } from '../../../src/core/plan/options.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -54,15 +55,16 @@ function pdfOps(plan: OptimizationPlan): Extract<PlanOperation, { op: 'optimize-
 describe('optimize: PDF flags', () => {
   it('maps the flags onto options.pdf, over --config', async () => {
     const io = captureIO({ cwd: dir }).io;
-    expect(await optionsFromFlags({ 'no-pdf': true }, io)).toEqual({ pdf: { enabled: false } });
-    expect(await optionsFromFlags({ 'pdf-lossless': true }, io)).toEqual({ pdf: { images: false } });
+    expect(await optionsFromFlags({ 'no-pdf': true }, io)).toEqual({ ...APP_DEFAULTS, pdf: { enabled: false } });
+    expect(await optionsFromFlags({ 'pdf-lossless': true }, io)).toEqual({ ...APP_DEFAULTS, pdf: { images: false } });
     await writeFile(join(dir, 'pdf.json'), JSON.stringify({ pdf: { images: true }, preset: 'aggressive' }));
     expect(await optionsFromFlags({ config: 'pdf.json', 'pdf-lossless': true, 'no-pdf': true }, io)).toEqual({
+      ...APP_DEFAULTS,
       preset: 'aggressive',
       pdf: { images: false, enabled: false },
     });
     // No PDF flag: no PDF options at all.
-    expect(await optionsFromFlags({ 'no-audio': true }, io)).toEqual({ audio: { enabled: false } });
+    expect(await optionsFromFlags({ 'no-audio': true }, io)).toEqual({ ...APP_DEFAULTS, audio: { enabled: false } });
   });
 
   it('documents the PDF options', async () => {

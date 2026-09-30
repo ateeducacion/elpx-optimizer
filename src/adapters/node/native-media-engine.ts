@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import type { SharpConstructor } from 'sharp';
 import { cpus } from 'node:os';
@@ -26,6 +27,8 @@ export interface NativeEngineOptions {
   maxImagePixels?: number;
   /** Override for loading sharp (tests). */
   loadSharp?: () => Promise<Sharp>;
+  /** Override for loading OxiPNG (tests); a failure leaves PNG to sharp. */
+  loadOxipng?: () => Promise<Oxipng>;
   /** Override for the qpdf runner script (tests); undefined means "next to this module". */
   qpdfRunner?: string | null;
 }
@@ -40,6 +43,22 @@ export function qpdfRunnerPath(base: string | URL = import.meta.url): string | u
     if (existsSync(path)) return path;
   }
   return undefined;
+}
+
+/** OxiPNG (WebAssembly), the PNG optimizer the web app uses too. */
+export interface Oxipng {
+  optimise(data: Uint8Array, level: number, interlace: boolean, optimizeAlpha: boolean): Uint8Array;
+  optimise_raw(data: Uint8ClampedArray, width: number, height: number, level: number, interlace: boolean, optimizeAlpha: boolean): Uint8Array;
+}
+
+/** Same OxiPNG level as the browser (image-codecs.ts), so both give the same PNGs. */
+const OXIPNG_LEVEL = 3;
+
+/** Loads OxiPNG lazily, its .wasm read from the package folder. */
+async function defaultLoadOxipng(): Promise<Oxipng> {
+  const mod = await import('@jsquash/oxipng/codec/pkg/squoosh_oxipng.js');
+  mod.initSync(await readFile(createRequire(import.meta.url).resolve('@jsquash/oxipng/codec/pkg/squoosh_oxipng_bg.wasm')));
+  return mod;
 }
 
 /** Loads sharp lazily so inspecting projects never requires it. */
@@ -58,6 +77,7 @@ export class NativeMediaEngine implements MediaEngine {
   private infoPromise: Promise<EngineInfo> | undefined;
   private qpdfRunner: string | undefined;
   private sharp: Sharp | undefined;
+  private oxipng: Oxipng | undefined;
   private ffmpeg: string | undefined;
   private ffprobe: string | undefined;
 
@@ -108,11 +128,19 @@ export class NativeMediaEngine implements MediaEngine {
       versions['sharp'] = v['sharp'] ?? 'unknown';
       versions['libvips'] = v['vips'] ?? 'unknown';
       const jpegLib = v['mozjpeg'] ? `mozjpeg ${v['mozjpeg']}` : 'libjpeg';
+      let png = `libpng ${v['png'] ?? ''} (sharp)`.replace('  ', ' ');
+      try {
+        this.oxipng = await (this.options.loadOxipng ?? defaultLoadOxipng)();
+        versions['oxipng'] = 'jSquash (WebAssembly)';
+        png = 'OxiPNG (WebAssembly)';
+      } catch (error) {
+        notes.push(`OxiPNG unavailable, PNGs are optimized by sharp: ${(error as Error).message.split('\n')[0]}`);
+      }
       image = {
         available: true,
         encoders: {
           jpeg: `${jpegLib} (sharp)`,
-          png: `libpng ${v['png'] ?? ''} (sharp)`.replace('  ', ' '),
+          png,
           webp: `libwebp ${v['webp'] ?? ''} (sharp)`.replace('  ', ' '),
         },
         canResize: true,
@@ -292,6 +320,7 @@ export class NativeMediaEngine implements MediaEngine {
     await this.info();
     throwIfCancelled(ctx.signal);
     const sharp = this.requireSharp();
+    if (job.format === 'png' && this.oxipng) return this.encodePng(sharp, input, job, ctx);
     let img = sharp(input, {
       failOn: 'error',
       animated: false,
@@ -304,6 +333,23 @@ export class NativeMediaEngine implements MediaEngine {
     const out = await withTimeout(img.toBuffer(), ctx.timeoutMs, 'image encoding');
     throwIfCancelled(ctx.signal);
     return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
+  }
+
+  /** PNGs go through OxiPNG as in the browser: as they are, or resized by sharp first. */
+  private async encodePng(sharp: Sharp, input: Uint8Array, job: ImageJob, ctx: JobContext): Promise<Uint8Array> {
+    const oxipng = this.oxipng!;
+    if (!job.resize) return oxipng.optimise(input.slice(), OXIPNG_LEVEL, false, false);
+    const { data, info } = await withTimeout(
+      sharp(input, { failOn: 'error', animated: false, limitInputPixels: this.options.maxImagePixels ?? 100_000_000 })
+        .resize(job.resize.width, job.resize.height, { fit: 'fill', kernel: 'lanczos3' })
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true }),
+      ctx.timeoutMs,
+      'image encoding',
+    );
+    throwIfCancelled(ctx.signal);
+    return oxipng.optimise_raw(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), info.width, info.height, OXIPNG_LEVEL, false, false);
   }
 
   async verifyImage(original: Uint8Array, candidate: Uint8Array, job: ImageJob, ctx: JobContext): Promise<ImageVerification> {
@@ -324,10 +370,23 @@ export class NativeMediaEngine implements MediaEngine {
     if (width !== job.expected.width || height !== job.expected.height) {
       problems.push(`size ${width}x${height} instead of ${job.expected.width}x${job.expected.height}`);
     }
-    if (job.expected.hasAlpha && !hasAlpha) problems.push('transparency was lost');
+    // The pixels of the original, when they are needed (a lossless check, or a channel that went missing).
+    let originalPixels: Promise<Buffer> | undefined;
+    const pixelsOfOriginal = (): Promise<Buffer> => (originalPixels ??= decode(original).ensureAlpha().raw().toBuffer());
+    // A dropped alpha channel is only a loss when the original really had transparent pixels
+    // (OxiPNG removes a channel that is fully opaque), as in the browser check.
+    if (job.expected.hasAlpha && !hasAlpha) {
+      const pixels = await pixelsOfOriginal();
+      for (let i = 3; i < pixels.length; i += 4) {
+        if (pixels[i]! < 255) {
+          problems.push('transparency was lost');
+          break;
+        }
+      }
+    }
     let identicalPixels: boolean | undefined;
     if (job.mode === 'lossless' && !job.resize) {
-      const a = await decode(original).ensureAlpha().raw().toBuffer();
+      const a = await pixelsOfOriginal();
       const b = await decode(candidate).ensureAlpha().raw().toBuffer();
       identicalPixels = a.equals(b);
       if (!identicalPixels) problems.push('lossless re-encoding changed pixel values');

@@ -228,7 +228,7 @@ or audio element (images and video in a dialog, audio played and paused from its
 and revokes the URL afterwards. Other kinds of entries are refused by the worker. SVG images are
 shown through `<img>`, where their scripts do not run. Nothing leaves the browser.
 
-## D16. Clean file names, off in the CLI and on in the web app
+## D16. Clean file names (on by default in the CLI and the web app since D25)
 
 Projects collect file names such as `Copia de Foto Clase (2).JPG`: spaces, accents, upper-case
 extensions and the markers operating systems add to copies. Names with spaces are fragile in
@@ -440,3 +440,26 @@ web app, and files it removes leave the list of files to recompress. A file name
 always protected, since sites and themes find it by its name without a reference. Every preview opens
 in a dialog, audio included (the inline player is gone), and PDFs are previewed with PDF.js drawing
 into a canvas, loaded only for that.
+
+## D25. The CLI and the web app give the same result
+
+The same project gave different sizes in the two. The differences were the defaults and the engines:
+
+- **Defaults.** The web app started with unused files removed, repeated files merged and clean file
+  names; the CLI with none of them. `APP_DEFAULTS` (`src/core/plan/options.ts`) is now the start of
+  both; `normalizeOptions` itself still keeps everything off for programs that call it. The skill
+  tells the agent to say so and to offer `off`.
+- **x264 preset.** `medium` in the CLI and `veryfast` in the browser. It is `veryfast` in both
+  (`faster` for the conservative level): the same encoder settings, and a video of 32.4 MiB gave
+  16.3 MiB in the browser and 19.1 MiB with `medium` in the CLI, so the slower preset was not smaller
+  at CRF 23. `--video-x264-preset` still chooses another.
+- **PNG.** The browser used OxiPNG (level 3) and the CLI sharp's libpng, which shrinks a few percent
+  less, so the CLI often kept the original ("not smaller enough"). The CLI uses OxiPNG through
+  `@jsquash/oxipng` (WebAssembly, a dependency of the package like sharp), and sharp only when it
+  cannot load. Its check no longer calls a dropped alpha channel a loss of transparency unless the
+  original had transparent pixels (OxiPNG removes a channel that is fully opaque), as the browser does.
+
+Measured with the same options (CLI / web): `cansat.elpx` −20.5 % / −20.0 %,
+`guardianes-de-timanfaya.elpx` −56.0 % / −55.9 %, `el-misterio-de-la-mascota-perdida.elpx` −12.2 % /
+−12.2 % (the same bytes). What is left is the JPEG encoders (sharp's and jSquash's MozJPEG) and the
+FFmpeg builds.

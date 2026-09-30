@@ -28,6 +28,6 @@ writeFileSync(
 );
 writeFileSync(
   join(target, 'vendor', 'README.md'),
-  '# Bundled CLI\n\n`elpx-optimizer.mjs` is the CLI used by `scripts/run.mjs` (`qpdf-runner.mjs` rewrites PDFs). For image and PDF optimization run `npm install` in this folder (installs sharp and qpdf-wasm). Video and audio need ffmpeg and ffprobe on PATH.\n',
+  '# Bundled CLI\n\n`elpx-optimizer.mjs` is the CLI used by `scripts/run.mjs` (`qpdf-runner.mjs` rewrites PDFs). For image and PDF optimization run `npm install` in this folder (installs sharp, OxiPNG and qpdf-wasm). Video and audio need ffmpeg and ffprobe on PATH.\n',
 );
 console.log(`Skill written to ${target}`);
