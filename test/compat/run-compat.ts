@@ -20,7 +20,8 @@ const out = process.env['ELPX_COMPAT_OUT'] ?? join(root, 'test-results', 'compat
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 const cli = process.env['ELPX_OPTIMIZER_CLI'] ?? join(root, 'src', 'cli', 'bin.ts');
-const DEFAULT = ['--remove-unused', 'safe', '--deduplicate', 'exact'];
+// Clean names are on by default in the CLI; this run checks the structure, so names stay as they are.
+const DEFAULT = ['--remove-unused', 'safe', '--deduplicate', 'exact', '--normalize-names', 'off'];
 const cases: { fixture: string; flags: string[]; label?: string }[] = [
   ...[
     'test/fixtures/elpx/course-video.elpx',

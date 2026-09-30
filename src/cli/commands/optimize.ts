@@ -5,9 +5,9 @@ import { sha256Hex } from '../../core/io/hash.js';
 import { SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH, screenshotRatioOk } from '../../core/format/screenshot.js';
 import { analyzeArchive } from '../../core/analyze/analyze.js';
 import { buildOptimizationPlan } from '../../core/plan/plan.js';
-import { normalizeOptions, type OptionsInput } from '../../core/plan/options.js';
+import { APP_DEFAULTS, normalizeOptions, type OptionsInput } from '../../core/plan/options.js';
 import { optimizeArchive } from '../../core/optimize/optimize.js';
-import { buildReport, formatBytes, renderReportText, type OptimizationReport } from '../../core/report/report.js';
+import { buildReport, formatBytes, listLines, renderReportText, totalOf, VERBOSE_HINT, type OptimizationReport } from '../../core/report/report.js';
 import { createNodePlatform } from '../../adapters/node/platform.js';
 import { EXIT, type ExitCode } from '../exit-codes.js';
 import { logger, printJson, type CliIO } from '../io.js';
@@ -27,7 +27,7 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   const images: NonNullable<OptionsInput['images']> = { ...(base.images ?? {}) };
   const audio: NonNullable<OptionsInput['audio']> = { ...(base.audio ?? {}) };
   const pdf: NonNullable<OptionsInput['pdf']> = { ...(base.pdf ?? {}) };
-  const opts: OptionsInput = { ...base };
+  const opts: OptionsInput = { ...APP_DEFAULTS, ...base };
   // "maximum" is the name the web app shows for the aggressive preset.
   if (typeof values['preset'] === 'string') opts.preset = (values['preset'] === 'maximum' ? 'aggressive' : values['preset']) as OptionsInput['preset'];
   if (values['no-video']) video.enabled = false;
@@ -122,6 +122,7 @@ export async function runOptimize(positionals: string[], values: Record<string, 
   const options = normalizeOptions(input);
   const limits = limitsFromFlags(values);
   const json = values['json'] === true;
+  const verbose = values['verbose'] === true;
   const quiet = values['quiet'] === true || (json && !io.interactive);
   const log = logger(io, values['quiet'] === true);
   const { path: inputPath, source, name } = await openInputArg(positionals, io);
@@ -172,7 +173,7 @@ export async function runOptimize(positionals: string[], values: Record<string, 
         });
         await writeReport(values, io, report);
         if (json) printJson(io, report);
-        else io.stdout(renderReportText(report));
+        else io.stdout(renderReportText(report, verbose));
         return EXIT.INVALID_INPUT;
       }
       const plan = buildOptimizationPlan(analysis, options, engineInfo, limits);
@@ -191,7 +192,7 @@ export async function runOptimize(positionals: string[], values: Record<string, 
         };
         if (typeof values['report'] === 'string') await writeFile(resolve(io.cwd, values['report']), `${JSON.stringify(payload, null, 2)}\n`);
         if (json) printJson(io, payload);
-        else io.stdout(renderPlan(plan));
+        else io.stdout(renderPlan(plan, verbose));
         return EXIT.SUCCESS;
       }
       log(`Plan: ${plan.operations.length} operations, ${plan.skipped.length} resources left unchanged`);
@@ -208,7 +209,7 @@ export async function runOptimize(positionals: string[], values: Record<string, 
       }
       await writeReport(values, io, report);
       if (json) printJson(io, report);
-      else io.stdout(renderReportText(report));
+      else io.stdout(renderReportText(report, verbose));
       return exitForStatus(report.status);
     } finally {
       await platform.store.disposeAll();
@@ -223,47 +224,60 @@ async function writeReport(values: Record<string, unknown>, io: CliIO, report: O
 }
 
 /** Human-readable plan (dry run). */
-export function renderPlan(plan: ReturnType<typeof buildOptimizationPlan>): string {
+export function renderPlan(plan: ReturnType<typeof buildOptimizationPlan>, verbose = false): string {
   const lines = [`Plan for ${plan.input.name} (${formatBytes(plan.input.size)}), preset ${plan.options.preset}, engine ${plan.engine.engine}`];
-  for (const op of plan.operations) {
+  const opLine = (op: (typeof plan.operations)[number]): string => {
     switch (op.op) {
       case 'transcode-video':
       case 'recompress-image':
-        lines.push(`  • ${op.op} ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`);
-        break;
+        return `  • ${op.op} ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`;
       case 'optimize-pdf':
-        lines.push(`  • optimize-pdf ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`);
-        break;
+        return `  • optimize-pdf ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`;
       case 'transcode-audio':
-        lines.push(`  • transcode-audio ${op.path}${op.to ? ` → ${op.to}` : ''} (${formatBytes(op.size)}) [lossy]: ${op.conversions.join('; ')}`);
-        break;
+        return `  • transcode-audio ${op.path}${op.to ? ` → ${op.to}` : ''} (${formatBytes(op.size)}) [lossy]: ${op.conversions.join('; ')}`;
       case 'remove-unused':
-        lines.push(`  • remove ${op.path} (${formatBytes(op.size)}): ${op.reason}`);
-        break;
+        return `  • remove ${op.path} (${formatBytes(op.size)}): ${op.reason}`;
       case 'deduplicate':
-        lines.push(`  • deduplicate: keep ${op.keep}, remove ${op.remove.join(', ')} (${op.references} references rewritten)`);
-        break;
+        return `  • deduplicate: keep ${op.keep}, remove ${op.remove.join(', ')} (${op.references} references rewritten)`;
       case 'move-resource':
-        lines.push(`  • move ${op.path} → ${op.to} (${op.references} references rewritten)`);
-        break;
+        return `  • move ${op.path} → ${op.to} (${op.references} references rewritten)`;
       case 'rename-resource':
-        lines.push(`  • rename ${op.path} → ${op.to} (${op.references} references rewritten)`);
-        break;
+        return `  • rename ${op.path} → ${op.to} (${op.references} references rewritten)`;
       case 'remove-missing-reference':
-        lines.push(`  • take out ${op.references} ${op.references === 1 ? 'reference' : 'references'} to missing ${op.path} (in ${op.entries.join(', ')})`);
-        break;
+        return `  • take out ${op.references} ${op.references === 1 ? 'reference' : 'references'} to missing ${op.path} (in ${op.entries.join(', ')})`;
       case 'replace-screenshot':
-        lines.push(`  • ${op.added ? 'add' : 'replace'} ${op.path} (${formatBytes(op.after)})`);
-        break;
+        return `  • ${op.added ? 'add' : 'replace'} ${op.path} (${formatBytes(op.after)})`;
       default:
-        lines.push(`  • ${op.op} ${op.path}: ${op.reason ?? ''}`);
+        return `  • ${op.op} ${op.path}: ${op.reason ?? ''}`;
     }
-  }
+  };
+  const ops = listLines(
+    plan.operations,
+    (op) => op.op,
+    opLine,
+    (kind, group) => {
+      const size = totalOf(group, (o) => ('size' in o && typeof o.size === 'number' ? o.size : undefined));
+      return `  • ${group.length} × ${kind}${size !== undefined ? ` (${formatBytes(size)})` : ''}`;
+    },
+    verbose,
+    Infinity,
+  );
+  lines.push(...ops.lines);
   if (plan.skipped.length > 0) {
     lines.push(`Left unchanged (${plan.skipped.length}):`);
-    for (const s of plan.skipped.slice(0, 40)) lines.push(`  - ${s.path}: ${s.reason} (${s.detail})`);
+    const skipped = listLines(
+      plan.skipped,
+      (s) => s.reason,
+      (s) => `  - ${s.path}: ${s.reason} (${s.detail})`,
+      (reason, group) => `  - ${group.length} × ${reason}`,
+      verbose,
+      40,
+    );
+    lines.push(...skipped.lines);
+    if (skipped.collapsed) ops.collapsed = true;
   }
   lines.push(`Estimated saving (estimate, not measured): ${formatBytes(plan.estimate.savedBytes)}`);
   for (const r of plan.risks) lines.push(`Note: ${r}`);
+  if (ops.collapsed) lines.push(VERBOSE_HINT);
   return `${lines.join('\n')}\n`;
 }

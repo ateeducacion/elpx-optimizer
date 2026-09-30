@@ -1,3 +1,4 @@
+import { APP_DEFAULTS } from '../../../src/core/plan/options.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -27,12 +28,23 @@ interface DryRun {
   plan: OptimizationPlan;
 }
 
+/** The other clean-ups are on by default: these tests look at flatten alone. */
+const NO_CLEANUP = ['--remove-unused', 'off', '--deduplicate', 'off', '--normalize-names', 'off'];
+
 describe('optimize --flatten / --missing-references', () => {
   it('maps the flags onto the options, over --config', async () => {
     const io = captureIO({ cwd: dir }).io;
-    expect(await optionsFromFlags({ flatten: 'legacy', 'missing-references': 'remove' }, io)).toEqual({ flatten: 'legacy', missingReferences: 'remove' });
+    expect(await optionsFromFlags({ flatten: 'legacy', 'missing-references': 'remove' }, io)).toEqual({
+      ...APP_DEFAULTS,
+      flatten: 'legacy',
+      missingReferences: 'remove',
+    });
     await writeFile(join(dir, 'restructure.json'), JSON.stringify({ flatten: 'legacy', missingReferences: 'remove' }));
-    expect(await optionsFromFlags({ config: 'restructure.json', flatten: 'off' }, io)).toEqual({ flatten: 'off', missingReferences: 'remove' });
+    expect(await optionsFromFlags({ config: 'restructure.json', flatten: 'off' }, io)).toEqual({
+      ...APP_DEFAULTS,
+      flatten: 'off',
+      missingReferences: 'remove',
+    });
   });
 
   it.each([
@@ -50,14 +62,27 @@ describe('optimize --flatten / --missing-references', () => {
   });
 
   it('shows moves and removed references in the plan', async () => {
-    const json = await runCli(['optimize', LEGACY, '--dry-run', '--json', '--quiet', '--flatten', 'legacy', '--missing-references', 'remove'], { cwd: dir });
+    const json = await runCli(['optimize', LEGACY, '--dry-run', '--json', '--quiet', '--flatten', 'legacy', '--missing-references', 'remove', ...NO_CLEANUP], {
+      cwd: dir,
+    });
     expect(json.code).toBe(EXIT.SUCCESS);
     const { status, plan } = singleJson<DryRun>(json.stdout);
     expect(status).toBe('dry-run');
     expect(plan.options).toMatchObject({ flatten: 'legacy', missingReferences: 'remove' });
     expect(plan.operations.filter((o) => o.op === 'move-resource')).toHaveLength(5);
     expect(plan.operations.filter((o) => o.op === 'remove-missing-reference')).toHaveLength(3);
-    const text = await runCli(['optimize', LEGACY, '--dry-run', '--quiet', '--flatten', 'legacy', '--missing-references', 'remove']);
+    const text = await runCli([
+      'optimize',
+      LEGACY,
+      '--dry-run',
+      '--quiet',
+      '--verbose',
+      '--flatten',
+      'legacy',
+      '--missing-references',
+      'remove',
+      ...NO_CLEANUP,
+    ]);
     expect(text.code).toBe(EXIT.SUCCESS);
     expect(text.stdout).toContain(`  • move ${A}/foto.jpg → content/resources/foto.jpg (5 references rewritten)\n`);
     expect(text.stdout).toContain('  • take out 3 references to missing content/resources/fondo-perdido.png (in content.xml, index.html, search_index.js)\n');

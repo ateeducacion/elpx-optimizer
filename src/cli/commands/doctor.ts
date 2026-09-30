@@ -141,19 +141,22 @@ export async function runDoctor(values: Record<string, unknown>, io: CliIO): Pro
         const png = new Uint8Array(
           Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwHwgbGGAMAEBXBvusDhdaAAAAAElFTkSuQmCC', 'base64'),
         );
-        await engine.encodeImage(
-          png,
-          {
-            format: 'png',
-            mode: 'lossless',
-            quality: undefined,
-            resize: undefined,
-            metadata: { keepIcc: true, keepExif: true, keepXmp: true, keepIptc: true, keepText: true },
-            expected: { width: 2, height: 2, hasAlpha: true },
-            conversions: [],
-          },
-          { resourcePath: 'smoke', timeoutMs: 30_000 },
-        );
+        // A JPEG runs through sharp; a PNG through OxiPNG (or sharp when it is missing).
+        for (const format of ['jpeg', 'png'] as const) {
+          await engine.encodeImage(
+            png,
+            {
+              format,
+              mode: format === 'png' ? 'lossless' : 'lossy',
+              quality: format === 'png' ? undefined : 82,
+              resize: undefined,
+              metadata: { keepIcc: true, keepExif: true, keepXmp: true, keepIptc: true, keepText: true },
+              expected: { width: 2, height: 2, hasAlpha: true },
+              conversions: [],
+            },
+            { resourcePath: 'smoke', timeoutMs: 30_000 },
+          );
+        }
         checks.push({ name: 'image-encode', ok: true, detail: 'sharp encode succeeded' });
       } catch (error) {
         checks.push({ name: 'image-encode', ok: false, detail: (error as Error).message });

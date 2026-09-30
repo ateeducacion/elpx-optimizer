@@ -153,7 +153,7 @@ describe('decideVideo jobs', () => {
       videoCodec: 'h264',
       encoder: 'libx264',
       crf: 23,
-      x264Preset: 'medium',
+      x264Preset: 'veryfast',
       scale: undefined,
       droppedStreams: [],
     });
@@ -255,11 +255,12 @@ describe('decideVideo jobs', () => {
     expect(VIDEO_PROFILES.aggressive.efficientBpp).toBeGreaterThan(VIDEO_PROFILES.balanced.efficientBpp);
   });
 
-  it('picks the x264 preset from the override or the engine class', () => {
+  it('picks the x264 preset from the override or the level, the same in every engine', () => {
     const p = probe([video()]);
-    expect(job(decide(p, { x264Preset: 'veryfast' })).x264Preset).toBe('veryfast');
+    expect(job(decide(p, { x264Preset: 'slow' })).x264Preset).toBe('slow');
+    expect(job(decide(p, {})).x264Preset).toBe('veryfast');
     expect(job(decide(p, {}, { engineClass: 'browser' })).x264Preset).toBe('veryfast');
-    expect(job(decide(p, { preset: 'conservative', crf: 20 })).x264Preset).toBe('slow');
+    expect(job(decide(p, { preset: 'conservative', crf: 20 })).x264Preset).toBe('faster');
   });
 
   it('uses the stream duration when the container has none', () => {
@@ -314,7 +315,7 @@ describe('FFmpeg arguments', () => {
     expect(args.slice(0, 4)).toEqual(['-hide_banner', '-nostdin', '-loglevel', 'error']);
     expect(args.join(' ')).toContain('-progress pipe:1 -nostats -protocol_whitelist file -f mov -enable_drefs 0 -i /tmp/in.mp4');
     expect(args.join(' ')).toContain('-map 0:0 -map 0:1 -map 0:2 -map 0:3 -map 0:4 -map_metadata 0 -map_chapters 0');
-    expect(args.join(' ')).toContain('-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -profile:v high -threads 2');
+    expect(args.join(' ')).toContain('-c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -profile:v high -threads 2');
     expect(args.join(' ')).toContain('-vf scale=1920:1080:flags=lanczos,setsar=1');
     expect(args.join(' ')).toContain('-c:a:0 copy -c:a:1 aac -b:a:1 128k -ar:a:1 44100 -c:a:2 aac -b:a:2 128k -c:s copy');
     expect(args.slice(-6)).toEqual(['-movflags', '+faststart', '-f', 'mp4', '-y', '/tmp/out.mp4']);

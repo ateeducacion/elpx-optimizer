@@ -16,7 +16,7 @@ import { configureLocalTools } from '../../helpers/native.js';
 /** --screenshot: a new project thumbnail from an image file. */
 
 const COURSE = join(ELPX, 'course-video.elpx');
-const NO_MEDIA = ['--no-video', '--no-images', '--no-audio', '--no-pdf'];
+const NO_MEDIA = ['--no-video', '--no-images', '--no-audio', '--no-pdf', '--remove-unused', 'off', '--deduplicate', 'off', '--normalize-names', 'off'];
 let dir: string;
 
 async function image(name: string, width: number, height: number, format: 'png' | 'jpeg' = 'png'): Promise<string> {

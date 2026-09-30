@@ -1,3 +1,4 @@
+import { APP_DEFAULTS } from '../../../src/core/plan/options.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -41,7 +42,7 @@ async function dryRun(args: string[]): Promise<DryRun> {
 
 describe('optionsFromFlags', () => {
   it('returns no options without flags', async () => {
-    expect(await options({})).toEqual({});
+    expect(await options({})).toEqual(APP_DEFAULTS);
   });
 
   it('maps every selection, video and image flag', async () => {
@@ -70,9 +71,8 @@ describe('optionsFromFlags', () => {
         'min-savings-bytes': '2048',
       }),
     ).toEqual({
+      ...APP_DEFAULTS,
       preset: 'aggressive',
-      removeUnused: 'safe',
-      deduplicate: 'exact',
       exclude: ['a.png', 'b.mp4'],
       minSavingsPercent: 10,
       minSavingsBytes: 2048,
@@ -82,7 +82,7 @@ describe('optionsFromFlags', () => {
   });
 
   it('maps --image-max-dimension none to no limit', async () => {
-    expect(await options({ 'image-max-dimension': 'none' })).toEqual({ images: { maxDimension: null } });
+    expect(await options({ 'image-max-dimension': 'none' })).toEqual({ ...APP_DEFAULTS, images: { maxDimension: null } });
   });
 
   it('merges --config with flags (flags win, excludes add up)', async () => {
@@ -91,15 +91,15 @@ describe('optionsFromFlags', () => {
       JSON.stringify({ preset: 'conservative', removeUnused: 'safe', exclude: ['keep.png'], video: { crf: 20, force: true }, images: { jpegQuality: 90 } }),
     );
     expect(await options({ config: 'options.json', preset: 'balanced', exclude: ['also.png'], 'video-crf': '25', 'webp-quality': '60' })).toEqual({
+      ...APP_DEFAULTS,
       preset: 'balanced',
-      removeUnused: 'safe',
       exclude: ['keep.png', 'also.png'],
       video: { crf: 25, force: true },
       images: { jpegQuality: 90, webpQuality: 60 },
     });
     expect(await options({ config: 'options.json', exclude: ['x'] })).toMatchObject({ exclude: ['keep.png', 'x'] });
     await writeFile(join(dir, 'bare.json'), '{}');
-    expect(await options({ config: 'bare.json', exclude: ['x'] })).toEqual({ exclude: ['x'] });
+    expect(await options({ config: 'bare.json', exclude: ['x'] })).toEqual({ ...APP_DEFAULTS, exclude: ['x'] });
   });
 
   it('rejects unreadable or malformed configuration files', async () => {
@@ -128,7 +128,7 @@ describe('optimize flags end to end (dry run)', () => {
     expect(r.schema).toBe('elpx-optimizer/dry-run');
     expect(r.status).toBe('dry-run');
     expect(r.analysis.input.name).toBe('course-video.elpx');
-    expect(r.plan.options).toMatchObject({ preset: 'balanced', removeUnused: 'off', deduplicate: 'off', exclude: [] });
+    expect(r.plan.options).toMatchObject({ preset: 'balanced', removeUnused: 'safe', deduplicate: 'exact', normalizeNames: 'slug', exclude: [] });
     expect(r.plan.options.video).toMatchObject({ enabled: true, crf: 23, force: false });
     expect(r.plan.options.images).toMatchObject({ enabled: true, png: true, stripMetadata: false });
   });
@@ -210,7 +210,7 @@ describe('optimize flags end to end (dry run)', () => {
   });
 
   it('disables media families', async () => {
-    const r = await dryRun(['--no-video', '--no-images']);
+    const r = await dryRun(['--no-video', '--no-images', '--remove-unused', 'off', '--deduplicate', 'off', '--normalize-names', 'off']);
     expect(r.plan.options.video.enabled).toBe(false);
     expect(r.plan.options.images.enabled).toBe(false);
     expect(r.plan.operations).toEqual([]);
@@ -281,7 +281,7 @@ describe('renderPlan', () => {
       estimate: { savedBytes: 1536 },
       risks: ['Lossy re-encoding changes quality'],
     } as unknown as OptimizationPlan;
-    const text = renderPlan(plan);
+    const text = renderPlan(plan, true);
     expect(text).toContain('Plan for p.elpx (4.0 KiB), preset balanced, engine native\n');
     expect(text).toContain('  • transcode-video v.mp4 (2.0 KiB) [lossy]: h264 → h264\n');
     expect(text).toContain('  • recompress-image i.png (1.0 KiB): PNG recompressed losslessly; metadata kept\n');
@@ -293,6 +293,40 @@ describe('renderPlan', () => {
     expect(text.match(/ {2}- s\d+\.png: already-efficient \(fine\)/g)).toHaveLength(40);
     expect(text).toContain('Estimated saving (estimate, not measured): 1.5 KiB\n');
     expect(text).toMatch(/Note: Lossy re-encoding changes quality\n$/);
+  });
+
+  it('summarizes kinds with many files, and lists every file with verbose', () => {
+    const image = (i: number): unknown => ({
+      op: 'recompress-image',
+      path: `i${i}.png`,
+      size: 1024,
+      lossy: false,
+      conversions: ['PNG recompressed losslessly'],
+    });
+    const plan = {
+      input: { name: 'p.elpx', size: 1 },
+      options: { preset: 'balanced' },
+      engine: { engine: 'native' },
+      operations: [
+        ...Array.from({ length: 5 }, (_, i) => image(i)),
+        ...Array.from({ length: 4 }, (_, i) => ({ op: 'rewrite-references', path: `p${i}.html` })),
+        { op: 'remove-unused', path: 'u.png', size: 10, reason: 'no references' },
+      ],
+      skipped: Array.from({ length: 4 }, (_, i) => ({ path: `s${i}.png`, reason: 'already-efficient', detail: 'fine' })),
+      estimate: { savedBytes: 0 },
+      risks: [],
+    } as unknown as OptimizationPlan;
+    const short = renderPlan(plan);
+    expect(short).toContain('  • 5 × recompress-image (5.0 KiB)\n');
+    expect(short).toContain('  • 4 × rewrite-references\n');
+    expect(short).toContain('  • remove u.png (10 B): no references\n');
+    expect(short).toContain('  - 4 × already-efficient\n');
+    expect(short).not.toContain('i0.png');
+    expect(short).toContain('add --verbose to list every file');
+    const full = renderPlan(plan, true);
+    expect(full).toContain('  • recompress-image i0.png (1.0 KiB)');
+    expect(full).toContain('  - s3.png: already-efficient (fine)');
+    expect(full).not.toContain('--verbose');
   });
 
   it('omits the unchanged list when nothing was skipped', () => {

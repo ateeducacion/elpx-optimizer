@@ -24,6 +24,7 @@ Commands:
 Global options:
   --json                      Print one JSON document on stdout (logs go to stderr)
   --quiet                     No progress or messages on stderr
+  --verbose                   optimize: list every file in the text output (short summary by default)
   --help, -h                  Show help (also: ${TOOL_NAME} <command> --help)
   --version, -v               Show version
 
@@ -157,6 +158,7 @@ const COMMANDS: Record<string, { options: NonNullable<ParseArgsConfig['options']
     options: {
       preset: { type: 'string' },
       'dry-run': { type: 'boolean' },
+      verbose: { type: 'boolean' },
       output: { type: 'string', short: 'o' },
       overwrite: { type: 'boolean' },
       report: { type: 'string' },

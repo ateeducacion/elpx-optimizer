@@ -18,16 +18,16 @@ export interface VideoProfile {
   readonly crf: number;
   readonly maxShortSide: ResolutionCap;
   readonly audioBitrateKbps: number;
-  /** x264 preset per engine class (WASM is much slower than native). */
-  readonly x264Preset: { readonly native: string; readonly browser: string };
+  /** x264 preset, the same in every engine so the CLI and the web app give the same result. */
+  readonly x264Preset: string;
   /** Bits per pixel and frame under which a modern-codec source is left alone. */
   readonly efficientBpp: number;
 }
 
 export const VIDEO_PROFILES: Readonly<Record<Preset, VideoProfile>> = Object.freeze({
-  conservative: { crf: 20, maxShortSide: 1080, audioBitrateKbps: 192, x264Preset: { native: 'slow', browser: 'faster' }, efficientBpp: 0.05 },
-  balanced: { crf: 23, maxShortSide: 1080, audioBitrateKbps: 128, x264Preset: { native: 'medium', browser: 'veryfast' }, efficientBpp: 0.08 },
-  aggressive: { crf: 28, maxShortSide: 720, audioBitrateKbps: 96, x264Preset: { native: 'medium', browser: 'veryfast' }, efficientBpp: 0.12 },
+  conservative: { crf: 20, maxShortSide: 1080, audioBitrateKbps: 192, x264Preset: 'faster', efficientBpp: 0.05 },
+  balanced: { crf: 23, maxShortSide: 1080, audioBitrateKbps: 128, x264Preset: 'veryfast', efficientBpp: 0.08 },
+  aggressive: { crf: 28, maxShortSide: 720, audioBitrateKbps: 96, x264Preset: 'veryfast', efficientBpp: 0.12 },
 });
 
 export const X264_PRESETS = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'] as const;
@@ -209,7 +209,7 @@ export function decideVideo(input: VideoInput, options: VideoOptions, caps: Vide
   if (!options.force && !needsScale && modern && bpp !== undefined && bpp < VIDEO_PROFILES[options.preset].efficientBpp) {
     return skip('already-efficient', `Source ${v.codec} at ${bpp.toFixed(3)} bits/pixel is already efficient for this profile`);
   }
-  const x264Preset = options.x264Preset ?? VIDEO_PROFILES[options.preset].x264Preset[caps.engineClass];
+  const x264Preset = options.x264Preset ?? VIDEO_PROFILES[options.preset].x264Preset;
   conversions.unshift(
     `video: ${v.codec} ${displayW}x${displayH} → ${encoder === 'libx264' ? 'h264' : 'vp9'} ${target.width}x${target.height} (CRF ${options.crf})`,
   );
