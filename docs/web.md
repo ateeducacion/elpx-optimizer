@@ -67,8 +67,8 @@ in Spanish; the language follows the browser, Spanish by default).
   previewed from its row in the contents.
 - Side panels (native `<dialog>` elements): licenses of the app and of every bundled component, with
   the texts served from `licenses/` on the same site; and how to use the CLI (`npx elpx-optimizer` first, then
-  the Docker image) and the Agent Skill. The header links to `SKILL.md` on
-  GitHub.
+  the Docker image); and, from the "Skill" button in the header, how to install the Agent Skill
+  (the release zip with a download button, `npx skills add`, `gh skill install`).
 - The footer carries the ATE logo with "Hecho por el Área de Tecnología Educativa del Gobierno de
   Canarias" ("Made by the Educational Technology Area of the Government of the Canary Islands") and
   a link to the source code on GitHub.

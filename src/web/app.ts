@@ -51,6 +51,7 @@ const REPO_URL = 'https://github.com/ateeducacion/elpx-optimizer';
 const ATE_URL = 'https://www3.gobiernodecanarias.org/medusa/ecoescuela/ate/';
 const SKILL_URL = `${REPO_URL}/blob/main/skills/elpx-optimizer/SKILL.md`;
 const CLI_DOCS_URL = `${REPO_URL}/blob/main/docs/cli.md`;
+const SKILL_ZIP_URL = `${REPO_URL}/releases/latest/download/elpx-optimizer-skill.zip`;
 const SKILL_DOCS_URL = `${REPO_URL}/blob/main/docs/skill.md`;
 
 const STAGES = ['engine-load', 'extract', 'transcode', 'encode-image', 'pdf', 'validate', 'package', 'verify'] as const;
@@ -126,6 +127,7 @@ export class App {
   private readonly status: HTMLElement;
   private licensesPanel: HTMLDialogElement | undefined;
   private helpPanel: HTMLDialogElement | undefined;
+  private skillPanel: HTMLDialogElement | undefined;
   /** Counter of preview requests: an answer that is no longer the latest one is dropped. */
   private previewRequest = 0;
 
@@ -172,17 +174,17 @@ export class App {
           'div',
           { className: 'header-actions d-flex align-items-center gap-2' },
           h(
-            'a',
+            'button',
             {
-              href: SKILL_URL,
-              target: '_blank',
-              rel: 'noopener noreferrer',
-              className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1',
+              type: 'button',
+              className: 'btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 skill-button',
+              'aria-haspopup': 'dialog',
               title: this.t('skillLink'),
               'aria-label': this.t('skillLink'),
+              onclick: () => this.skillPanel?.showModal(),
             },
             icon('robot'),
-            h('span', { className: 'd-none d-md-inline' }, 'SKILL.md'),
+            h('span', { className: 'd-none d-md-inline' }, this.t('skillButton')),
           ),
           h(
             'button',
@@ -215,7 +217,8 @@ export class App {
     const body = h('div', { className: 'container-lg app-body' }, this.stepper, this.engineLine, this.main, this.status);
     this.licensesPanel = this.renderLicenses();
     this.helpPanel = this.renderHelp();
-    replace(this.root, header, body, this.renderFooter(), this.licensesPanel, this.helpPanel);
+    this.skillPanel = this.renderSkill();
+    replace(this.root, header, body, this.renderFooter(), this.licensesPanel, this.helpPanel, this.skillPanel);
     this.renderEngine();
     this.render();
   }
@@ -386,12 +389,32 @@ export class App {
         'elpx() {\n  docker run --rm --user "$(id -u):$(id -g)" \\\n    -v "$PWD:/work" ateeducacion/elpx-optimizer "$@"\n}\nelpx optimize curso.elpx',
       ),
       h('p', {}, h('a', { ...external, href: CLI_DOCS_URL }, this.t('helpCliDocs'))),
-      h('hr', { className: 'my-4' }),
-      h('h3', { className: 'h6 d-flex align-items-center gap-2' }, icon('robot'), this.t('helpSkillTitle')),
-      h('p', { className: 'small' }, this.t('helpSkillIntro')),
-      this.codeBlock(
-        `curl -LO ${REPO_URL}/releases/latest/download/elpx-optimizer-skill.zip\nunzip elpx-optimizer-skill.zip -d ~/.claude/skills/\ncd ~/.claude/skills/elpx-optimizer/vendor && npm install`,
+    );
+  }
+
+  /** How to install the Agent Skill: the download, and the installers that take it from GitHub. */
+  private renderSkill(): HTMLDialogElement {
+    const external = { target: '_blank', rel: 'noopener noreferrer' };
+    const option = (title: string, ...body: Child[]): HTMLElement => h('section', { className: 'mb-4' }, h('h3', { className: 'h6' }, title), ...body);
+    return this.sidePanel(
+      'skill',
+      this.t('helpSkillTitle'),
+      h('p', { className: 'small' }, this.t('skillIntro')),
+      option(
+        this.t('skillZipTitle'),
+        h('p', { className: 'small' }, this.t('skillZip')),
+        h(
+          'a',
+          { ...external, href: SKILL_ZIP_URL, download: '', className: 'btn btn-primary btn-sm d-inline-flex align-items-center gap-1 mb-2' },
+          icon('download'),
+          this.t('skillDownload'),
+        ),
+        this.codeBlock(`unzip elpx-optimizer-skill.zip -d ~/.claude/skills/\ncd ~/.claude/skills/elpx-optimizer/vendor && npm install`),
       ),
+      option(this.t('skillNpxTitle'), this.codeBlock('npx skills add ateeducacion/elpx-optimizer')),
+      option(this.t('skillGhTitle'), this.codeBlock('gh skill install ateeducacion/elpx-optimizer elpx-optimizer')),
+      h('p', { className: 'small' }, this.t('skillNeedsCli')),
+      this.codeBlock('npm install -g elpx-optimizer'),
       h('p', { className: 'small text-body-secondary' }, this.t('helpSkillNote')),
       h(
         'div',
@@ -898,6 +921,13 @@ export class App {
       h('p', { className: 'text-body-secondary mb-3' }, this.t('actionsLead')),
       h('div', { className: 'action-list card' }, ...cards),
     );
+  }
+
+  /** A file's path as it will be while "clean file names" is on (the switch decides), as it is otherwise. */
+  private shownPath(path: string): string {
+    const on = this.main.querySelector<HTMLInputElement>('input[name="normalizeNames"]')?.checked ?? this.options.normalizeNames !== 'off';
+    const to = on ? new Map(this.nameChanges()).get(path) : undefined;
+    return to === undefined ? path : path.slice(0, path.lastIndexOf('/') + 1) + to;
   }
 
   /** The files that would get a clean name, as [path, new name] (the plan settles names that collide). */
@@ -1541,7 +1571,11 @@ export class App {
           'details',
           { className: 'skipped small mt-2' },
           h('summary', {}, `${this.t('planSkipped')} (${plan.skipped.length})`),
-          h('ul', { className: 'plan-skipped mb-0 ps-3 mt-1' }, ...plan.skipped.slice(0, 200).map((x) => h('li', {}, `${short(x.path)}: ${x.detail}`))),
+          h(
+            'ul',
+            { className: 'plan-skipped mb-0 ps-3 mt-1' },
+            ...plan.skipped.slice(0, 200).map((x) => h('li', {}, `${short(this.shownPath(x.path))}: ${x.detail}`)),
+          ),
         ),
       );
     }

@@ -1241,6 +1241,19 @@ describe('options', () => {
     expect(help()).toBe('1 archivo tendrá un nombre limpio: Mi Vídeo.mp4 → mi-video.mp4.');
   });
 
+  it('lists what is left as it is with the new names while clean file names is on', async () => {
+    await toReview(analysisResult({ entries: [entry('content/resources/Mi Vídeo.mp4', 'video')] }));
+    pipeline.plans.resolve(
+      planOf({ skipped: [{ path: 'content/resources/Mi Vídeo.mp4', kind: 'video', reason: 'unknown-duration', detail: 'Duration is unknown' }] }),
+    );
+    await waitFor(() => root.querySelector('ul.plan-skipped') !== null, 2000, 'skipped list');
+    expect($('ul.plan-skipped li').textContent).toBe('mi-video.mp4: Duration is unknown');
+    const names = $<HTMLInputElement>('input[name="normalizeNames"]');
+    names.checked = false;
+    names.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => $('ul.plan-skipped li').textContent === 'Mi Vídeo.mp4: Duration is unknown', 2000, 'original name');
+  });
+
   it('plans every change, and keeps the chosen options and exclusions across a re-render', async () => {
     await toReview();
     const form = $<HTMLFormElement>('form.options');
@@ -1835,7 +1848,7 @@ describe('side panels', () => {
     expect(dialog.open).toBe(false);
   });
 
-  it('explains the CLI and the Agent Skill, with commands that can be copied', async () => {
+  it('explains the CLI, with commands that can be copied', async () => {
     const helpButton = $<HTMLButtonElement>('header button.help-button');
     expect(helpButton.getAttribute('title')).toBe('Use it from the terminal and with agents');
     // A short label on wide screens, the full title for screen readers on narrow ones.
@@ -1873,13 +1886,10 @@ describe('side panels', () => {
     // Structural changes are opt-in: not in the examples.
     expect(codes.some((c) => c.includes('--flatten') || c.includes('--missing-references'))).toBe(false);
     expect(codes.some((c) => c.startsWith('elpx() {'))).toBe(true);
-    expect(codes.some((c) => c.includes('/releases/latest/download/elpx-optimizer-skill.zip'))).toBe(true);
     expect(dialog.textContent).toContain('On Windows (PowerShell), drop --user and use -v "${PWD}:/work".');
     expectExternal([...dialog.querySelectorAll<HTMLAnchorElement>('a')]);
     expect([...dialog.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
       'https://github.com/ateeducacion/elpx-optimizer/blob/main/docs/cli.md',
-      'https://github.com/ateeducacion/elpx-optimizer/blob/main/skills/elpx-optimizer/SKILL.md',
-      'https://github.com/ateeducacion/elpx-optimizer/blob/main/docs/skill.md',
     ]);
     /** The copy button of the block holding a command. */
     const copyOf = (command: string): HTMLButtonElement =>
@@ -1909,11 +1919,23 @@ describe('side panels', () => {
     dialog.close();
   });
 
-  it('links the Agent Skill from the header and follows the language', () => {
-    const skill = $$<HTMLAnchorElement>('header a').find((a) => a.getAttribute('href')!.endsWith('/SKILL.md'))!;
-    expect(skill.getAttribute('href')).toBe('https://github.com/ateeducacion/elpx-optimizer/blob/main/skills/elpx-optimizer/SKILL.md');
-    expect(skill.getAttribute('aria-label')).toBe('Agent Skill for AI assistants: SKILL.md on GitHub (opens in a new tab)');
-    expectExternal([skill]);
+  it('explains how to install the Agent Skill from the header, and follows the language', () => {
+    const button = $<HTMLButtonElement>('header button.skill-button');
+    expect(button.getAttribute('aria-label')).toBe('Agent Skill for AI assistants: how to install it');
+    const dialog = open('header button.skill-button', 'skill-panel');
+    expect([...dialog.querySelectorAll('.code-block code')].map((c) => c.textContent)).toEqual([
+      'unzip elpx-optimizer-skill.zip -d ~/.claude/skills/\ncd ~/.claude/skills/elpx-optimizer/vendor && npm install',
+      'npx skills add ateeducacion/elpx-optimizer',
+      'gh skill install ateeducacion/elpx-optimizer elpx-optimizer',
+      'npm install -g elpx-optimizer',
+    ]);
+    expect([...dialog.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      'https://github.com/ateeducacion/elpx-optimizer/releases/latest/download/elpx-optimizer-skill.zip',
+      'https://github.com/ateeducacion/elpx-optimizer/blob/main/skills/elpx-optimizer/SKILL.md',
+      'https://github.com/ateeducacion/elpx-optimizer/blob/main/docs/skill.md',
+    ]);
+    expectExternal([...dialog.querySelectorAll<HTMLAnchorElement>('a')]);
+    dialog.close();
     languageButton().click();
     expect($('.app-footer button.licenses-button').textContent).toBe('Licencias');
     expect($('dialog.licenses-panel #licenses-title').textContent).toBe('Licencias y créditos');
@@ -1921,6 +1943,7 @@ describe('side panels', () => {
     // Re-mounting replaces the panels instead of piling them up.
     expect($$('dialog.licenses-panel')).toHaveLength(1);
     expect($$('dialog.help-panel')).toHaveLength(1);
+    expect($$('dialog.skill-panel')).toHaveLength(1);
   });
 });
 
