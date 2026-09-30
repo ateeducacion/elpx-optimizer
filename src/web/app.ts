@@ -1,7 +1,7 @@
 import type { AnalysisResult, InventoryEntry, ReferenceRecord } from '../core/analyze/model.js';
 import type { Diagnostic } from '../core/diagnostics.js';
 import type { ProgressEvent } from '../core/media/engine.js';
-import type { OptionsInput } from '../core/plan/options.js';
+import { APP_DEFAULTS, type OptionsInput } from '../core/plan/options.js';
 import type { OptimizationPlan, PlanOperation } from '../core/plan/plan.js';
 import type { OperationResult, OptimizationReport } from '../core/report/report.js';
 import type { EngineStatus } from '../adapters/browser/protocol.js';
@@ -114,7 +114,7 @@ export class App {
   private planTimer: ReturnType<typeof setTimeout> | undefined;
   private sort: { key: SortKey; dir: 1 | -1 } = { key: 'size', dir: -1 };
   // Clean names and removing unused files are on by default in the web app (the CLI changes nothing unless asked).
-  private options: OptionsInput = { preset: 'balanced', normalizeNames: 'slug', removeUnused: 'safe', deduplicate: 'exact' };
+  private options: OptionsInput = { preset: 'balanced', ...APP_DEFAULTS };
   private threading: ThreadingPreference;
   private cancelling = false;
   private objectUrls: string[] = [];

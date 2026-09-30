@@ -12,6 +12,13 @@ import { SCREENSHOT_MAX_BYTES } from '../format/screenshot.js';
  * and there is no way to pass arbitrary FFmpeg arguments.
  */
 
+/**
+ * What the CLI and the web app start from, so both give the same result: unused files removed,
+ * repeated files merged and clean file names. normalizeOptions itself keeps everything off
+ * unless asked, for programs that call it directly.
+ */
+export const APP_DEFAULTS = { removeUnused: 'safe', deduplicate: 'exact', normalizeNames: 'slug' } as const satisfies OptionsInput;
+
 export interface OptionsInput {
   preset?: Preset;
   video?: {

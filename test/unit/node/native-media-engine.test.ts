@@ -84,6 +84,9 @@ afterAll(async () => {
   await removeDir(dir);
 });
 
+/** The fake sharp of these tests cannot feed OxiPNG: leave PNGs to sharp. */
+const noOxipng = (): Promise<never> => Promise.reject(new Error('OxiPNG is off in this test'));
+
 describe('NativeMediaEngine detection', () => {
   it('reports missing tools and refuses video work', async () => {
     const engine = new NativeMediaEngine(store, { tools: { ffmpeg: join(dir, 'none-ffmpeg'), ffprobe: join(dir, 'none-ffprobe') } });
@@ -123,6 +126,7 @@ describe('NativeMediaEngine detection', () => {
   it('reports a sharp that cannot be loaded and refuses image work', async () => {
     const engine = new NativeMediaEngine(store, {
       tools: { ffmpeg: join(dir, 'none') },
+      loadOxipng: noOxipng,
       loadSharp: () => Promise.reject(new Error('Could not load the "sharp" module\nmore details')),
     });
     const info = await engine.info();
@@ -133,10 +137,35 @@ describe('NativeMediaEngine detection', () => {
   });
 
   it('describes a sharp build without version details', async () => {
-    const engine = new NativeMediaEngine(store, { tools: { ffmpeg: join(dir, 'none') }, loadSharp: async () => fakeSharp(async () => Buffer.alloc(0)) });
+    const engine = new NativeMediaEngine(store, {
+      tools: { ffmpeg: join(dir, 'none') },
+      loadOxipng: noOxipng,
+      loadSharp: async () => fakeSharp(async () => Buffer.alloc(0)),
+    });
     const info = await engine.info();
     expect(info.versions).toMatchObject({ sharp: 'unknown', libvips: 'unknown' });
     expect(info.image.encoders).toEqual({ jpeg: 'libjpeg (sharp)', png: 'libpng (sharp)', webp: 'libwebp (sharp)' });
+  });
+
+  it('encodes PNGs with OxiPNG as the browser does, resized or not, and falls back to sharp without it', async () => {
+    const engine = new NativeMediaEngine(store, { tools: { ffmpeg: join(dir, 'none') } });
+    const info = await engine.info();
+    expect(info.image.encoders['png']).toBe('OxiPNG (WebAssembly)');
+    expect(info.versions['oxipng']).toBeTruthy();
+    const source = await png(64, 64, { r: 10, g: 20, b: 30, alpha: 1 });
+    const job = imageJob({ expected: { width: 64, height: 64, hasAlpha: true } });
+    const same = await engine.encodeImage(source, job, ctx);
+    expect((await engine.verifyImage(source, same, job, ctx)).problems).toEqual([]);
+    const resizedJob = imageJob({ resize: { width: 32, height: 32 }, expected: { width: 32, height: 32, hasAlpha: true } });
+    // OxiPNG drops the alpha channel of an opaque image: not a loss of transparency.
+    expect((await sharp(same).metadata()).hasAlpha).toBe(false);
+    const small = await engine.encodeImage(source, resizedJob, ctx);
+    expect((await engine.verifyImage(source, small, resizedJob, ctx)).ok).toBe(true);
+    const sharpOnly = new NativeMediaEngine(store, { tools: { ffmpeg: join(dir, 'none') }, loadOxipng: noOxipng });
+    const fallback = await sharpOnly.info();
+    expect(fallback.image.encoders['png']).toMatch(/^libpng/);
+    expect(fallback.notes.some((n) => n.startsWith('OxiPNG unavailable, PNGs are optimized by sharp: OxiPNG is off'))).toBe(true);
+    expect((await sharpOnly.encodeImage(source, job, ctx)).length).toBeGreaterThan(0);
   });
 
   it('describes the real sharp build', async () => {
@@ -288,7 +317,7 @@ describe('NativeMediaEngine image jobs', () => {
   });
 
   it('treats missing dimensions in the candidate metadata as 0x0', async () => {
-    const engine = new NativeMediaEngine(store, { tools: none(), loadSharp: async () => fakeSharp(async () => Buffer.alloc(4)) });
+    const engine = new NativeMediaEngine(store, { tools: none(), loadOxipng: noOxipng, loadSharp: async () => fakeSharp(async () => Buffer.alloc(4)) });
     const verdict = await engine.verifyImage(
       new Uint8Array(4),
       new Uint8Array(4),
@@ -308,6 +337,7 @@ describe('NativeMediaEngine image jobs', () => {
     const late = new AbortController();
     const slow = new NativeMediaEngine(store, {
       tools: none(),
+      loadOxipng: noOxipng,
       loadSharp: async () =>
         fakeSharp(async () => {
           late.abort();
@@ -318,12 +348,16 @@ describe('NativeMediaEngine image jobs', () => {
   });
 
   it('enforces the time limit and normalizes non-Error rejections', async () => {
-    const hung = new NativeMediaEngine(store, { tools: none(), loadSharp: async () => fakeSharp(() => new Promise(() => undefined)) });
+    const hung = new NativeMediaEngine(store, { tools: none(), loadOxipng: noOxipng, loadSharp: async () => fakeSharp(() => new Promise(() => undefined)) });
     const timeout = await failure(hung.encodeImage(new Uint8Array(4), imageJob(), { ...ctx, timeoutMs: 20 }));
     expect(timeout.message).toBe('image encoding exceeded the time limit');
-    const odd = new NativeMediaEngine(store, { tools: none(), loadSharp: async () => fakeSharp(() => Promise.reject('plain string')) });
+    const odd = new NativeMediaEngine(store, { tools: none(), loadOxipng: noOxipng, loadSharp: async () => fakeSharp(() => Promise.reject('plain string')) });
     await expect(odd.encodeImage(new Uint8Array(4), imageJob(), ctx)).rejects.toThrow('plain string');
-    const typed = new NativeMediaEngine(store, { tools: none(), loadSharp: async () => fakeSharp(() => Promise.reject(new TypeError('bad input'))) });
+    const typed = new NativeMediaEngine(store, {
+      tools: none(),
+      loadOxipng: noOxipng,
+      loadSharp: async () => fakeSharp(() => Promise.reject(new TypeError('bad input'))),
+    });
     await expect(typed.encodeImage(new Uint8Array(4), imageJob(), ctx)).rejects.toThrow(TypeError);
   });
 });

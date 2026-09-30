@@ -1,3 +1,4 @@
+import { APP_DEFAULTS } from '../../../src/core/plan/options.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -23,15 +24,16 @@ afterAll(async () => {
 describe('optimize: audio flags', () => {
   it('maps the flags onto options.audio, over --config', async () => {
     const io = captureIO({ cwd: dir }).io;
-    expect(await optionsFromFlags({ 'no-audio': true }, io)).toEqual({ audio: { enabled: false } });
-    expect(await optionsFromFlags({ 'audio-bitrate': '192', 'audio-force': true }, io)).toEqual({ audio: { bitrate: 192, force: true } });
+    expect(await optionsFromFlags({ 'no-audio': true }, io)).toEqual({ ...APP_DEFAULTS, audio: { enabled: false } });
+    expect(await optionsFromFlags({ 'audio-bitrate': '192', 'audio-force': true }, io)).toEqual({ ...APP_DEFAULTS, audio: { bitrate: 192, force: true } });
     await writeFile(join(dir, 'audio.json'), JSON.stringify({ audio: { bitrate: 96, force: true }, preset: 'aggressive' }));
     expect(await optionsFromFlags({ config: 'audio.json', 'audio-bitrate': '160' }, io)).toEqual({
+      ...APP_DEFAULTS,
       preset: 'aggressive',
       audio: { bitrate: 160, force: true },
     });
     // No audio flag: no audio options at all.
-    expect(await optionsFromFlags({ 'no-video': true }, io)).toEqual({ video: { enabled: false } });
+    expect(await optionsFromFlags({ 'no-video': true }, io)).toEqual({ ...APP_DEFAULTS, video: { enabled: false } });
   });
 
   it.each([

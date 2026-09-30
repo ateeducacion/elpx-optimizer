@@ -5,7 +5,7 @@ import { sha256Hex } from '../../core/io/hash.js';
 import { SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH, screenshotRatioOk } from '../../core/format/screenshot.js';
 import { analyzeArchive } from '../../core/analyze/analyze.js';
 import { buildOptimizationPlan } from '../../core/plan/plan.js';
-import { normalizeOptions, type OptionsInput } from '../../core/plan/options.js';
+import { APP_DEFAULTS, normalizeOptions, type OptionsInput } from '../../core/plan/options.js';
 import { optimizeArchive } from '../../core/optimize/optimize.js';
 import { buildReport, formatBytes, listLines, renderReportText, totalOf, VERBOSE_HINT, type OptimizationReport } from '../../core/report/report.js';
 import { createNodePlatform } from '../../adapters/node/platform.js';
@@ -27,7 +27,7 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   const images: NonNullable<OptionsInput['images']> = { ...(base.images ?? {}) };
   const audio: NonNullable<OptionsInput['audio']> = { ...(base.audio ?? {}) };
   const pdf: NonNullable<OptionsInput['pdf']> = { ...(base.pdf ?? {}) };
-  const opts: OptionsInput = { ...base };
+  const opts: OptionsInput = { ...APP_DEFAULTS, ...base };
   // "maximum" is the name the web app shows for the aggressive preset.
   if (typeof values['preset'] === 'string') opts.preset = (values['preset'] === 'maximum' ? 'aggressive' : values['preset']) as OptionsInput['preset'];
   if (values['no-video']) video.enabled = false;

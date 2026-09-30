@@ -49,7 +49,7 @@ describe.runIf(video)('doctor with working tools', () => {
     expect(report.schema).toBe('elpx-optimizer/doctor');
     expect(report.ok).toBe(true);
     expect(report.runtime.node).toBe(process.versions.node);
-    expect(Object.keys(report.versions).sort()).toEqual(['ffmpeg', 'ffprobe', 'libvips', 'qpdf', 'sharp']);
+    expect(Object.keys(report.versions).sort()).toEqual(['ffmpeg', 'ffprobe', 'libvips', 'oxipng', 'qpdf', 'sharp']);
     expect(report.versions['qpdf']).toBe(`${QPDF_VERSION} (WebAssembly)`);
     expect(report.capabilities['video']).toMatchObject({ available: true });
     expect(report.capabilities['image']).toMatchObject({ available: true });

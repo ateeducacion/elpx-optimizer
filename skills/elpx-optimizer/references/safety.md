@@ -38,8 +38,9 @@ analyzes files without executing them.
 
 ## Before running
 
-- Ask before enabling lossy presets, `--remove-unused`, `--deduplicate`, `--normalize-names`,
-  `--flatten` or `--missing-references remove` unless the user asked.
+- Ask before enabling lossy presets, `--flatten` or `--missing-references remove` unless the user
+  asked. `--remove-unused`, `--deduplicate` and `--normalize-names` are on by default: tell the user,
+  and pass `off` to any of them if they want the files left as they are.
 - Prefer `--dry-run` first and show the plan.
 - Never pass arbitrary ffmpeg or qpdf arguments; the CLI does not accept them.
 - Do not install software globally or without telling the user.
