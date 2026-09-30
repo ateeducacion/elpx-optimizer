@@ -72,6 +72,7 @@ jobs:
           path: |
             coverage/
             test-results/junit.xml
+          retention-days: 7
 
   build:
     name: Build and test packaged distributions
@@ -129,6 +130,8 @@ jobs:
             dist/elpx-optimizer-[0-9]*.tgz
             dist/elpx-optimizer-skill.zip
             dist/elpx-optimizer-web.tar.gz
+          # ~21 MB per run, only for trying a PR build: releases build their own assets.
+          retention-days: 3
 
   skill:
     name: Agent Skill validation
@@ -160,13 +163,15 @@ jobs:
       - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: bun run build:web
       - run: npx playwright test --project ${{ matrix.browser }}
+      # Only worth keeping when something broke.
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure()
         with:
           name: e2e-report-${{ matrix.browser }}
           path: |
             playwright-report/
             test-results/e2e-results.json
+          retention-days: 7
 
   compat:
     name: Compatibility with eXeLearning (pinned upstream)
@@ -180,10 +185,11 @@ jobs:
       - run: sh scripts/fetch-upstream.sh
       - run: bun test/compat/run-compat.ts
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure()
         with:
           name: compat-reports
           path: test-results/compat/
+          retention-days: 7
 
   docker:
     name: Docker image (${{ matrix.arch }})

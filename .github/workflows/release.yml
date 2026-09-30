@@ -79,6 +79,9 @@ jobs:
       # Pushed by digest only; the manifests job gives the tags to both architectures at once.
       - id: build
         uses: docker/build-push-action@v7
+        env:
+          # The build record (.dockerbuild) artifact is not used by anyone.
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           target: cli
