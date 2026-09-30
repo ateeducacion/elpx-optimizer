@@ -4,7 +4,7 @@ description: Analyzes and shrinks eXeLearning projects (.elpx files) by recompre
 license: AGPL-3.0-or-later (see LICENSE)
 compatibility: Needs Node.js 22+ (or Bun 1.3+) and the elpx-optimizer CLI (installed, configured with ELPX_OPTIMIZER_CLI, or bundled in vendor/). Video and audio optimization need ffmpeg and ffprobe; image optimization needs sharp; PDF optimization needs the qpdf WebAssembly npm package (no other tool). Works offline.
 metadata:
-  version: '0.1.4'
+  version: '0.1.5'
   upstream-exelearning: '406a2158623da1862e9f50fdfd5e358b818c9aa8'
 ---
 
