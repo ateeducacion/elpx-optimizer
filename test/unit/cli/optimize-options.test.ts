@@ -307,13 +307,18 @@ describe('renderPlan', () => {
       input: { name: 'p.elpx', size: 1 },
       options: { preset: 'balanced' },
       engine: { engine: 'native' },
-      operations: [...Array.from({ length: 5 }, (_, i) => image(i)), { op: 'remove-unused', path: 'u.png', size: 10, reason: 'no references' }],
+      operations: [
+        ...Array.from({ length: 5 }, (_, i) => image(i)),
+        ...Array.from({ length: 4 }, (_, i) => ({ op: 'rewrite-references', path: `p${i}.html` })),
+        { op: 'remove-unused', path: 'u.png', size: 10, reason: 'no references' },
+      ],
       skipped: Array.from({ length: 4 }, (_, i) => ({ path: `s${i}.png`, reason: 'already-efficient', detail: 'fine' })),
       estimate: { savedBytes: 0 },
       risks: [],
     } as unknown as OptimizationPlan;
     const short = renderPlan(plan);
     expect(short).toContain('  • 5 × recompress-image (5.0 KiB)\n');
+    expect(short).toContain('  • 4 × rewrite-references\n');
     expect(short).toContain('  • remove u.png (10 B): no references\n');
     expect(short).toContain('  - 4 × already-efficient\n');
     expect(short).not.toContain('i0.png');

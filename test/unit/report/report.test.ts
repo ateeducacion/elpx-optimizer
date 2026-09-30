@@ -122,9 +122,17 @@ describe('renderReportText', () => {
       after: 1024,
     });
     const ops = [...Array.from({ length: 5 }, (_, i) => op(i, 'applied')), ...Array.from({ length: 4 }, (_, i) => op(i + 10, 'failed'))];
-    const report = buildReport({ status: 'partial', plan: undefined, engineInfo: undefined, analysis: a, results: ops, validations: [] });
+    const rewrites = Array.from({ length: 4 }, (_, i): OperationResult => ({ id: `w${i}`, op: 'rewrite-references', path: `p${i}.html`, status: 'applied' }));
+    const plan = {
+      skipped: Array.from({ length: 5 }, (_, i) => ({ path: `s${i}.png`, reason: 'already-efficient', detail: 'fine' })),
+      risks: [],
+    } as unknown as OptimizationPlan;
+    const report = buildReport({ status: 'partial', plan, engineInfo: undefined, analysis: a, results: [...ops, ...rewrites], validations: [] });
     const short = renderReportText(report);
-    expect(short).toContain('Applied (5):\n  - 5 × recompress-image 10.0 KiB → 5.0 KiB\n');
+    // Without sizes, a kind is only counted; skipped resources are grouped by reason.
+    expect(short).toContain('  - 4 × rewrite-references\n');
+    expect(short).toContain('Left unchanged (5):\n  - 5 × already-efficient\n');
+    expect(short).toContain('Applied (9):\n  - 5 × recompress-image 10.0 KiB → 5.0 KiB\n');
     // Failures are never folded away.
     expect(short).toContain('content/resources/i13.png');
     expect(short).toContain('add --verbose to list every file');
