@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildReport, formatBytes, renderReportText, type OperationResult, type OptimizationReport } from '../../../src/core/report/report.js';
 import { summarizeValidation, validateArchive } from '../../../src/core/validate/validate.js';
-import { buildOptimizationPlan } from '../../../src/core/plan/plan.js';
+import { buildOptimizationPlan, type OptimizationPlan } from '../../../src/core/plan/plan.js';
 import { normalizeOptions } from '../../../src/core/plan/options.js';
 import { MemoryByteSource } from '../../../src/core/io/byte-source.js';
 import { diagnostic } from '../../../src/core/diagnostics.js';
