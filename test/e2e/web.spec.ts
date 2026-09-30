@@ -73,7 +73,7 @@ test('recompresses the video in the browser: single-thread, no isolation, no upl
   expect(env).toEqual({ isolated: false, sab: 'undefined' });
   await dropFile(page, COURSE, 'course-video.elpx');
   await waitForReview(page);
-  await expect(page.locator('.inventory')).toContainText('clase 1.mp4');
+  await expect(page.locator('.inventory')).toContainText('clase-1.mp4');
   await expect(page.locator('.inventory')).toContainText('h264 640×360');
   await expect(page.locator('.engine-line')).toContainText(/un hilo|single-thread/);
   await keepFileNames(page);
