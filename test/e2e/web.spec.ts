@@ -133,10 +133,10 @@ test('merges duplicates and removes unused files with rewritten references', asy
   await page.goto('/');
   await page.setInputFiles('#file-input', COURSE);
   await waitForReview(page);
-  // Removing unused files is on by default in the web app; merging repeated files is not.
+  // Removing unused files and merging repeated ones are on by default in the web app.
   await expect(ui.removeUnused(page)).toBeChecked();
-  await ui.deduplicate(page).check();
   await keepFileNames(page);
+  await ui.deduplicate(page).check();
   const { path } = await planRunDownload(page, testInfo);
   const analysis = await analyzeFile(path);
   const names = analysis.entries.map((e) => e.path);
