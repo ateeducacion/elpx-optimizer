@@ -3,6 +3,7 @@ import { unzipSync, zipSync, type Zippable } from 'fflate';
 import courseUrl from '../fixtures/elpx/course-video.elpx?url';
 import efficientUrl from '../fixtures/elpx/efficient.elpx?url';
 import legacyUrl from '../fixtures/upstream/verdaderofalso.elp?url';
+import photoUrl from '../fixtures/media/photo-exif-icc.jpg?url';
 import { BlobByteSource } from '../../src/adapters/browser/blob-io.js';
 import { BrowserMediaEngine, type BrowserEngineOptions } from '../../src/adapters/browser/browser-media-engine.js';
 import { FFMPEG_ASSETS } from '../../src/adapters/browser/ffmpeg-assets.js';
@@ -19,7 +20,7 @@ import type { OptimizationPlan } from '../../src/core/plan/plan.js';
 import type { OptimizationReport } from '../../src/core/report/report.js';
 import { openZip } from '../../src/core/zip/reader.js';
 import { sha256Hex } from '../../src/core/io/hash.js';
-import { fixtureFile, waitFor } from './helpers.js';
+import { fixtureBytes, fixtureFile, waitFor } from './helpers.js';
 
 const VIDEO = 'content/resources/media/clase 1.mp4';
 const MiB = 1024 * 1024;
@@ -116,6 +117,32 @@ describe('pipeline handler end to end (real engine and codecs)', () => {
     const reopened = await analyzeArchive(source, { limits: BROWSER_LIMITS, inputName: result.fileName });
     expect(reopened.result.ok).toBe(true);
     expect(reopened.result.diagnostics.filter((d) => d.code === 'missing-resource')).toEqual(analysis.diagnostics.filter((d) => d.code === 'missing-resource'));
+  });
+
+  it('recompresses the photo inside an attached ODP with the WebAssembly codecs; the document keeps its name and other entries', async () => {
+    const h = harness({ imageConcurrency: 1 });
+    const photo = await fixtureBytes(photoUrl);
+    const enc = new TextEncoder();
+    const odpFiles: Zippable = {
+      mimetype: [enc.encode('application/vnd.oasis.opendocument.presentation'), { level: 0 }],
+      'content.xml': enc.encode('<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"/>'),
+      'Pictures/photo.jpg': [photo, { level: 0 }],
+      'META-INF/manifest.xml': enc.encode('<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"/>'),
+    };
+    const odp = zipSync(odpFiles);
+    const project = unzipSync(await fixtureBytes(efficientUrl));
+    const file = new File([zipSync({ ...project, 'content/resources/slides.odp': [odp, { level: 0 }] }) as Uint8Array<ArrayBuffer>], 'slides.elpx');
+    expectType(await h.analyze(file), 'analysis');
+    const plan = expectType(await h.plan({ video: { enabled: false } }), 'plan').plan as OptimizationPlan;
+    expect(plan.operations.find((o) => o.op === 'optimize-odf')).toMatchObject({ path: 'content/resources/slides.odp', format: 'odp' });
+    const result = expectType(await h.optimize(plan.planHash), 'result');
+    const op = (result.report as OptimizationReport).operations.find((o) => o.op === 'optimize-odf')!;
+    expect(op, JSON.stringify(op)).toMatchObject({ status: 'applied', embedded: [{ path: 'Pictures/photo.jpg', before: photo.length }] });
+    const out = unzipSync(new Uint8Array(await result.output!.arrayBuffer()));
+    const inner = unzipSync(out['content/resources/slides.odp']!);
+    expect(Object.keys(inner)).toEqual(Object.keys(odpFiles));
+    expect(inner['content.xml']).toEqual(odpFiles['content.xml']);
+    expect(inner['Pictures/photo.jpg']!.length).toBeLessThan(photo.length);
   });
 
   it('delivers an identical copy when nothing can be improved', async () => {

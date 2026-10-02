@@ -2,19 +2,21 @@ import { CancelledError, ElpxError, errorMessage } from '../errors.js';
 import { throwIfCancelled, type CancelSignal } from '../cancel.js';
 import { diagnosticKey, type Diagnostic } from '../diagnostics.js';
 import type { Limits } from '../limits.js';
-import type { ByteSource } from '../io/byte-source.js';
+import { MemoryByteSource, type ByteSource } from '../io/byte-source.js';
 import { streamRange } from '../io/byte-source.js';
 import type { ByteSink } from '../io/byte-sink.js';
 import { Sha256 } from '../io/hash.js';
 import { utf8Encode } from '../io/text.js';
-import { readEntryBytes, type ZipEntry } from '../zip/reader.js';
+import { openZip, readEntryBytes, type ZipEntry } from '../zip/reader.js';
 import { ZipWriter, metaFromEntry, type EntryMeta } from '../zip/writer.js';
 import { extname } from '../zip/names.js';
 import { analyzeArchive } from '../analyze/analyze.js';
 import type { Analysis } from '../analyze/model.js';
 import { parseContentXml } from '../format/content-xml.js';
 import { MANIFEST_PATH, manifestDiff, parseManifest, renderManifest } from '../format/manifest.js';
-import type { EngineInfo, MediaEngine, ProgressListener, ResourceStore, StoredResource } from '../media/engine.js';
+import type { EngineInfo, JobContext, MediaEngine, ProgressListener, ResourceStore, StoredResource } from '../media/engine.js';
+import type { ImageJob } from '../media/image-policy.js';
+import { rebuildOdf, validateOdfCandidate } from '../media/odf-policy.js';
 import { inspectImage } from '../media/image-inspect.js';
 import { extractMetadata, injectMetadata } from '../media/image-metadata.js';
 import { isWorthReplacing, validateVideoCandidate } from '../media/video-policy.js';
@@ -198,6 +200,16 @@ export async function optimizeArchive(
       p++;
       const thresholds = { minSavingsPercent: plan.options.pdf.minSavingsPercent, minSavingsBytes: plan.options.pdf.minSavingsBytes };
       const r = await runPdf(op, archive.byName.get(op.path)!, analysis, platform, { signal, progress, thresholds, item: p, items: pdfOps.length });
+      results.push(r.result);
+      if (r.candidate) replacements.set(op.path, r.candidate);
+    }
+
+    // ODT/ODP attachments, one at a time (each is held in memory with its rebuilt copy); their images share the pool.
+    const odfOps = plan.operations.filter((o): o is Extract<PlanOperation, { op: 'optimize-odf' }> => o.op === 'optimize-odf');
+    for (const op of odfOps) {
+      throwIfCancelled(signal);
+      const thresholds = { minSavingsPercent: plan.options.images.minSavingsPercent, minSavingsBytes: plan.options.images.minSavingsBytes };
+      const r = await runOdf(op, archive.byName.get(op.path)!, analysis, platform, { signal, progress, thresholds });
       results.push(r.result);
       if (r.candidate) replacements.set(op.path, r.candidate);
     }
@@ -608,21 +620,107 @@ async function runImage(
   const ctx = { resourcePath: op.path, timeoutMs: platform.limits.imageTimeoutMs, ...(step.signal ? { signal: step.signal } : {}) };
   try {
     const original = await readEntryBytes(analysis.archive!, entry, platform.limits.maxImageBytes, step.signal ? { signal: step.signal } : {});
-    const encoded = await platform.engine.encodeImage(original, op.job, ctx);
-    const withMeta = injectMetadata(encoded, extractMetadata(original, op.job.format, op.job.metadata), op.job.resize ?? {});
-    const info = inspectImage(withMeta, op.job.format);
-    if (info.error || info.format !== op.job.format)
-      return { result: { ...base, status: 'reverted', detail: `candidate is not a valid ${op.job.format}: ${info.error ?? info.format}` } };
-    if (info.animated) return { result: { ...base, status: 'reverted', detail: 'candidate is animated' } };
-    const verification = await platform.engine.verifyImage(original, withMeta, op.job, ctx);
-    if (!verification.ok)
-      return { result: { ...base, status: 'reverted', after: withMeta.length, detail: `candidate rejected: ${verification.problems.join('; ')}` } };
-    if (!isWorthReplacing(op.size, withMeta.length, step.thresholds)) {
-      return { result: { ...base, status: 'reverted', after: withMeta.length, detail: `not smaller enough (${op.size} → ${withMeta.length} bytes)` } };
+    const r = await imageCandidate(original, op.job, platform, ctx, step.thresholds);
+    if ('rejected' in r) return { result: { ...base, status: 'reverted', ...(r.after !== undefined ? { after: r.after } : {}), detail: r.rejected } };
+    const candidate = await platform.store.fromBytes(r.bytes, extname(op.path) || 'bin');
+    return { result: { ...base, status: 'applied', after: r.bytes.length, checks: r.checks }, candidate };
+  } catch (error) {
+    if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
+    return { result: { ...base, status: 'failed', detail: errorMessage(error) } };
+  }
+}
+
+/** Encodes an image and validates the result: the new bytes, or why the original stays. */
+async function imageCandidate(
+  original: Uint8Array,
+  job: ImageJob,
+  platform: Platform,
+  ctx: JobContext,
+  thresholds: StepContext['thresholds'],
+): Promise<{ bytes: Uint8Array; checks: string[] } | { rejected: string; after?: number }> {
+  const encoded = await platform.engine.encodeImage(original, job, ctx);
+  const withMeta = injectMetadata(encoded, extractMetadata(original, job.format, job.metadata), job.resize ?? {});
+  const info = inspectImage(withMeta, job.format);
+  if (info.error || info.format !== job.format) return { rejected: `candidate is not a valid ${job.format}: ${info.error ?? info.format}` };
+  if (info.animated) return { rejected: 'candidate is animated' };
+  const verification = await platform.engine.verifyImage(original, withMeta, job, ctx);
+  if (!verification.ok) return { rejected: `candidate rejected: ${verification.problems.join('; ')}`, after: withMeta.length };
+  if (!isWorthReplacing(original.length, withMeta.length, thresholds)) {
+    return { rejected: `not smaller enough (${original.length} → ${withMeta.length} bytes)`, after: withMeta.length };
+  }
+  return { bytes: withMeta, checks: ['decodes with the same size and format', ...(verification.identicalPixels ? ['pixel-identical to the original'] : [])] };
+}
+
+/**
+ * Recompresses the images inside an ODT/ODP attachment, rebuilds the package
+ * with every other entry copied as it was, and keeps it only when it is still
+ * a valid package that changed nothing else and saves enough.
+ */
+async function runOdf(
+  op: Extract<PlanOperation, { op: 'optimize-odf' }>,
+  entry: ZipEntry,
+  analysis: Analysis,
+  platform: Platform,
+  step: StepContext,
+): Promise<{ result: OperationResult; candidate?: StoredResource }> {
+  const base = { id: op.id, op: op.op, path: op.path, before: op.size, lossy: op.lossy } as const;
+  const { limits } = platform;
+  const opts = step.signal ? { signal: step.signal } : {};
+  try {
+    const original = await readEntryBytes(analysis.archive!, entry, limits.maxOdfBytes, opts);
+    const zip = await openZip(new MemoryByteSource(original), limits, step.signal);
+    const replaced = new Map<string, Uint8Array>();
+    const notes: string[] = [];
+    let next = 0;
+    let done = 0;
+    const worker = async (): Promise<void> => {
+      while (next < op.embedded.length) {
+        throwIfCancelled(step.signal);
+        const img = op.embedded[next++]!;
+        const ctx = { resourcePath: `${op.path}/${img.path}`, timeoutMs: limits.imageTimeoutMs, ...opts };
+        try {
+          // The plan was made from this same document, so every image it names is there.
+          const original = await readEntryBytes(zip, zip.byName.get(img.path)!, limits.maxImageBytes, opts);
+          const r = await imageCandidate(original, img.job, platform, ctx, step.thresholds);
+          if ('rejected' in r) notes.push(`${img.path}: ${r.rejected}`);
+          else replaced.set(img.path, r.bytes);
+        } catch (error) {
+          if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
+          notes.push(`${img.path}: ${errorMessage(error)}`);
+        }
+        step.progress({
+          stage: 'encode-image',
+          resource: op.path,
+          item: ++done,
+          items: op.embedded.length,
+          fraction: Math.min(0.99, done / op.embedded.length),
+        });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(platform.imageConcurrency, op.embedded.length)) }, worker));
+    if (replaced.size === 0) return { result: { ...base, lossy: false, status: 'reverted', detail: `no embedded image was replaced (${notes.join('; ')})` } };
+    const candidate = await rebuildOdf(zip, replaced, step.signal);
+    const problems = await validateOdfCandidate(zip, candidate, replaced, op.format, limits, step.signal);
+    if (problems.length > 0)
+      return { result: { ...base, status: 'reverted', after: candidate.length, detail: `rebuilt document rejected: ${problems.join('; ')}` } };
+    if (!isWorthReplacing(op.size, candidate.length, step.thresholds)) {
+      return { result: { ...base, status: 'reverted', after: candidate.length, detail: `not smaller enough (${op.size} → ${candidate.length} bytes)` } };
     }
-    const candidate = await platform.store.fromBytes(withMeta, extname(op.path) || 'bin');
-    const checks = ['decodes with the same size and format', ...(verification.identicalPixels ? ['pixel-identical to the original'] : [])];
-    return { result: { ...base, status: 'applied', after: withMeta.length, checks }, candidate };
+    const embedded = op.embedded.filter((i) => replaced.has(i.path)).map((i) => ({ path: i.path, before: i.size, after: replaced.get(i.path)!.length }));
+    const lossy = op.embedded.some((i) => i.lossy && replaced.has(i.path));
+    const stored = await platform.store.fromBytes(candidate, op.format);
+    return {
+      result: {
+        ...base,
+        lossy,
+        status: 'applied',
+        after: candidate.length,
+        embedded,
+        checks: ['mimetype first and stored', 'every other entry unchanged', 'embedded images decode with the same size and format'],
+        ...(notes.length > 0 ? { detail: `kept as they were: ${notes.join('; ')}` } : {}),
+      },
+      candidate: stored,
+    };
   } catch (error) {
     if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
     return { result: { ...base, status: 'failed', detail: errorMessage(error) } };

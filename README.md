@@ -34,8 +34,8 @@ Both write `course_optimized.elpx` next to the original. Add `--dry-run` to see 
 
 ## What it does
 
-- **Recompresses** videos, images, audio and PDFs, and keeps a new version only when it is valid
-  and smaller.
+- **Recompresses** videos, images, audio and PDFs, and the images inside attached ODT and ODP
+  files, and keeps a new version only when it is valid and smaller.
 - **Finds** missing, unused and duplicate files; on request it removes, merges and renames them.
 - **Refreshes** the project thumbnail from its first page, or from an image of your choice.
 - **Verifies** the whole package again before handing it over.

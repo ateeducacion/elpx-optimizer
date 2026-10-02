@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { findExecutable } from '../../src/adapters/node/tools.js';
 import { EXIT } from '../../src/cli/exit-codes.js';
 import { ELPX, fileSha256, removeDir, runCli, singleJson, tempDir, UPSTREAM, writeFailingFfmpeg, writeScript } from '../helpers/cli.js';
-import { nativeVideoAvailable } from '../helpers/native.js';
+import { MEDIA, nativeVideoAvailable } from '../helpers/native.js';
+import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
+import type { OptimizationReport } from '../../src/core/report/report.js';
 
 const video = nativeVideoAvailable();
 const COURSE = join(ELPX, 'course-video.elpx');
@@ -69,6 +71,28 @@ describe.runIf(video)('optimize with the native engine', () => {
     expect(JSON.parse(await readFile(join(work, 'informe final.json'), 'utf8'))).toEqual(report);
     const validation = await runCli(['validate', output, '--json']);
     expect(validation.code).toBe(EXIT.SUCCESS);
+  });
+
+  it('recompresses the images inside an attached ODP with sharp, keeping its path and other entries', async () => {
+    const photo = await readFile(join(MEDIA, 'photo-exif-icc.jpg'));
+    const odpFiles: Zippable = {
+      mimetype: [strToU8('application/vnd.oasis.opendocument.presentation'), { level: 0 }],
+      'content.xml': strToU8('<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"/>'),
+      'Pictures/photo.jpg': [photo, { level: 0 }],
+      'META-INF/manifest.xml': strToU8('<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"/>'),
+    };
+    const project = unzipSync(await readFile(EFFICIENT));
+    const input = join(work, 'slides.elpx');
+    await writeFile(input, zipSync({ ...project, 'content/resources/slides.odp': [zipSync(odpFiles), { level: 0 }] }));
+    const r = await runCli(['optimize', input, '--output', join(work, 'out.elpx'), '--no-video', '--remove-unused', 'off', '--json']);
+    const report = singleJson(r.stdout) as OptimizationReport;
+    expect(report.operations.find((o) => o.op === 'optimize-odf')).toMatchObject({
+      status: 'applied',
+      embedded: [{ path: 'Pictures/photo.jpg', before: photo.length }],
+    });
+    const inner = unzipSync(unzipSync(await readFile(join(work, 'out.elpx')))['content/resources/slides.odp']!);
+    expect(Object.keys(inner)).toEqual(Object.keys(odpFiles));
+    expect(inner['Pictures/photo.jpg']!.length).toBeLessThan(photo.length);
   });
 
   it('prints a human report and progress', async () => {

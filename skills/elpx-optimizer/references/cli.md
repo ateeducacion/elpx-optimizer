@@ -27,7 +27,7 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
 - Output: `--output PATH` (default `<name>_optimized.elpx` next to the input; refuses the input path),
   `--overwrite` (only the output), `--report PATH`, `--dry-run`, `--json`.
 - Selection: `--preset conservative|balanced|aggressive` (`maximum` = `aggressive`, the web app's
-  "Maximum"), `--no-video`, `--no-images`, `--no-audio`, `--no-pdf`, `--remove-unused off|safe`,
+  "Maximum"), `--no-video`, `--no-images`, `--no-audio`, `--no-pdf`, `--no-odf`, `--remove-unused off|safe`,
   `--deduplicate off|exact`, `--exclude PATH` (repeatable; ZIP paths such as
   `content/resources/video.mp4`), `--config FILE` (JSON with the same keys as the web app).
 - Restructuring (off by default, ask first):
@@ -63,6 +63,10 @@ finds the CLI in this order and runs it with the same JavaScript runtime:
   and signed PDFs, PDFs over 512 MiB and PDFs qpdf cannot read are skipped (`skipped[]`, kind `pdf`,
   reasons `encrypted`, `signed`, `exceeds-size-limit`, `not-inspected`); a result must pass
   `qpdf --check` without warnings, keep the page count and save at least the minimum.
+- ODT/ODP attachments (`optimize-odf`): their embedded JPEG, PNG and WebP images are recompressed
+  with the image options, same names and formats; the document's XML and its path in the project
+  do not change. Signed, encrypted or malformed documents are skipped (`skipped[]`, kind `odf`);
+  `--no-odf` leaves them untouched. The report lists the images replaced in `embedded`.
 - Thresholds: `--min-savings-percent N`, `--min-savings-bytes N`.
 - Resources: `--threads N`, `--image-concurrency N` (also parallel audio jobs), `--timeout-video SECONDS`
   (also per qpdf run), `--max-archive-size BYTES`, `--max-video-size BYTES`, `--temp-dir DIR`,

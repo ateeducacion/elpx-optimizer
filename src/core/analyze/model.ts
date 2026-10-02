@@ -1,6 +1,7 @@
 import type { Diagnostic, SourceLocation } from '../diagnostics.js';
 import type { ImageInfo } from '../media/image-inspect.js';
 import type { PdfInfo } from '../media/pdf-policy.js';
+import type { OdfInfo } from '../media/odf-policy.js';
 import type { ProbeResult } from '../media/probe.js';
 import type { ResourceKind } from '../media/sniff.js';
 import type { LenientRule, ReferenceForm, ResolutionStatus } from '../refs/resolve.js';
@@ -176,4 +177,6 @@ export interface Analysis {
   readonly images: ReadonlyMap<string, ImageInfo>;
   /** PDFs inspected with qpdf (absent when no PDF engine was available). */
   readonly pdfs?: ReadonlyMap<string, PdfInfo>;
+  /** ODT/ODP attachments opened as packages. */
+  readonly odfs?: ReadonlyMap<string, OdfInfo>;
 }

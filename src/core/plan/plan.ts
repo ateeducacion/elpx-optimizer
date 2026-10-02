@@ -6,6 +6,7 @@ import { decideImage, type ImageJob, type ImageSkipReason } from '../media/image
 import { decideVideo, type VideoJob, type VideoSkipReason } from '../media/video-policy.js';
 import { decideAudio, type AudioJob, type AudioSkipReason } from '../media/audio-policy.js';
 import { decidePdf, type PdfJob, type PdfSkipReason } from '../media/pdf-policy.js';
+import { ODF_FORMATS, type OdfFormat, type OdfSkipReason } from '../media/odf-policy.js';
 import { sha256Hex } from '../io/hash.js';
 import { MANIFEST_PATH } from '../format/manifest.js';
 import { IMAGE_EXTENSIONS } from '../analyze/analyze.js';
@@ -66,6 +67,18 @@ export type PlanOperation =
       readonly job: PdfJob;
       readonly estimatedBytes?: number;
     }
+  | {
+      readonly id: string;
+      readonly op: 'optimize-odf';
+      readonly path: string;
+      readonly size: number;
+      readonly format: OdfFormat;
+      /** True when an embedded image is re-encoded lossily. */
+      readonly lossy: boolean;
+      /** Images recompressed in place inside the document (same paths and formats). */
+      readonly embedded: readonly OdfEmbeddedImage[];
+      readonly estimatedBytes?: number;
+    }
   | { readonly id: string; readonly op: 'remove-unused'; readonly path: string; readonly size: number; readonly reason: string }
   | {
       readonly id: string;
@@ -112,10 +125,21 @@ export type PlanOperation =
       readonly added: boolean;
     };
 
+/** An image inside an ODT/ODP attachment, recompressed like any other image. */
+export interface OdfEmbeddedImage {
+  readonly path: string;
+  readonly size: number;
+  readonly lossy: boolean;
+  readonly conversions: readonly string[];
+  readonly job: ImageJob;
+  readonly estimatedBytes: number;
+}
+
 export interface SkippedResource {
   readonly path: string;
-  readonly kind: 'video' | 'image' | 'audio' | 'pdf' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference' | 'rename';
-  readonly reason: VideoSkipReason | ImageSkipReason | AudioSkipReason | PdfSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
+  readonly kind: 'video' | 'image' | 'audio' | 'pdf' | 'odf' | 'unused' | 'duplicate' | 'flatten' | 'missing-reference' | 'rename';
+  readonly reason:
+    VideoSkipReason | ImageSkipReason | AudioSkipReason | PdfSkipReason | OdfSkipReason | 'excluded' | 'not-a-user-asset' | 'not-probed' | 'kept' | string;
   readonly detail: string;
 }
 
@@ -267,6 +291,11 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
         estimatedBytes: Math.round(e.size * (decision.job.images ? 0.8 : 0.95)),
       });
     }
+    for (const e of result.entries) {
+      if (e.isDirectory || e.role !== 'user-asset' || e.kind !== 'document' || !ODF_FORMATS.has(e.format) || removedPaths.has(e.path)) continue;
+      if (excluded.has(e.path)) skipped.push({ path: e.path, kind: 'odf', reason: 'excluded', detail: 'Kept as original by request' });
+      else planOdf(analysis, e, options, engine, limits, operations, skipped);
+    }
     if (options.screenshot) {
       const current = result.entries.find((e) => e.path === SCREENSHOT_PATH);
       if (excluded.has(SCREENSHOT_PATH)) skipped.push({ path: SCREENSHOT_PATH, kind: 'image', reason: 'excluded', detail: 'Kept as original by request' });
@@ -293,11 +322,13 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
       operations.push({ id: `manifest:${MANIFEST_PATH}`, op: 'update-manifest', path: MANIFEST_PATH, reason: 'list the final set of entries' });
     }
     for (const op of operations) {
-      if (op.op === 'transcode-video' || op.op === 'recompress-image' || op.op === 'transcode-audio' || op.op === 'optimize-pdf')
+      if (op.op === 'transcode-video' || op.op === 'recompress-image' || op.op === 'transcode-audio' || op.op === 'optimize-pdf' || op.op === 'optimize-odf')
         estimate += Math.max(0, op.size - (op.estimatedBytes ?? op.size));
       else if (op.op === 'remove-unused' || op.op === 'deduplicate') estimate += op.size;
     }
-    if (operations.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || (o.op === 'recompress-image' && o.lossy))) {
+    if (
+      operations.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || ((o.op === 'recompress-image' || o.op === 'optimize-odf') && o.lossy))
+    ) {
       risks.push('Lossy re-encoding changes image, audio or video quality; originals are kept when a result is not valid or not smaller.');
     }
     if (operations.some((o) => o.op === 'optimize-pdf' && o.lossy)) {
@@ -306,7 +337,11 @@ export function buildOptimizationPlan(analysis: Analysis, options: NormalizedOpt
     if (operations.some((o) => o.op === 'transcode-audio' && o.to !== undefined)) {
       risks.push('WAV, AIFF and FLAC recordings become MP3 files with the .mp3 extension; their references are rewritten.');
     }
-    if (operations.some((o) => (o.op === 'transcode-video' && o.job.scale) || (o.op === 'recompress-image' && o.job.resize))) {
+    const downscaled = (o: PlanOperation): boolean =>
+      (o.op === 'transcode-video' && !!o.job.scale) ||
+      (o.op === 'recompress-image' && !!o.job.resize) ||
+      (o.op === 'optimize-odf' && o.embedded.some((i) => i.job.resize));
+    if (operations.some(downscaled)) {
       risks.push('Some media will be downscaled.');
     }
     if (operations.some((o) => o.op === 'remove-unused'))
@@ -503,7 +538,6 @@ function planImage(
     skipped.push({ path: e.path, kind: 'image', reason: 'kept', detail: 'screenshot.png is only optimized losslessly' });
     return;
   }
-  const ratio = decision.job.mode === 'lossless' ? 0.9 : Math.min(0.95, (decision.job.quality ?? 80) / 100);
   operations.push({
     id: `image:${e.path}`,
     op: 'recompress-image',
@@ -512,6 +546,59 @@ function planImage(
     lossy: decision.job.mode === 'lossy',
     conversions: decision.job.conversions,
     job: decision.job,
-    estimatedBytes: Math.round(e.size * ratio),
+    estimatedBytes: estimateImage(decision.job, e.size),
+  });
+}
+
+/** Rough size of a recompressed image. */
+function estimateImage(job: ImageJob, size: number): number {
+  return Math.round(size * (job.mode === 'lossless' ? 0.9 : Math.min(0.95, (job.quality ?? 80) / 100)));
+}
+
+/** Plans an ODT/ODP attachment: its images go through the same image policy as the project's own. */
+function planOdf(
+  analysis: Analysis,
+  e: InventoryEntry,
+  options: NormalizedOptions,
+  engine: EngineInfo,
+  limits: Limits,
+  operations: PlanOperation[],
+  skipped: SkippedResource[],
+): void {
+  const skip = (reason: OdfSkipReason, detail: string): void => void skipped.push({ path: e.path, kind: 'odf', reason, detail });
+  if (!options.odf.enabled) return skip('odf-disabled', 'ODT and ODP attachments are left unchanged by request');
+  const info = analysis.odfs?.get(e.path);
+  if (!info) return skip('odf-invalid', 'The document was not inspected');
+  if (!info.ok) return skip(info.reason, info.detail);
+  const embedded: OdfEmbeddedImage[] = [];
+  for (const img of info.images) {
+    const decision = decideImage(
+      { format: img.format, size: img.size, info: img.info, extensionMatches: img.extensionMatches, resolutionSensitive: false },
+      options.images,
+      engine.image,
+      limits,
+    );
+    if (decision.action === 'skip') continue;
+    const { job } = decision;
+    embedded.push({
+      path: img.path,
+      size: img.size,
+      lossy: job.mode === 'lossy',
+      conversions: job.conversions,
+      job,
+      estimatedBytes: estimateImage(job, img.size),
+    });
+  }
+  if (embedded.length === 0) return skip('nothing-to-optimize', 'No embedded image can be recompressed');
+  const saved = embedded.reduce((s, i) => s + i.size - i.estimatedBytes, 0);
+  operations.push({
+    id: `odf:${e.path}`,
+    op: 'optimize-odf',
+    path: e.path,
+    size: e.size,
+    format: info.format,
+    lossy: embedded.some((i) => i.lossy),
+    embedded,
+    estimatedBytes: Math.max(0, e.size - saved),
   });
 }

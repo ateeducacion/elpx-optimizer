@@ -21,6 +21,7 @@ import { renderFirstPage, ScreenshotError, thumbnailFromImage } from './screensh
 import { chooseTheme } from './theme.js';
 import { VIDEO_PROFILES, type Preset } from '../core/media/video-policy.js';
 import { IMAGE_PROFILES } from '../core/media/image-policy.js';
+import { ODF_FORMATS } from '../core/media/odf-policy.js';
 import { AUDIO_PROFILES } from '../core/media/audio-policy.js';
 
 /** What the UI needs from the pipeline (the real client or a test double). */
@@ -1022,6 +1023,7 @@ export class App {
       ['recompress-image', 'kindImage'],
       ['transcode-audio', 'kindAudio'],
       ['optimize-pdf', 'kindPdf'],
+      ['optimize-odf', 'kindOdf'],
     ];
     const media = (plan?.operations ?? []).filter((o) => kinds.some(([k]) => k === o.op));
     const parts = kinds
@@ -1171,7 +1173,7 @@ export class App {
     const body = h('tbody');
     for (const e of rows) {
       const pdf = e.format === 'pdf';
-      const optimizable = e.kind === 'image' || e.kind === 'video' || e.kind === 'audio' || pdf;
+      const optimizable = e.kind === 'image' || e.kind === 'video' || e.kind === 'audio' || pdf || (e.kind === 'document' && ODF_FORMATS.has(e.format));
       const box = optimizable
         ? h(
             'div',
@@ -1667,6 +1669,7 @@ export class App {
           'advPdf',
           check('pdf', 'pdfEnabled', o.pdf?.enabled !== false),
           check('pdfLossless', 'pdfLossless', o.pdf?.images === false),
+          check('odf', 'odfEnabled', o.odf?.enabled !== false),
           check('multithread', 'threadsMulti', this.threading !== 'single'),
         ),
       ),
@@ -1870,6 +1873,7 @@ export class App {
     const audio: NonNullable<OptionsInput['audio']> = { enabled: media('audio') };
     // Unchecked, the preset decides whether images inside PDFs are converted.
     const pdf: NonNullable<OptionsInput['pdf']> = { enabled: media('pdf'), ...(on('pdfLossless') ? { images: false } : {}) };
+    const odf: NonNullable<OptionsInput['odf']> = { enabled: media('odf') };
     const afb = n('audioFilesBitrate');
     if (afb !== undefined) audio.bitrate = afb;
     this.threading = on('multithread') ? 'auto' : 'single';
@@ -1879,6 +1883,7 @@ export class App {
       images,
       audio,
       pdf,
+      odf,
       removeUnused: kept('removeUnused', 'safe', 'off'),
       deduplicate: kept('deduplicate', 'exact', 'off'),
       flatten: kept('flatten', 'legacy', 'off'),
@@ -1955,7 +1960,8 @@ export class App {
     const ops = plan.operations;
     const has = (kind: PlanOperation['op']): boolean => ops.some((o) => o.op === kind);
     const notes: string[] = [];
-    if (ops.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || (o.op === 'recompress-image' && o.lossy))) notes.push(this.t('risk_lossy'));
+    if (ops.some((o) => o.op === 'transcode-video' || o.op === 'transcode-audio' || ((o.op === 'recompress-image' || o.op === 'optimize-odf') && o.lossy)))
+      notes.push(this.t('risk_lossy'));
     if (ops.some((o) => o.op === 'transcode-audio' && o.to !== undefined)) notes.push(this.t('risk_audioRename'));
     if (ops.some((o) => o.op === 'optimize-pdf' && o.lossy)) notes.push(this.t('risk_pdfImages'));
     if (ops.some((o) => (o.op === 'transcode-video' && o.job.scale) || (o.op === 'recompress-image' && o.job.resize))) notes.push(this.t('risk_downscale'));
@@ -2153,6 +2159,7 @@ export class App {
       ['recompress-image', 'chImage'],
       ['transcode-audio', 'chAudio'],
       ['optimize-pdf', 'chPdf'],
+      ['optimize-odf', 'chOdf'],
     ];
     for (const [op, key] of media) {
       const list = applied(op);

@@ -24,6 +24,8 @@ export interface OperationResult {
   readonly detail?: string;
   /** Validations the candidate passed (e.g. probe, full decode, browser playback). */
   readonly checks?: readonly string[];
+  /** Images replaced inside an ODT/ODP attachment (optimize-odf). */
+  readonly embedded?: readonly { readonly path: string; readonly before: number; readonly after: number }[];
 }
 
 export interface Validation {

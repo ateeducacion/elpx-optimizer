@@ -46,6 +46,9 @@ Audio: \`audio-disabled\`, \`engine-unavailable\`, \`engine-capability\`, \`unsu
 PDFs: \`pdf-disabled\`, \`engine-unavailable\`, \`not-inspected\`, \`encrypted\`, \`signed\`,
 \`exceeds-size-limit\`, \`excluded\`.
 
+ODT/ODP attachments: \`odf-disabled\`, \`odf-invalid\`, \`odf-mime-mismatch\`, \`odf-signed\`,
+\`odf-encrypted\`, \`exceeds-size-limit\`, \`nothing-to-optimize\`, \`excluded\`.
+
 Clean-up and restructuring (\`unused\`, \`duplicate\`, \`flatten\`, \`rename\`, \`missing-reference\`, and
 audio that cannot be renamed) use the reason \`kept\`, with the cause in \`detail\`.
 `;

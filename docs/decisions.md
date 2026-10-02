@@ -441,6 +441,18 @@ always protected, since sites and themes find it by its name without a reference
 in a dialog, audio included (the inline player is gone), and PDFs are previewed with PDF.js drawing
 into a canvas, loaded only for that.
 
+## D26. Images inside ODT and ODP attachments, recompressed in place
+
+Presentations attached to a project often hold most of its weight in photos. An `.odt` or `.odp` is a
+ZIP package, so its images can go through the same image policy and engines as the project's own,
+without LibreOffice. Only images are touched, with the same names and formats, so no XML in the
+document changes and no reference has to be rewritten; the rest of the package is copied byte for
+byte. On by default like PDFs (`--no-odf`), since the original stays whenever the rebuilt package is
+not valid or not smaller. Signed documents are skipped (an image change invalidates the signature),
+as are encrypted ones. Nested documents are not opened (depth 1), and the nested package uses the
+project's ZIP limits plus one size limit (`maxOdfBytes`), since only its images are decompressed.
+DOCX and PPTX are left for later.
+
 ## D25. The CLI and the web app give the same result
 
 The same project gave different sizes in the two. The differences were the defaults and the engines:
