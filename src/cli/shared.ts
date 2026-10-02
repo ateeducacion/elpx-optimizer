@@ -52,7 +52,7 @@ export async function assertNotInput(inputPath: string, outputPath: string): Pro
   if (b && a.dev === b.dev && a.ino === b.ino) throw new ElpxError('invalid-options', 'The output is a link to the input file');
 }
 
-/** Returns a progress printer for stderr (throttled, human readable). */
+/** Returns a progress printer for stderr (throttled, human readable; one redrawn line in a terminal, see progressLine). */
 export function progressPrinter(io: CliIO, quiet: boolean): (e: ProgressEvent) => void {
   if (quiet) return () => undefined;
   let last = '';
@@ -92,6 +92,6 @@ export function progressPrinter(io: CliIO, quiet: boolean): (e: ProgressEvent) =
     if (line === last || (!stageChanged && now - lastTime < 1000)) return;
     last = line;
     lastTime = now;
-    io.stderr(`${line}\n`);
+    io.stderr(io.interactive ? `\r\x1b[K${line}` : `${line}\n`);
   };
 }

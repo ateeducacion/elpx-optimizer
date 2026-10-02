@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { link, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assertNotInput, defaultOutputPath, intFlag, limitsFromFlags, openInputArg, progressPrinter } from '../../../src/cli/shared.js';
-import { logger, printJson } from '../../../src/cli/io.js';
+import { logger, printJson, progressLine } from '../../../src/cli/io.js';
 import { EXIT } from '../../../src/cli/exit-codes.js';
 import { ElpxError } from '../../../src/core/errors.js';
 import { NATIVE_LIMITS } from '../../../src/core/limits.js';
@@ -185,6 +185,22 @@ describe('progressPrinter', () => {
     expect(feed([[0, { stage: 'transcode' }]])).toEqual(['Transcoding \n']);
     expect(feed([[0, { stage: 'transcode', resource: 'v.mp4', processedSeconds: 2 }]])).toEqual(['Transcoding v.mp4\n']);
     expect(feed([[0, { stage: 'probe' }]])).toEqual(['Inspecting media \n']);
+  });
+
+  it('redraws a single line in a terminal, cleared before any other output (#36)', () => {
+    const { io, out, err } = captureIO({ interactive: true });
+    const tty = progressLine(io);
+    const print = progressPrinter(tty, false);
+    print({ stage: 'read' });
+    print({ stage: 'package', item: 1, items: 2 });
+    tty.stderr('Plan: 1 operations\n');
+    tty.stdout('Summary\n');
+    tty.stderr('Done\n');
+    expect(err).toEqual(['\r\x1b[KReading input', '\r\x1b[KPackaging [1/2]', '\r\x1b[K', 'Plan: 1 operations\n', 'Done\n']);
+    expect(out).toEqual(['Summary\n']);
+    // Not a terminal: unchanged.
+    const plain = captureIO();
+    expect(progressLine(plain.io)).toBe(plain.io);
   });
 
   it('throttles updates of the same stage to one per second', () => {

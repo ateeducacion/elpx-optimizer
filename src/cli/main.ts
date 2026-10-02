@@ -2,7 +2,7 @@ import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { ElpxError, errorMessage } from '../core/errors.js';
 import { TOOL_NAME, TOOL_VERSION, UPSTREAM_VERSION } from '../core/version.js';
 import { EXIT, type ExitCode } from './exit-codes.js';
-import type { CliIO } from './io.js';
+import { progressLine, type CliIO } from './io.js';
 import { runDoctor } from './commands/doctor.js';
 import { runInspect } from './commands/inspect.js';
 import { runValidate } from './commands/validate.js';
@@ -224,7 +224,8 @@ const GLOBAL_OPTIONS: NonNullable<ParseArgsConfig['options']> = {
 };
 
 /** Runs the CLI with the given arguments; returns the exit code. */
-export async function main(argv: readonly string[], io: CliIO): Promise<ExitCode> {
+export async function main(argv: readonly string[], cliIO: CliIO): Promise<ExitCode> {
+  const io = progressLine(cliIO);
   const [command, ...rest] = argv;
   if (command === undefined || command === '--help' || command === '-h' || command === 'help') {
     (command === undefined ? io.stderr : io.stdout)(HELP);
