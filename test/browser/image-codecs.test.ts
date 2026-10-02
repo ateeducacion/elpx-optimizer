@@ -115,6 +115,21 @@ describe.each([
     expect(inspectImage(lossyDefault, 'webp').lossless).toBe(false);
   });
 
+  it('resizes without adding colours, so the PNG compresses as with sharp (#36)', async () => {
+    // One colour under an alpha gradient: premultiplied or linear-light resizing rounds it into many.
+    const width = 256;
+    const height = 64;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < width * height; i++) data.set([200, 120, 40, 1 + (i % width)], i * 4);
+    const encodePng = (await import('@jsquash/png/encode.js')).default;
+    const png = new Uint8Array(await encodePng(new ImageData(data, width, height)));
+    const job = imageJobFor(png, 'png', { maxDimension: 128 });
+    const out = await codecs.decode('png', await engine.encodeImage(png, job, ctx));
+    const colours = new Set<number>();
+    for (let i = 0; i < out.data.length; i += 4) if (out.data[i + 3]! > 0) colours.add((out.data[i]! << 16) | (out.data[i + 1]! << 8) | out.data[i + 2]!);
+    expect(colours.size).toBe(1);
+  });
+
   it('rejects candidates of the wrong size', async () => {
     const job = imageJobFor(photo, 'jpeg');
     const out = await engine.encodeImage(photo, job, ctx);

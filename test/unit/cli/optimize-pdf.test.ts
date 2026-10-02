@@ -114,7 +114,7 @@ describe('optimize: PDF flags', () => {
     const op = report.operations.find((o) => o.op === 'optimize-pdf')!;
     expect(op).toMatchObject({ path: GUIA, status: 'applied', lossy: true, checks: ['qpdf --check without warnings', '3 pages, as in the original'] });
     expect(op.after!).toBeLessThan(op.before!);
-    expect(err.join('')).toContain(`PDF [1/1] ${GUIA}\n`);
+    expect(err.join('')).toContain(`\r\x1b[KPDF [1/1] ${GUIA}`);
     expect(await fileSha256(input)).toBe(before);
     expect((await readFile(output)).length).toBeLessThan((await readFile(input)).length);
   });

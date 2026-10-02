@@ -56,10 +56,11 @@ export function createJsquashCodecs(): ImageCodecs {
     else img = await (await import('@jsquash/webp/decode.js')).default(buffer);
     return { data: img.data, width: img.width, height: img.height };
   };
+  // Both default to true in jSquash; they add colours that OxiPNG compresses far worse than sharp's output (#36).
   const resize = async (img: RawImage, width: number, height: number): Promise<RawImage> => {
     const out = await (
       await import('@jsquash/resize')
-    ).default(toImageData(img), { width, height, method: 'lanczos3', fitMethod: 'stretch', premultiply: true, linearRGB: true });
+    ).default(toImageData(img), { width, height, method: 'lanczos3', fitMethod: 'stretch', premultiply: false, linearRGB: false });
     return { data: out.data, width: out.width, height: out.height };
   };
   return {

@@ -70,7 +70,7 @@ describe('inspect', () => {
 
   it('keeps progress on stderr in an interactive terminal, even with --json', async () => {
     const r = await runCli(['inspect', COURSE, '--json'], { interactive: true });
-    expect(r.stderr).toContain('Reading input\n');
+    expect(r.stderr).toContain('\r\x1b[KReading input');
     expect(singleJson<AnalysisJson>(r.stdout).ok).toBe(true);
     const quiet = await runCli(['inspect', COURSE, '--quiet'], { interactive: true });
     expect(quiet.stderr).toBe('');
