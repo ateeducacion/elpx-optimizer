@@ -36,6 +36,8 @@ export interface Limits {
   maxVideoBytes: number;
   /** Largest PDF rewritten (qpdf holds it and its output in a WebAssembly heap). */
   maxPdfBytes: number;
+  /** Largest ODT/ODP attachment opened to recompress its images (held in memory with its rebuilt copy). */
+  maxOdfBytes: number;
   /** Maximum video frame area (width x height) that will be processed. */
   maxVideoPixels: number;
   /** Maximum video duration in seconds that will be processed. */
@@ -67,6 +69,7 @@ export const NATIVE_LIMITS: Readonly<Limits> = Object.freeze({
   maxImageBytes: 256 * MiB,
   maxVideoBytes: 8 * GiB,
   maxPdfBytes: 512 * MiB,
+  maxOdfBytes: 512 * MiB,
   maxVideoPixels: 7680 * 4320,
   maxVideoDurationSeconds: 6 * 3600,
   videoTimeoutMs: 2 * 3600 * 1000,
@@ -88,6 +91,7 @@ export const BROWSER_LIMITS: Readonly<Limits> = Object.freeze({
   maxImageBytes: 64 * MiB,
   maxVideoBytes: 1 * GiB,
   maxPdfBytes: 256 * MiB,
+  maxOdfBytes: 256 * MiB,
   maxVideoPixels: 3840 * 2160,
   maxVideoDurationSeconds: 2 * 3600,
   videoTimeoutMs: 3 * 3600 * 1000,

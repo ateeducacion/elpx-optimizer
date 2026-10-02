@@ -80,6 +80,7 @@ Selection:
   --no-pdf                   Do not touch PDF files
   --pdf-lossless             Rewrite PDFs without converting their images to JPEG
                              (the conservative preset already does this)
+  --no-odf                   Do not recompress the images inside ODT and ODP attachments
   --remove-unused MODE       off (default) | safe
   --deduplicate MODE         off (default) | exact
   --flatten MODE             off (default) | legacy: move files out of eXeLearning 3
@@ -171,6 +172,7 @@ const COMMANDS: Record<string, { options: NonNullable<ParseArgsConfig['options']
       'no-audio': { type: 'boolean' },
       'no-pdf': { type: 'boolean' },
       'pdf-lossless': { type: 'boolean' },
+      'no-odf': { type: 'boolean' },
       'audio-bitrate': { type: 'string' },
       'audio-force': { type: 'boolean' },
       'missing-references': { type: 'string' },

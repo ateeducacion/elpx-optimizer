@@ -27,6 +27,7 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   const images: NonNullable<OptionsInput['images']> = { ...(base.images ?? {}) };
   const audio: NonNullable<OptionsInput['audio']> = { ...(base.audio ?? {}) };
   const pdf: NonNullable<OptionsInput['pdf']> = { ...(base.pdf ?? {}) };
+  const odf: NonNullable<OptionsInput['odf']> = { ...(base.odf ?? {}) };
   const opts: OptionsInput = { ...APP_DEFAULTS, ...base };
   // "maximum" is the name the web app shows for the aggressive preset.
   if (typeof values['preset'] === 'string') opts.preset = (values['preset'] === 'maximum' ? 'aggressive' : values['preset']) as OptionsInput['preset'];
@@ -35,6 +36,7 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   if (values['no-audio']) audio.enabled = false;
   if (values['no-pdf']) pdf.enabled = false;
   if (values['pdf-lossless']) pdf.images = false;
+  if (values['no-odf']) odf.enabled = false;
   const abr = intFlag(values, 'audio-bitrate', 0, 10000);
   if (abr !== undefined) audio.bitrate = abr;
   if (values['audio-force']) audio.force = true;
@@ -73,6 +75,7 @@ export async function optionsFromFlags(values: Record<string, unknown>, io: CliI
   if (Object.keys(images).length > 0) opts.images = images;
   if (Object.keys(audio).length > 0) opts.audio = audio;
   if (Object.keys(pdf).length > 0) opts.pdf = pdf;
+  if (Object.keys(odf).length > 0) opts.odf = odf;
   return opts;
 }
 
@@ -233,6 +236,11 @@ export function renderPlan(plan: ReturnType<typeof buildOptimizationPlan>, verbo
         return `  • ${op.op} ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`;
       case 'optimize-pdf':
         return `  • optimize-pdf ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.conversions.join('; ')}`;
+      case 'optimize-odf':
+        return [
+          `  • optimize-odf ${op.path} (${formatBytes(op.size)})${op.lossy ? ' [lossy]' : ''}: ${op.embedded.length} embedded ${op.embedded.length === 1 ? 'image' : 'images'}`,
+          ...op.embedded.map((i) => `      ${i.path} (${formatBytes(i.size)}): ${i.conversions.join('; ')}`),
+        ].join('\n');
       case 'transcode-audio':
         return `  • transcode-audio ${op.path}${op.to ? ` → ${op.to}` : ''} (${formatBytes(op.size)}) [lossy]: ${op.conversions.join('; ')}`;
       case 'remove-unused':

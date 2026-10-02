@@ -52,6 +52,10 @@ export interface OptionsInput {
     /** Let qpdf convert images inside PDFs to JPEG (lossy); by default on except in the conservative preset. */
     images?: boolean;
   };
+  /** ODT and ODP attachments: recompress their embedded images with the image options (on by default). */
+  odf?: {
+    enabled?: boolean;
+  };
   removeUnused?: 'off' | 'safe';
   deduplicate?: 'off' | 'exact';
   /** Move files out of eXeLearning 3 editor folders (content/resources/<ODE-ID>/) into content/resources/. */
@@ -80,6 +84,7 @@ export interface NormalizedOptions {
   readonly images: ImageOptions & { readonly includeScreenshot: boolean };
   readonly audio: AudioOptions;
   readonly pdf: PdfOptions;
+  readonly odf: { readonly enabled: boolean };
   readonly removeUnused: 'off' | 'safe';
   readonly deduplicate: 'off' | 'exact';
   readonly flatten: 'off' | 'legacy';
@@ -128,6 +133,7 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
       'images',
       'audio',
       'pdf',
+      'odf',
       'removeUnused',
       'deduplicate',
       'flatten',
@@ -203,6 +209,10 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
     minSavingsPercent: minPercent,
     minSavingsBytes: minBytes,
   };
+  const od = input.odf ?? {};
+  if (typeof od !== 'object' || od === null) invalid('odf must be an object');
+  checkKeys(od, ['enabled'], 'odf.');
+  const odf = { enabled: od.enabled === undefined ? true : bool(od.enabled, 'odf.enabled') };
   const removeUnused = input.removeUnused ?? 'off';
   if (removeUnused !== 'off' && removeUnused !== 'safe') invalid('removeUnused must be "off" or "safe"');
   const deduplicate = input.deduplicate ?? 'off';
@@ -229,6 +239,7 @@ export function normalizeOptions(input: OptionsInput = {}): NormalizedOptions {
     images,
     audio,
     pdf,
+    odf,
     removeUnused,
     deduplicate,
     flatten,

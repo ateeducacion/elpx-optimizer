@@ -20,7 +20,7 @@ no DOM or Node types) and ESLint `no-restricted-imports`/`no-restricted-globals`
      zip/ reader+writer · format/ detect, content.xml, manifest, DataGame, legacy-folders ·
      parse/ xml, json, html, css, uri, text-map · refs/ scan, resolve, rewrite, restructure, slug ·
      analyze/ · plan/ · optimize/ · validate/ · report/ · media/ sniff, image-inspect,
-     image-metadata, probe, video-policy, image-policy, audio-policy, pdf-policy, engine
+     image-metadata, probe, video-policy, image-policy, audio-policy, pdf-policy, odf-policy, engine
 ```
 
 ## Public operations
@@ -167,6 +167,10 @@ arguments for the two passes (lossless, and lossless plus `--optimize-images`), 
 inspection and validates candidates (`qpdf --check` without warnings, same page count, not
 encrypted, still linearized). Both engines expose the same `runQpdf(args, input)` and the policy
 alone chooses the arguments.
+`core/media/odf-policy.ts` opens ODT/ODP attachments as packages (same `openZip` limits), skips
+signed, encrypted and malformed ones, lists their images for the image policy, rebuilds the package
+with the new images (everything else copied as stored) and validates it; it needs nothing from the
+engines beyond `encodeImage` and `verifyImage`.
 
 Engines differ in capabilities, and plans and reports say which engine and versions were used:
 

@@ -144,6 +144,28 @@ not pay off either, the original stays.
   is bounded by the video time limit (`--timeout-video`: 2 h by default in the CLI, 3 h in the
   browser, where hitting it stops the worker); on a timeout the original stays.
 
+## ODT and ODP attachments
+
+On by default (`--no-odf`, options `odf.enabled: false`, turns it off). An `.odt` or `.odp` file
+attached to the project is opened as an OpenDocument package and the JPEG, PNG and WebP images in
+it are recompressed with the same image options and checks as the project's own images (quality,
+maximum size, lossless PNG, metadata). Names and formats stay, so `content.xml`, `styles.xml` and the
+manifest inside the document are not touched, and neither is the attachment's path in the project.
+The package is written again entry by entry: `mimetype` first, stored and without an extra field,
+every other entry copied byte for byte. Documents inside the document are not opened.
+
+- **Skipped** (kind `odf` in the plan): packages that cannot be read or whose `mimetype` is not the
+  first entry, stored, or has no `META-INF/manifest.xml` (`odf-invalid`); a `mimetype` that does not
+  match the extension (`odf-mime-mismatch`); signed documents (`odf-signed`), because changing an
+  image would invalidate the signature; encrypted ones (`odf-encrypted`); files above 512 MiB in the
+  CLI and 256 MiB in the browser (`exceeds-size-limit`); documents with no image worth recompressing
+  (`nothing-to-optimize`); `--no-odf` (`odf-disabled`); excluded files.
+- The nested package goes through the same hostile-input ZIP checks as the project; only its images
+  (up to the image size limit), `mimetype` and manifest are ever decompressed.
+- The rebuilt document is opened again and must be a valid package with the same entries in the
+  same order, every entry other than the new images unchanged, and save at least the configured
+  minimum; otherwise the original stays.
+
 ## Clean-up and restructuring
 
 All of these are off by default in the core and the CLI. The web app turns on clean file names by

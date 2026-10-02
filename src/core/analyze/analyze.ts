@@ -12,6 +12,7 @@ import { parseContentXml, type OdeDocument } from '../format/content-xml.js';
 import { MANIFEST_PATH, manifestDiff, parseManifest, type ElpxManifest } from '../format/manifest.js';
 import { SNIFF_BYTES, extensionMatches, sniff, type SniffResult } from '../media/sniff.js';
 import { inspectImage, type ImageInfo } from '../media/image-inspect.js';
+import { ODF_FORMATS, inspectOdf, type OdfFormat, type OdfInfo } from '../media/odf-policy.js';
 import type { ProbeResult } from '../media/probe.js';
 import { effectiveDuration } from '../media/probe.js';
 import type { MediaEngine, ProgressListener, ResourceStore } from '../media/engine.js';
@@ -301,6 +302,20 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
     }
   }
 
+  // ODT/ODP attachments: opened as packages to list the images they hold.
+  const odfs = new Map<string, OdfInfo>();
+  for (const f of files) {
+    const format = sniffs.get(f.name)?.format ?? '';
+    if (entryRole(f.name) !== 'user-asset' || sniffs.get(f.name)?.kind !== 'document' || !ODF_FORMATS.has(format)) continue;
+    throwIfCancelled(signal);
+    if (f.uncompressedSize > limits.maxOdfBytes) {
+      odfs.set(f.name, { ok: false, reason: 'exceeds-size-limit', detail: `Larger than ${limits.maxOdfBytes} bytes` });
+      continue;
+    }
+    const bytes = await readEntryBytes(archive, f, limits.maxOdfBytes, signal ? { signal } : {});
+    odfs.set(f.name, await inspectOdf(bytes, format as OdfFormat, limits, signal));
+  }
+
   const inventory = buildInventory(archive, sniffs, references, images, probes, duplicates, ode, diagnostics, pdfs);
   for (const e of inventory) {
     if (e.role === 'user-asset' && e.extensionMatches === false) {
@@ -335,7 +350,7 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
     media: { probed: probes.size > 0, ...(mediaEngine ? { engine: mediaEngine } : {}), ...(mediaNote ? { note: mediaNote } : {}) },
   };
   progress({ stage: 'done' });
-  return { result, archive, ode, ...(manifest ? { manifest } : {}), texts, references, probes, images, pdfs };
+  return { result, archive, ode, ...(manifest ? { manifest } : {}), texts, references, probes, images, pdfs, odfs };
 }
 
 function withArchive(a: Analysis, archive: ZipArchive): Analysis {

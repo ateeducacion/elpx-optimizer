@@ -1096,6 +1096,8 @@ describe('options', () => {
     expect(input('pdfLossless').checked).toBe(false);
     expect($('label[for="opt-pdf"]').textContent).toBe('Optimize PDFs (signed or encrypted ones are not touched)');
     expect($('label[for="opt-pdfLossless"]').textContent).toBe('PDFs lossless only (do not convert their images to JPEG)');
+    expect(input('odf').checked).toBe(true);
+    expect($('label[for="opt-odf"]').textContent).toBe('Optimize the images inside attached ODT and ODP files (signed or encrypted ones are not touched)');
     // Clean file names are on by default in the web app.
     expect(input('normalizeNames').checked).toBe(true);
     expect(input('normalizeNames').getAttribute('role')).toBe('switch');
@@ -1105,6 +1107,7 @@ describe('options', () => {
       images: { enabled: true, png: true, stripMetadata: false, includeScreenshot: false },
       audio: { enabled: true },
       pdf: { enabled: true },
+      odf: { enabled: true },
       // Removing unused files and clean names are on by default in the web app.
       removeUnused: 'safe',
       deduplicate: 'exact',
@@ -1133,6 +1136,7 @@ describe('options', () => {
     input('normalizeNames').checked = false;
     input('pdf').checked = false;
     input('pdfLossless').checked = true;
+    input('odf').checked = false;
     const boxes = $$<HTMLInputElement>('.inventory tbody input[type="checkbox"]');
     expect(boxes[0]!.getAttribute('aria-label')).toBe('Optimize content/resources/media/clase.mp4');
     boxes[0]!.click();
@@ -1144,6 +1148,7 @@ describe('options', () => {
       images: { enabled: false, png: false, stripMetadata: true, includeScreenshot: true, jpegQuality: 70, webpQuality: 75, maxDimension: 1920 },
       audio: { enabled: false, bitrate: 96 },
       pdf: { enabled: false, images: false },
+      odf: { enabled: false },
       removeUnused: 'safe',
       deduplicate: 'exact',
       flatten: 'off',
@@ -1167,6 +1172,7 @@ describe('options', () => {
       images: { enabled: false, png: false, stripMetadata: false, includeScreenshot: false },
       audio: { enabled: false },
       pdf: { enabled: false },
+      odf: { enabled: false },
       // Clean-ups without a switch keep the choice so far (on by default for unused files).
       removeUnused: 'safe',
       deduplicate: 'exact',

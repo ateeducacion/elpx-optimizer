@@ -49,6 +49,8 @@ when a result is not valid or not smaller.
      not JPEG may become JPEG where that makes them smaller (lossy; JPEGs are not re-encoded). Say
      so; `--pdf-lossless` avoids the image conversion and `--no-pdf` leaves PDFs as they are.
      Encrypted and signed PDFs are never touched.
+   - Images inside attached ODT/ODP files are recompressed in place (`--no-odf` leaves them alone);
+     signed or encrypted documents are never touched.
    - If `inspect` reported `legacy-resource-folders`, suggest `--flatten legacy`: files leave the
      eXeLearning 3 folders `content/resources/<ODE-ID>/` for `content/resources/`, references
      follow, folders the user created are never touched.
