@@ -670,7 +670,6 @@ async function runOdf(
     const original = await readEntryBytes(analysis.archive!, entry, limits.maxOdfBytes, opts);
     const zip = await openZip(new MemoryByteSource(original), limits, step.signal);
     const replaced = new Map<string, Uint8Array>();
-    const embedded: { path: string; before: number; after: number }[] = [];
     const notes: string[] = [];
     let next = 0;
     let done = 0;
@@ -680,14 +679,11 @@ async function runOdf(
         const img = op.embedded[next++]!;
         const ctx = { resourcePath: `${op.path}/${img.path}`, timeoutMs: limits.imageTimeoutMs, ...opts };
         try {
-          const inner = zip.byName.get(img.path);
-          if (!inner) throw new ElpxError('internal', 'not in the document');
-          const r = await imageCandidate(await readEntryBytes(zip, inner, limits.maxImageBytes, opts), img.job, platform, ctx, step.thresholds);
+          // The plan was made from this same document, so every image it names is there.
+          const original = await readEntryBytes(zip, zip.byName.get(img.path)!, limits.maxImageBytes, opts);
+          const r = await imageCandidate(original, img.job, platform, ctx, step.thresholds);
           if ('rejected' in r) notes.push(`${img.path}: ${r.rejected}`);
-          else {
-            replaced.set(img.path, r.bytes);
-            embedded.push({ path: img.path, before: img.size, after: r.bytes.length });
-          }
+          else replaced.set(img.path, r.bytes);
         } catch (error) {
           if (error instanceof CancelledError || (error instanceof ElpxError && error.code === 'cancelled')) throw error;
           notes.push(`${img.path}: ${errorMessage(error)}`);
@@ -710,7 +706,7 @@ async function runOdf(
     if (!isWorthReplacing(op.size, candidate.length, step.thresholds)) {
       return { result: { ...base, status: 'reverted', after: candidate.length, detail: `not smaller enough (${op.size} → ${candidate.length} bytes)` } };
     }
-    embedded.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const embedded = op.embedded.filter((i) => replaced.has(i.path)).map((i) => ({ path: i.path, before: i.size, after: replaced.get(i.path)!.length }));
     const lossy = op.embedded.some((i) => i.lossy && replaced.has(i.path));
     const stored = await platform.store.fromBytes(candidate, op.format);
     return {

@@ -12,6 +12,7 @@ import { inspectImage } from '../../../src/core/media/image-inspect.js';
 import { APP_DEFAULTS } from '../../../src/core/plan/options.js';
 import { optionsFromFlags, renderPlan } from '../../../src/cli/commands/optimize.js';
 import { captureIO } from '../../helpers/cli.js';
+import { CancelledError } from '../../../src/core/errors.js';
 import { craftZip, type CraftEntry } from '../../helpers/zip-craft.js';
 
 /** ODT and ODP attachments: their embedded images are recompressed in place and the package is rebuilt (issue #39). */
@@ -189,5 +190,68 @@ describe('optimizeArchive: ODT and ODP attachments', () => {
     expect(text).toContain('optimize-odf content/resources/slides.odp');
     expect(text).toContain(': 1 embedded image');
     expect(text).toMatch(/\n {6}Pictures\/photo\.jpg \(/);
+  });
+
+  it('keeps the images that did not improve and still delivers the others', async () => {
+    let calls = 0;
+    const bytes = elpxWith(
+      'slides.odp',
+      odf(MIME.odp, {
+        extra: [
+          { name: 'Pictures/second.jpg', data: PHOTO },
+          // Already efficient: left out of the plan.
+          { name: 'Pictures/small.jpg', data: SMALL },
+        ],
+      }),
+    );
+    const r = await run(
+      bytes,
+      {},
+      {
+        encode: () => {
+          if (++calls === 2) throw new Error('encoder crashed');
+          return SMALL;
+        },
+      },
+    );
+    expect(odfOps(r.plan)[0]!.embedded.map((i) => i.path)).toEqual(['Pictures/photo.jpg', 'Pictures/second.jpg']);
+    const result = r.outcome.report.operations.find((o) => o.op === 'optimize-odf')!;
+    expect(result.status).toBe('applied');
+    expect(result.embedded).toHaveLength(1);
+    expect(result.detail).toMatch(/^kept as they were: Pictures\/(photo|second)\.jpg: /);
+  });
+
+  it('keeps the document when the whole package does not save enough', async () => {
+    // A large incompressible entry makes the image's saving too small for the document.
+    const blob = new Uint8Array(4 << 20).map((_, i) => (i * 2654435761) >>> 24);
+    const r = await run(elpxWith('slides.odp', odf(MIME.odp, { extra: [{ name: 'Media/big.bin', data: blob }] })));
+    expect(r.outcome.report.operations.find((o) => o.op === 'optimize-odf')).toMatchObject({
+      status: 'reverted',
+      detail: expect.stringMatching(/^not smaller enough/),
+    });
+  });
+
+  it('plans nothing for a document without images worth recompressing or not inspected', async () => {
+    const bytes = elpxWith('slides.odp', odf(MIME.odp));
+    const off = await run(bytes, { images: { enabled: false } });
+    expect(off.plan.skipped.find((s) => s.kind === 'odf')).toMatchObject({ reason: 'nothing-to-optimize' });
+    const { odfs: _odfs, ...uninspected } = off.analysis;
+    const plan = buildOptimizationPlan(uninspected, normalizeOptions({}), await new FakeEngine(new MemoryStore()).info(), limits());
+    expect(plan.skipped.find((s) => s.kind === 'odf')).toMatchObject({ reason: 'odf-invalid', detail: 'The document was not inspected' });
+  });
+
+  it('stops on a cancellation inside the document and delivers nothing', async () => {
+    const bytes = elpxWith('slides.odp', odf(MIME.odp));
+    const r = await run(
+      bytes,
+      {},
+      {
+        encode: () => {
+          throw new CancelledError();
+        },
+      },
+    );
+    expect(r.outcome.report).toMatchObject({ status: 'cancelled', error: 'Cancelled by the user; nothing was delivered' });
+    expect(r.files.size).toBe(0);
   });
 });

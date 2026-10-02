@@ -305,8 +305,8 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
   // ODT/ODP attachments: opened as packages to list the images they hold.
   const odfs = new Map<string, OdfInfo>();
   for (const f of files) {
-    const format = sniffs.get(f.name)?.format ?? '';
-    if (entryRole(f.name) !== 'user-asset' || sniffs.get(f.name)?.kind !== 'document' || !ODF_FORMATS.has(format)) continue;
+    const { kind, format } = sniffs.get(f.name)!;
+    if (entryRole(f.name) !== 'user-asset' || kind !== 'document' || !ODF_FORMATS.has(format)) continue;
     throwIfCancelled(signal);
     if (f.uncompressedSize > limits.maxOdfBytes) {
       odfs.set(f.name, { ok: false, reason: 'exceeds-size-limit', detail: `Larger than ${limits.maxOdfBytes} bytes` });

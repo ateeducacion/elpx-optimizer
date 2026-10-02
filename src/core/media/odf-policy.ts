@@ -37,7 +37,7 @@ export interface OdfImage {
   readonly path: string;
   readonly size: number;
   readonly format: string;
-  readonly extensionMatches?: boolean;
+  readonly extensionMatches: boolean | undefined;
   readonly info: ImageInfo;
 }
 
@@ -61,12 +61,11 @@ export async function inspectOdf(bytes: Uint8Array, format: OdfFormat, limits: L
       const data = await readEntryBytes(zip, e, limits.maxImageBytes, signal ? { signal } : {});
       const sniffed = sniff(data.subarray(0, SNIFF_BYTES), e.name);
       if (sniffed.kind !== 'image' || !IMAGE_FORMATS.has(sniffed.format)) continue;
-      const matches = extensionMatches(e.name, sniffed);
       images.push({
         path: e.name,
         size: e.uncompressedSize,
         format: sniffed.format,
-        ...(matches !== undefined ? { extensionMatches: matches } : {}),
+        extensionMatches: extensionMatches(e.name, sniffed),
         info: inspectImage(data, sniffed.format),
       });
     }
@@ -114,7 +113,7 @@ export async function rebuildOdf(zip: ZipArchive, replacements: ReadonlyMap<stri
   const writer = new ZipWriter(sink, signal ? { signal } : {});
   for (const e of zip.entries) {
     const data = replacements.get(e.name);
-    if (data) await writer.addBytes(metaFromEntry(e), data, e.method === METHOD_STORED ? 0 : 8);
+    if (data) await writer.addBytes(metaFromEntry(e), data, e.method);
     else await writer.copyEntry(zip, e);
   }
   await writer.finish();
@@ -141,7 +140,8 @@ export async function validateOdfCandidate(
     const data = replacements.get(e.name);
     const before = original.byName.get(e.name);
     if (data) {
-      if (!bytesEqual(await readEntryBytes(zip, e, data.length, signal ? { signal } : {}), data)) problems.push(`${e.name} does not hold the new image`);
+      if (!bytesEqual(await readEntryBytes(zip, e, limits.maxImageBytes, signal ? { signal } : {}), data))
+        problems.push(`${e.name} does not hold the new image`);
     } else if (!before || before.crc32 !== e.crc32 || before.uncompressedSize !== e.uncompressedSize || before.method !== e.method) {
       problems.push(`${e.name} changed`);
     }

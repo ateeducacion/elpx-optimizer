@@ -199,6 +199,7 @@ describe('normalizeOptions', () => {
     [{ pdf: 'lossless' }, /pdf must be an object/],
     [{ pdf: { jpegQuality: 50 } }, /Unknown option pdf\.jpegQuality/],
     [{ odf: { images: false } }, /Unknown option odf\.images/],
+    [{ odf: 'yes' }, /odf must be an object/],
     [{ odf: { enabled: 'yes' } }, /odf\.enabled must be true or false/],
     [{ pdf: { enabled: 'no' } }, /pdf\.enabled must be true or false/],
     [{ pdf: { images: 1 } }, /pdf\.images must be true or false/],
