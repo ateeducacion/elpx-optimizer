@@ -204,7 +204,8 @@ export function decideVideo(input: VideoInput, options: VideoOptions, caps: Vide
 
   const frameRate = v.frameRate;
   const bitRate = v.bitRate ?? (probe.bitRate !== undefined ? probe.bitRate * 0.9 : (input.size * 8) / duration);
-  const bpp = frameRate ? bitRate / (v.width * v.height * frameRate) : undefined;
+  // Measured on the displayed (square) pixels the output will have, so anamorphic sources are not over-credited.
+  const bpp = frameRate ? bitRate / (squareW * v.height * frameRate) : undefined;
   const modern = ['h264', 'hevc', 'vp9', 'av1'].includes(v.codec);
   if (!options.force && !needsScale && modern && bpp !== undefined && bpp < VIDEO_PROFILES[options.preset].efficientBpp) {
     return skip('already-efficient', `Source ${v.codec} at ${bpp.toFixed(3)} bits/pixel is already efficient for this profile`);

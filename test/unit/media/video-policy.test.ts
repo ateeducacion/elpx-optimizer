@@ -229,6 +229,12 @@ describe('decideVideo jobs', () => {
     expect(anamorphic.expected).toMatchObject({ width: 768, height: 576 });
     expect(anamorphic.scale).toBeUndefined();
 
+    // Efficiency is measured on the displayed pixels: 1080x1080 at 9:16 shows 608x1080 (0.123 bits/pixel, not 0.069).
+    const squeezed = probe([video({ width: 1080, height: 1080, sampleAspectRatio: '9:16', bitRate: 2_017_840 })]);
+    expect(job(decide(squeezed, { preset: 'aggressive', crf: 28, maxShortSide: 720 })).expected).toMatchObject({ width: 608, height: 1080 });
+    const lean = probe([video({ width: 1080, height: 1080, sampleAspectRatio: '9:16', bitRate: 1_000_000 })]);
+    expect(skipped(decide(lean)).detail).toMatch(/0\.061 bits\/pixel/);
+
     const capped = job(decide(probe([video({ width: 3840, height: 2160 })]), { maxShortSide: 720 }));
     expect(capped.scale).toEqual({ width: 1280, height: 720 });
     expect(capped.conversions[0]).toBe('video: h264 3840x2160 → h264 1280x720 (CRF 23)');

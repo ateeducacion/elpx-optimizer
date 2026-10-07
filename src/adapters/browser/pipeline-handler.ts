@@ -70,6 +70,7 @@ export function createPipelineHandler(deps: PipelineDeps, post: (m: WorkerMessag
         playbackProbe,
         onLoad: (e) => postEngine(e.fraction === 1 ? 'ready' : 'loading', e.message),
         onLoadError: (message) => postEngine('error', message),
+        onLoadCancelled: () => postEngine('idle', undefined),
       };
       engine = deps.engineFactory ? deps.engineFactory(options) : new BrowserMediaEngine(options);
     }
