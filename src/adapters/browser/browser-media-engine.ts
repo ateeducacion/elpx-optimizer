@@ -1,6 +1,6 @@
 import { FFmpeg, FFFSType } from '@ffmpeg/ffmpeg';
 import { CancelledError, ElpxError, errorMessage } from '../../core/errors.js';
-import { onCancel, throwIfCancelled } from '../../core/cancel.js';
+import { onCancel, throwIfCancelled, type CancelSignal } from '../../core/cancel.js';
 import type { EngineInfo, ImageVerification, JobContext, MediaEngine, ProgressListener, QpdfResult, StoredResource } from '../../core/media/engine.js';
 import type { ImageJob } from '../../core/media/image-policy.js';
 import { FFPROBE_ARGS, parseProbeJson, type ProbeResult } from '../../core/media/probe.js';
@@ -31,6 +31,12 @@ export interface PdfWorkerLike {
 
 /** FFmpeg runs per instance before a fresh one is loaded (the core is cached, so a reload is quick). */
 export const JOBS_PER_INSTANCE = 60;
+
+/**
+ * Time allowed for downloading and starting the core. @ffmpeg/ffmpeg never settles load() when its
+ * worker dies (no onerror), so without a limit the page would wait forever.
+ */
+export const LOAD_TIMEOUT_MS = 3 * 60 * 1000;
 
 /** The subset of @ffmpeg/ffmpeg's FFmpeg class the engine uses (injectable for tests). */
 export interface FfmpegLike {
@@ -67,6 +73,10 @@ export interface BrowserEngineOptions {
   readonly onLoad?: ProgressListener;
   /** FFmpeg could not be loaded (the failure is not cached: the next job tries again). */
   readonly onLoadError?: (message: string) => void;
+  /** The job was cancelled while FFmpeg was loading (the load is abandoned). */
+  readonly onLoadCancelled?: () => void;
+  /** Overrides LOAD_TIMEOUT_MS (tests). */
+  readonly loadTimeoutMs?: number;
 }
 
 /**
@@ -137,7 +147,7 @@ export class BrowserMediaEngine implements MediaEngine {
   }
 
   /** Loads FFmpeg on first use; reports engine-load progress. Jobs are serialized by run(), so loads never overlap. */
-  private async ensureLoaded(): Promise<FfmpegLike> {
+  private async ensureLoaded(signal: CancelSignal | undefined): Promise<FfmpegLike> {
     if (this.ff) return this.ff;
     const onLoad = this.options.onLoad ?? (() => undefined);
     onLoad({ stage: 'engine-load', message: `Loading FFmpeg (${this.threading.mode}-thread)` });
@@ -152,16 +162,35 @@ export class BrowserMediaEngine implements MediaEngine {
       this.threading.mode === 'multi'
         ? { coreURL: assets.multi.core, wasmURL: assets.multi.wasm, workerURL: assets.multi.worker, classWorkerURL: assets.classWorker }
         : { coreURL: assets.single.core, wasmURL: assets.single.wasm, classWorkerURL: assets.classWorker };
+    const timeoutMs = this.options.loadTimeoutMs ?? LOAD_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let disposeCancel = (): void => undefined;
+    const stopped = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`it did not finish loading within ${Math.ceil(timeoutMs / 1000)} s`)), timeoutMs);
+      disposeCancel = onCancel(signal, () => reject(new CancelledError()));
+    });
     try {
-      await ff.load(config);
-      this.log.length = 0;
-      const code = await ff.exec(['-hide_banner', '-encoders']);
-      this.detectedEncoders = code === 0 || this.log.length > 0 ? parseEncoderList(this.log) : undefined;
+      await Promise.race([
+        (async () => {
+          await ff.load(config);
+          this.log.length = 0;
+          const code = await ff.exec(['-hide_banner', '-encoders']);
+          this.detectedEncoders = code === 0 || this.log.length > 0 ? parseEncoderList(this.log) : undefined;
+        })(),
+        stopped,
+      ]);
     } catch (error) {
       ff.terminate();
+      if (error instanceof CancelledError) {
+        this.options.onLoadCancelled?.();
+        throw error;
+      }
       const message = errorMessage(error);
       this.options.onLoadError?.(message);
       throw new ElpxError('media-engine-unavailable', `FFmpeg could not be loaded: ${message}`);
+    } finally {
+      clearTimeout(timer);
+      disposeCancel();
     }
     this.log.length = 0;
     this.ff = ff;
@@ -186,8 +215,7 @@ export class BrowserMediaEngine implements MediaEngine {
       // ffmpeg.wasm does not give back all memory between runs: a fresh instance every few jobs
       // keeps long sequences (hundreds of small recordings) from running out of memory.
       if (this.ff && this.jobsSinceLoad >= JOBS_PER_INSTANCE) this.reset();
-      const ff = await this.ensureLoaded();
-      // Cancelled while loading: keep the loaded core for the next job.
+      const ff = await this.ensureLoaded(ctx.signal);
       throwIfCancelled(ctx.signal);
       const id = ++this.jobCounter;
       this.jobsSinceLoad++;

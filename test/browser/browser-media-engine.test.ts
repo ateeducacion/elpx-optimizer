@@ -755,18 +755,40 @@ describe('BrowserMediaEngine error handling (injected FFmpeg)', () => {
     expect(instances).toHaveLength(1);
   });
 
-  it('keeps the loaded core when a job is cancelled while FFmpeg loads', async () => {
+  it('stops waiting for a load that never ends when the job is cancelled', async () => {
+    // @ffmpeg/ffmpeg never settles load() when its worker dies (it has no onerror).
     const controller = new AbortController();
-    const { engine, instances } = fakeEngine({
-      load: async () => {
-        controller.abort();
-        return true;
-      },
-    });
-    await expect(engine.probe(resource(), { ...ctx, signal: controller.signal })).rejects.toBeInstanceOf(CancelledError);
-    expect(instances[0]!.terminated).toBe(false);
+    let cancelled = 0;
+    let attempt = 0;
+    const { engine, instances } = fakeEngine(
+      { load: () => (attempt++ === 0 ? new Promise(() => undefined) : Promise.resolve(true)) },
+      { onLoadCancelled: () => cancelled++ },
+    );
+    const job = engine.probe(resource(), { ...ctx, signal: controller.signal });
+    await delay(20);
+    controller.abort();
+    await expect(job).rejects.toBeInstanceOf(CancelledError);
+    expect(instances[0]!.terminated).toBe(true);
+    expect(cancelled).toBe(1);
     await engine.probe(resource(), ctx);
-    expect(instances).toHaveLength(1);
+    expect(instances).toHaveLength(2);
+  });
+
+  it('gives up on a load that never ends after its time limit, and retries on the next job', async () => {
+    const errors: string[] = [];
+    let attempt = 0;
+    const { engine, instances } = fakeEngine(
+      { load: () => (attempt++ === 0 ? new Promise(() => undefined) : Promise.resolve(true)) },
+      { loadTimeoutMs: 20, onLoadError: (m) => errors.push(m) },
+    );
+    await expect(engine.probe(resource(), ctx)).rejects.toMatchObject({
+      code: 'media-engine-unavailable',
+      message: 'FFmpeg could not be loaded: it did not finish loading within 1 s',
+    });
+    expect(instances[0]!.terminated).toBe(true);
+    expect(errors).toEqual(['it did not finish loading within 1 s']);
+    await engine.probe(resource(), ctx);
+    expect(instances).toHaveLength(2);
   });
 
   it('times out a hanging job; a later cancellation does not change the outcome', async () => {

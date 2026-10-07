@@ -22,7 +22,7 @@ for videos by default) or fails any check, the original file is kept.
 Always preserved: container and extension (MP4/M4V/MOV stay MP4-family, WebM stays WebM with VP9 +
 Opus natively), frame rate and timeline (no trimming or speed change; duration checked within
 max(0.25 s, 3 frames)), display aspect (anamorphic sources become square pixels with the same
-aspect), orientation (a rotation flag is applied to the pixels), all audio streams with their
+aspect, and their bits per pixel are measured on those displayed pixels), orientation (a rotation flag is applied to the pixels), all audio streams with their
 languages (AAC/MP3 copied, others converted to AAC as stated in the plan), `mov_text`/WebVTT
 subtitles, chapters and container metadata.
 

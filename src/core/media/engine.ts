@@ -34,7 +34,7 @@ export interface ResourceStore {
 
 /** Stages reported to the user; percentages are only given when measurable. */
 export type ProgressStage =
-  'engine-load' | 'read' | 'analyze' | 'extract' | 'probe' | 'transcode' | 'encode-image' | 'pdf' | 'validate' | 'package' | 'verify' | 'done';
+  'engine-load' | 'read' | 'analyze' | 'duplicates' | 'extract' | 'probe' | 'transcode' | 'encode-image' | 'pdf' | 'validate' | 'package' | 'verify' | 'done';
 
 export interface ProgressEvent {
   readonly stage: ProgressStage;

@@ -159,6 +159,7 @@ describe('progressPrinter', () => {
     const lines = feed([
       [0, { stage: 'read' }],
       [1, { stage: 'analyze', item: 1, items: 3 }],
+      [1, { stage: 'duplicates', resource: 'b.mp4', fraction: 0.426 }],
       [2, { stage: 'probe', item: 1, items: 1, resource: 'v.mp4' }],
       [3, { stage: 'transcode', resource: 'v.mp4', processedSeconds: 1.25, totalSeconds: 4 }],
       [4, { stage: 'encode-image', item: 2, items: 5 }],
@@ -171,6 +172,7 @@ describe('progressPrinter', () => {
     expect(lines).toEqual([
       'Reading input\n',
       'Checking entries [1/3]\n',
+      'Comparing duplicates b.mp4 43%\n',
       'Inspecting media [1/1] v.mp4\n',
       'Transcoding v.mp4 1.3/4.0 s\n',
       'Images [2/5]\n',

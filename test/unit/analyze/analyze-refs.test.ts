@@ -5,6 +5,7 @@ import { sha256Hex } from '../../../src/core/io/hash.js';
 import { applyEdits } from '../../../src/core/parse/text-map.js';
 import { analyzeBytes, buildElpx, codes, diags, enc, entry, limits, media, odeXml, page, refs, zipFiles } from '../../helpers/core-kit.js';
 import { fakeMp4 } from '../../helpers/fake-platform.js';
+import type { ProgressEvent } from '../../../src/core/media/engine.js';
 
 const R = '{{context_path}}/content/resources';
 const PNG = media('palette-efficient.png');
@@ -470,9 +471,18 @@ describe('duplicates', () => {
       'content/resources/v1.mp4': [big, { level: 0 }],
       'content/resources/v2.mp4': [big, { level: 9 }],
     });
-    const a = await analyzeBytes(bytes);
+    const events: ProgressEvent[] = [];
+    const a = await analyzeBytes(bytes, { onProgress: (e) => events.push(e) });
     expect(a.result.duplicates.map((g) => g.paths)).toEqual([['content/resources/v1.mp4', 'content/resources/v2.mp4']]);
     expect(entry(a, 'content/resources/v2.mp4').method).toBe('deflate');
+    // Hashing and comparing large files reports byte progress (it can take seconds in a browser).
+    const dup = events.filter((e) => e.stage === 'duplicates');
+    expect(dup.length).toBeGreaterThan(2);
+    expect(dup.map((e) => e.resource)).toContain('content/resources/v2.mp4');
+    const fractions = dup.map((e) => e.fraction!);
+    expect(fractions).toEqual([...fractions].sort((x, y) => x - y));
+    expect(fractions.at(-1)).toBeGreaterThan(0.9);
+    expect(fractions.at(-1)).toBeLessThanOrEqual(1);
   });
 });
 

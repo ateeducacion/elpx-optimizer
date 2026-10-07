@@ -232,7 +232,7 @@ export async function analyzeArchive(source: ByteSource, options: AnalyzeOptions
   }
 
   // Duplicates among self-contained binary user assets.
-  const duplicates = await findDuplicates(archive, files, sniffs, signal);
+  const duplicates = await findDuplicates(archive, files, sniffs, signal, progress);
   for (const g of duplicates) {
     diagnostics.push(
       diagnostic('duplicate-content', `${g.paths.length} identical ${g.format} files (${g.size} bytes each)`, {
@@ -623,6 +623,7 @@ async function findDuplicates(
   files: readonly ZipEntry[],
   sniffs: ReadonlyMap<string, SniffResult>,
   signal: CancelSignal | undefined,
+  progress: ProgressListener,
 ): Promise<DuplicateGroup[]> {
   const buckets = new Map<string, ZipEntry[]>();
   for (const f of files) {
@@ -633,13 +634,27 @@ async function findDuplicates(
     if (list) list.push(f);
     else buckets.set(key, [f]);
   }
+  const candidates = [...buckets.values()].filter((b) => b.length >= 2);
+  // Every candidate is hashed once and, at worst, compared byte by byte with the first (both read again).
+  const total = candidates.reduce((s, b) => s + b[0]!.uncompressedSize * (b.length + 2 * (b.length - 1)), 0);
+  let done = 0;
+  let reported = -1;
+  const advance = (resource: string, bytes: number): void => {
+    done += bytes;
+    const fraction = Math.min(1, done / total);
+    if (fraction - reported < 0.01 && fraction < 1) return;
+    reported = fraction;
+    progress({ stage: 'duplicates', resource, fraction });
+  };
   const groups: DuplicateGroup[] = [];
-  for (const bucket of buckets.values()) {
-    if (bucket.length < 2) continue;
+  for (const bucket of candidates) {
     const byHash = new Map<string, ZipEntry[]>();
     for (const f of bucket) {
       const h = new Sha256();
-      for await (const chunk of readEntry(archive, f, signal ? { signal } : {})) h.update(chunk);
+      for await (const chunk of readEntry(archive, f, signal ? { signal } : {})) {
+        h.update(chunk);
+        advance(f.name, chunk.length);
+      }
       const hex = h.digestHex();
       const list = byHash.get(hex);
       if (list) list.push(f);
@@ -649,7 +664,9 @@ async function findDuplicates(
       if (members.length < 2) continue;
       const first = members[0]!;
       const confirmed = [first];
-      for (const other of members.slice(1)) if (await sameBytes(archive, first, other, signal)) confirmed.push(other);
+      for (const other of members.slice(1)) {
+        if (await sameBytes(archive, first, other, signal, (n) => advance(other.name, 2 * n))) confirmed.push(other);
+      }
       if (confirmed.length < 2) continue;
       groups.push({
         id: groups.length + 1,
@@ -664,7 +681,13 @@ async function findDuplicates(
 }
 
 /** Compares two entries byte by byte (streaming). */
-async function sameBytes(archive: ZipArchive, a: ZipEntry, b: ZipEntry, signal: CancelSignal | undefined): Promise<boolean> {
+async function sameBytes(
+  archive: ZipArchive,
+  a: ZipEntry,
+  b: ZipEntry,
+  signal: CancelSignal | undefined,
+  onBytes: (compared: number) => void,
+): Promise<boolean> {
   if (a.uncompressedSize !== b.uncompressedSize) return false;
   const ia = readEntry(archive, a, signal ? { signal } : {})[Symbol.asyncIterator]();
   const ib = readEntry(archive, b, signal ? { signal } : {})[Symbol.asyncIterator]();
@@ -682,6 +705,7 @@ async function sameBytes(archive: ZipArchive, a: ZipEntry, b: ZipEntry, signal: 
     if (bufA.length === 0 || bufB.length === 0) return bufA.length === bufB.length;
     const len = Math.min(bufA.length, bufB.length);
     if (!bytesEqual(bufA.subarray(0, len), bufB.subarray(0, len))) return false;
+    onBytes(len);
     bufA = bufA.subarray(len);
     bufB = bufB.subarray(len);
   }

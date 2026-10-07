@@ -363,13 +363,18 @@ describe('pipeline handler protocol', () => {
   it('reports engine status even before the engine exists, and maps unexpected errors to "internal"', async () => {
     const engineFactory = (options: BrowserEngineOptions): BrowserMediaEngine => {
       options.onLoad?.({ stage: 'engine-load' });
+      options.onLoadCancelled?.();
       const engine = new BrowserMediaEngine(options);
       engine.info = () => Promise.reject(new TypeError('boom'));
       return engine;
     };
     const h = harness({ engineFactory });
     expect(await h.analyze(await fixtureFile(efficientUrl, 'e.elpx'))).toEqual({ type: 'error', id: 1, code: 'internal', message: 'boom' });
-    expect(h.messages.find((m) => m.type === 'engine')).toEqual({ type: 'engine', status: { state: 'loading' } });
+    // A load abandoned by a cancellation goes back to idle instead of staying "loading".
+    expect(h.messages.filter((m) => m.type === 'engine')).toEqual([
+      { type: 'engine', status: { state: 'loading' } },
+      { type: 'engine', status: { state: 'idle' } },
+    ]);
   });
 
   it('answers playback checks through the page', async () => {

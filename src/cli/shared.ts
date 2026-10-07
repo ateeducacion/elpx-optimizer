@@ -71,6 +71,9 @@ export function progressPrinter(io: CliIO, quiet: boolean): (e: ProgressEvent) =
       case 'analyze':
         line = `Checking entries${item}`;
         break;
+      case 'duplicates':
+        line = `Comparing duplicates ${e.resource ?? ''}${e.fraction !== undefined ? ` ${Math.round(e.fraction * 100)}%` : ''}`;
+        break;
       case 'probe':
         line = `Inspecting media${item} ${e.resource ?? ''}`;
         break;
