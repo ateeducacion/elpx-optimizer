@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { strFromU8 } from 'fflate';
 import sharp from 'sharp';
@@ -16,6 +17,7 @@ import {
   ui,
   zipEntries,
 } from './helpers.js';
+import type { OptimizationReport } from '../../src/core/report/report.js';
 
 /**
  * The static web app recompresses videos in the browser with ffmpeg.wasm.
@@ -27,12 +29,6 @@ const COURSE = join(FIXTURES, 'elpx', 'course-video.elpx');
 const EFFICIENT = join(FIXTURES, 'elpx', 'efficient.elpx');
 const LEGACY = join(FIXTURES, 'elpx', 'legacy-folders.elpx');
 const VIDEO_ENTRY = 'content/resources/media/clase 1.mp4';
-
-/** True when a finished request was served from the browser cache (no network transfer). */
-async function isFromCache(r: Request): Promise<boolean> {
-  const sizes = await r.sizes().catch(() => undefined);
-  return sizes !== undefined && sizes.responseHeadersSize <= 0;
-}
 
 /** Waits for the review step after selecting a file, and unfolds the project's files (under the recompress card). */
 async function waitForReview(page: Page): Promise<void> {
@@ -60,6 +56,13 @@ async function runDownload(page: Page, testInfo: OutputInfo, expectStatus = /opt
   const path = testInfo.outputPath(download.suggestedFilename());
   await download.saveAs(path);
   return { path, name: download.suggestedFilename() };
+}
+
+/** The operations of the finished run that failed, read from the report the page offers for download. */
+async function failedOperations(page: Page): Promise<OptimizationReport['operations']> {
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('download-report').click()]);
+  const report = JSON.parse(readFileSync(await download.path(), 'utf8')) as OptimizationReport;
+  return report.operations.filter((o) => o.status === 'failed');
 }
 
 /** Waits for the options to be planned (the estimate is shown), runs the plan; returns the downloaded file path. */
@@ -260,28 +263,27 @@ test('keeps working with the network blocked once the components are loaded', as
   await waitForReview(page);
   await planRunDownload(page, testInfo);
   // Real offline mode (page.route would disable the HTTP cache, which a real offline visit keeps):
-  // workers restarted for the second job may only use the static files already cached.
+  // workers restarted for the second job may only use the static files already cached. Offline mode
+  // also blocks the workers' requests: a component missing from the cache fails its operation, which
+  // only the report shows (a run whose image job failed still ends as "could not be reduced").
+  // Playwright has no cross-browser sign of a cache hit (Firefox reports header sizes for them too).
   const failed: string[] = [];
-  const network: string[] = [];
   page.on('requestfailed', (r) => failed.push(r.url()));
-  page.on('requestfinished', async (r) => {
-    const response = await r.response();
-    if (response && !response.fromServiceWorker() && !r.url().startsWith('blob:') && !(await isFromCache(r))) network.push(r.url());
-  });
   await context.setOffline(true);
   await ui.another(page).click();
   await page.setInputFiles('#file-input', EFFICIENT);
   await waitForReview(page);
   await planRunDownload(page, testInfo, /No se ha conseguido|could not be reduced/);
+  expect(await failedOperations(page)).toEqual([]);
   // Every qpdf run loads the module again: from the browser's cache.
   await ui.another(page).click();
   await page.setInputFiles('#file-input', pdfCourse);
   await waitForReview(page);
   await expect(page.locator('.inventory')).toContainText(/2 páginas|2 pages/);
   const { path } = await planRunDownload(page, testInfo);
+  expect(await failedOperations(page)).toEqual([]);
   expect((await readEntry(path, 'content/resources/ficha.pdf')).length).toBeLessThan((await readEntry(pdfCourse, 'content/resources/ficha.pdf')).length / 10);
   expect(failed.filter((u) => !u.startsWith('blob:'))).toEqual([]);
-  expect(network).toEqual([]);
 });
 
 test('uses the multi-thread core when the server enables cross-origin isolation', async ({ page }, testInfo) => {
