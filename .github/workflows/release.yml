@@ -174,9 +174,42 @@ jobs:
       - id: pages
         uses: actions/configure-pages@v6
       # Absolute URLs for the social preview (og:image, twitter:image).
-      - run: bun run build:web
+      # Hidden source maps, only for the Sentry upload below (they are not published).
+      - run: bun run build:web --sourcemap hidden
         env:
           ELPX_SITE_URL: ${{ steps.pages.outputs.base_url }}/
+      # Browser errors of the published site go to Sentry (no PII, no replay, no tracing).
+      # Only this deployment: the CSP of other builds still allows no other origin.
+      # Source maps are uploaded when the SENTRY_AUTH_TOKEN secret exists.
+      - name: Add Sentry error monitoring
+        env:
+          SENTRY_DSN: https://8af02fee61aa0f1756558a907d952b30@o4510456164712448.ingest.de.sentry.io/4512272277831760
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: erseco
+          SENTRY_PROJECT: elpx-optimizer
+          SENTRY_URL: https://de.sentry.io/
+          DIST: dist/web
+        run: |
+          REL="${GITHUB_SHA::12}"
+          work="$RUNNER_TEMP/sentry"; mkdir -p "$work"
+          printf '%s\n' \
+            "import * as Sentry from '@sentry/browser';" \
+            "Sentry.init({ dsn: '$SENTRY_DSN', release: '$REL', environment: 'production', sendDefaultPii: false });" \
+            > "$work/entry.js"
+          (cd "$work" && npm i --no-save --no-audit --no-fund --silent @sentry/browser@11.4.0 esbuild@0.28.2 \
+            && npx esbuild entry.js --bundle --minify --format=iife --outfile="$GITHUB_WORKSPACE/$DIST/sentry.js")
+          # load before the app's own scripts, from every built page; let the CSP reach Sentry's ingest
+          find "$DIST" -name '*.html' -print0 | while IFS= read -r -d '' f; do
+            rel=$(realpath --relative-to="$(dirname "$f")" "$DIST/sentry.js")
+            sed -i "0,/<head[^>]*>/s##&<script src=\"$rel\"></script>#" "$f"
+            sed -i "s#connect-src 'self'#& https://*.ingest.de.sentry.io#" "$f"
+          done
+          grep -q "connect-src 'self' https://\*.ingest.de.sentry.io" "$DIST/index.html"
+          if [ -n "$SENTRY_AUTH_TOKEN" ] && find "$DIST" -name '*.map' | grep -q .; then
+            npx --yes @sentry/cli@3.8.0 sourcemaps inject "$DIST"
+            npx --yes @sentry/cli@3.8.0 sourcemaps upload --release "$REL" "$DIST"
+          fi
+          find "$DIST" -name '*.map' -delete   # never publish sourcemaps
       - uses: actions/upload-pages-artifact@v5
         with: { path: dist/web }
       - id: deploy
