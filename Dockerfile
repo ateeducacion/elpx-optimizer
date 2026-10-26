@@ -3,7 +3,7 @@
 # ghcr.io/ateeducacion/elpx-optimizer. The web app is served from GitHub Pages.
 # Base images are written in the FROM lines (not in ARGs) so Dependabot can update them.
 
-FROM oven/bun:1.4.3-alpine AS deps
+FROM oven/bun:1.4.4-alpine AS deps
 WORKDIR /src
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --ignore-scripts
@@ -12,7 +12,7 @@ FROM deps AS build
 COPY . .
 RUN bun scripts/build-cli.ts
 
-FROM oven/bun:1.4.3-alpine AS cli
+FROM oven/bun:1.4.4-alpine AS cli
 RUN apk add --no-cache ffmpeg \
   && addgroup -S elpx && adduser -S -G elpx -h /home/elpx elpx \
   && mkdir -p /work /app && chown elpx:elpx /work
