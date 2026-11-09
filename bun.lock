@@ -14,7 +14,7 @@
         "@jsquash/png": "3.1.1",
         "@jsquash/resize": "2.1.1",
         "@jsquash/webp": "1.5.0",
-        "@neslinesli93/qpdf-wasm": "0.3.0",
+        "@neslinesli93/qpdf-wasm": "0.3.1",
         "@noble/hashes": "2.4.0",
         "bootstrap": "5.3.8",
         "bootstrap-icons": "1.13.2",
@@ -197,7 +197,7 @@
 
     "@napi-rs/canvas-win32-x64-msvc": ["@napi-rs/canvas-win32-x64-msvc@1.0.11", "", { "os": "win32", "cpu": "x64" }, "sha512-DFYp/ZQRdKunI/LPc0UkRXG1vlNjJKOJf8O8Ctb8+wm2Nt2ELg9Eamc31D2VoakkfGo8L+z0Iejz6WtFbQwyGw=="],
 
-    "@neslinesli93/qpdf-wasm": ["@neslinesli93/qpdf-wasm@0.3.0", "", {}, "sha512-ObyTmabopTMwN6AGwrEkmDbdmM5wnwlRdn9jnJYQ2KbBUPdPDcfNf1QkcWFOVD+qIgSqILz9nK51e22T+x+gkQ=="],
+    "@neslinesli93/qpdf-wasm": ["@neslinesli93/qpdf-wasm@0.3.1", "", {}, "sha512-pN6wK7JSq66dtmFpncxPAvuOrILm+sdrm1SI8ZKMCl3TSKKHQeCXoes4p8gXNez8dpEhZ0st+qeN4tLbeCm3kw=="],
 
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
