@@ -1,5 +1,5 @@
 import { parse, parseFragment, type DefaultTreeAdapterMap } from 'parse5';
-import { DecodingMode, EntityDecoder, htmlDecodeTree } from 'entities/decode';
+import { DecodingMode, HtmlEntityDecoder } from 'entities/decode';
 import { DecodedBuilder, type DecodedText } from './text-map.js';
 
 type Node = DefaultTreeAdapterMap['node'];
@@ -263,7 +263,7 @@ function normalizeNewlines(raw: string): DecodedText {
 export function decodeHtmlRefs(raw: string, mode: DecodingMode): DecodedText {
   const b = new DecodedBuilder();
   let emitted = '';
-  const decoder = new EntityDecoder(htmlDecodeTree, (cp) => {
+  const decoder = new HtmlEntityDecoder((cp) => {
     emitted += String.fromCodePoint(cp);
   });
   let i = 0;
