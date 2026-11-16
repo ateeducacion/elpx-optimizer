@@ -416,7 +416,9 @@ test('the licenses panel links texts served by the site itself', async ({ page, 
   await page.getByRole('button', { name: /^(Licencias|Licenses)$/ }).click();
   const panel = page.getByRole('dialog', { name: /Licencias y créditos|Licenses and credits/ });
   await expect(panel).toBeVisible();
-  const hrefs = await panel.locator('a').evaluateAll((links) => links.map((a) => a.getAttribute('href')!));
+  // evaluateAll on this locator crashes Firefox under Playwright 1.65; read each link instead.
+  const links = await panel.locator('a').all();
+  const hrefs = (await Promise.all(links.map((a) => a.getAttribute('href')))).filter((h): h is string => h !== null);
   const local = hrefs.filter((href) => !/^https?:/.test(href));
   expect(local.length).toBeGreaterThan(10);
   for (const href of local) {
