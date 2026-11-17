@@ -18,7 +18,7 @@ const es = {
   nothingToClean: 'No se ha encontrado nada que limpiar.',
   analyzingTitle: 'Analizando el proyecto',
   filesCount: '{count} archivos',
-  footerMadeBy: 'Hecho por el Área de Tecnología Educativa del Gobierno de Canarias',
+  footerMadeBy: 'Creado por el Área de Tecnología Educativa del Gobierno de Canarias',
   ateLink: 'Área de Tecnología Educativa del Gobierno de Canarias (se abre en otra pestaña)',
   sourceCode: 'Código fuente',
   sourceCodeLink: 'Código fuente en GitHub (se abre en otra pestaña)',

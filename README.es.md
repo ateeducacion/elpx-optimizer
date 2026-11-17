@@ -52,5 +52,5 @@ También como [Agent Skill](docs/skill.md) para asistentes de IA.
 [Seguridad](SECURITY.md) (documentación en inglés)
 
 AGPL-3.0-or-later. Los componentes de terceros conservan sus licencias; ver
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Hecho por el Área de Tecnología Educativa del
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Creado por el Área de Tecnología Educativa del
 Gobierno de Canarias, cuyo logotipo no está cubierto por la licencia del proyecto.

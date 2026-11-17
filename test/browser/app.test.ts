@@ -461,7 +461,7 @@ describe('App shell', () => {
     expect(version.getAttribute('target')).toBe('_blank');
     expect(version.getAttribute('aria-label')).toBe(`Version ${TOOL_VERSION}: release notes (opens in a new tab)`);
     languageButton().click();
-    expect($('.app-footer a.ate-link').textContent).toBe('Hecho por el Área de Tecnología Educativa del Gobierno de Canarias');
+    expect($('.app-footer a.ate-link').textContent).toBe('Creado por el Área de Tecnología Educativa del Gobierno de Canarias');
     expect($('.app-footer a.ate-link').getAttribute('aria-label')).toBe('Área de Tecnología Educativa del Gobierno de Canarias (se abre en otra pestaña)');
     expect(text($('.app-footer a.github-link'))).toBe('Código fuente');
     expect($('.app-footer a.github-link').getAttribute('aria-label')).toBe('Código fuente en GitHub (se abre en otra pestaña)');
