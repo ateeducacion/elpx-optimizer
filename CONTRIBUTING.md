@@ -16,7 +16,7 @@ make help
 ## Before opening a pull request
 
 ```bash
-make lint typecheck        # ESLint, bun fmt, bun check (the core is checked without DOM/Node types)
+make lint typecheck        # bun lint, bun fmt, bun check (the core is checked without DOM/Node types)
 make coverage              # Vitest, Node + Chromium, ≥ 90 % lines/statements/functions/branches
 make test-bun              # the same core and CLI under the Bun runtime
 make e2e                   # Playwright against dist/web served statically

@@ -25,7 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-        with: { bun-version: '${{ env.BUN_VERSION }}' }
+        # bun lint only ships in Bun canary so far; the other jobs stay on BUN_VERSION.
+        with: { bun-version: canary }
       - uses: actions/setup-node@v7
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: bun install --frozen-lockfile
@@ -35,7 +36,7 @@ jobs:
             echo '::error file=bun.lock::Dependabot reads bun.lock up to lockfileVersion 1; set it back to 1 (Bun 1.4 accepts it unchanged)'
             exit 1
           }
-      - run: npx eslint .
+      - run: bun run lint
       - run: bun fmt --check
       - run: bun run typecheck
 

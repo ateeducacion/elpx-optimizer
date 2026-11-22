@@ -27,8 +27,8 @@ build-cli: ## Bundle the CLI into dist/cli
 build-skill: build-cli ## Assemble the distributable skill into dist/skill
 	$(BUN) scripts/build-skill.ts
 
-lint: ## ESLint and bun fmt --check
-	$(NPX) eslint .
+lint: ## bun lint and bun fmt --check
+	$(BUN) run lint
 	$(BUN) fmt --check
 
 format: ## Format the code base

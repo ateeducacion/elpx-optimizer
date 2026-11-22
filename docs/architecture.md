@@ -2,7 +2,7 @@
 
 One portable core, three interfaces. The core never imports `node:*`, Bun, sharp, ffmpeg.wasm,
 DOM globals or the eXeLearning editor; this is enforced by `tsconfig.core.json` (ES2023 lib only,
-no DOM or Node types) and ESLint `no-restricted-imports`/`no-restricted-globals` rules on
+no DOM or Node types) and `bun lint` `no-restricted-imports`/`no-restricted-globals` rules on
 `src/core/**`.
 
 ```
