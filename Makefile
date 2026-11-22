@@ -52,10 +52,10 @@ coverage: ## Coverage (V8, Node + Chromium merged) with 90% thresholds
 	$(NPX) vitest run --coverage
 
 e2e-install: ## Install Playwright browsers
-	$(NPX) playwright install chromium firefox webkit
+	$(BUN) x --bun playwright install chromium firefox webkit
 
 e2e: build-web ## End-to-end tests of the static web app
-	$(NPX) playwright test
+	$(BUN) x --bun playwright test
 
 fixtures: ## Regenerate synthetic fixtures (needs ffmpeg)
 	node scripts/generate-media-fixtures.mjs

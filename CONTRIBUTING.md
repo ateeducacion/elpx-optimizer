@@ -7,7 +7,7 @@ exists in Spanish and English (`src/web/i18n.ts`).
 
 ```bash
 bun install --frozen-lockfile        # Bun ≥ 1.4.5, Node ≥ 22
-npx playwright install chromium      # browser tests and E2E
+bunx --bun playwright install chromium # browser tests and E2E
 # ffmpeg and ffprobe with libx264 on PATH for native media tests (PDF tests need nothing extra:
 # qpdf comes from npm as WebAssembly)
 make help
