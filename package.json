@@ -57,15 +57,15 @@
     "sharp": "0.35.5"
   },
   "devDependencies": {
-    "@playwright/test": "1.65.0",
+    "@playwright/test": "1.65.1",
     "@types/bun": "1.4.4",
     "@types/node": "26.6.6",
-    "@vitest/browser": "5.1.0",
-    "@vitest/browser-playwright": "5.1.0",
-    "@vitest/coverage-v8": "5.1.0",
-    "playwright": "1.65.0",
+    "@vitest/browser": "5.1.1",
+    "@vitest/browser-playwright": "5.1.1",
+    "@vitest/coverage-v8": "5.1.1",
+    "playwright": "1.65.1",
     "sass": "1.108.2",
     "vite": "8.3.8",
-    "vitest": "5.1.0"
+    "vitest": "5.1.1"
   }
 }
