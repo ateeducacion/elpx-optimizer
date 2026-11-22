@@ -1,4 +1,4 @@
-# elpx-optimizer — common tasks. Requires Bun (>= 1.3) and Node (>= 22).
+# elpx-optimizer — common tasks. Requires Bun (>= 1.4.5, for bun fmt and bun check) and Node (>= 22).
 # Native video tests need ffmpeg/ffprobe; E2E needs Playwright browsers.
 
 BUN ?= bun
@@ -27,14 +27,14 @@ build-cli: ## Bundle the CLI into dist/cli
 build-skill: build-cli ## Assemble the distributable skill into dist/skill
 	$(BUN) scripts/build-skill.ts
 
-lint: ## ESLint and Prettier check
+lint: ## ESLint and bun fmt --check
 	$(NPX) eslint .
-	$(NPX) prettier --check .
+	$(BUN) fmt --check
 
 format: ## Format the code base
-	$(NPX) prettier --write .
+	$(BUN) fmt
 
-typecheck: ## TypeScript (core without DOM/Node types, node, web and everything)
+typecheck: ## bun check (core without DOM/Node types, node, web and everything)
 	$(BUN) run typecheck
 
 test-node: ## Unit and integration tests (Node)

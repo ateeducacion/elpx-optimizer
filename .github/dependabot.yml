@@ -44,7 +44,7 @@ updates:
         patterns: ['typescript', '@types/*']
       # Linting and formatting.
       lint:
-        patterns: ['eslint', '@eslint/*', 'typescript-eslint', 'globals', 'prettier']
+        patterns: ['eslint', '@eslint/*', 'typescript-eslint', 'globals']
       # The interface: Bootstrap's Sass is compiled with sass, plus icons and font.
       web-ui:
         patterns: ['bootstrap', 'bootstrap-icons', 'sass', '@fontsource/*']
