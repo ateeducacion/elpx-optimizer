@@ -14,7 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUN_VERSION: 1.4.0
+  # 1.4.5 is the first stable release with bun fmt and bun check.
+  BUN_VERSION: 1.4.5
   NODE_VERSION: 24
 
 jobs:
@@ -35,7 +36,7 @@ jobs:
             exit 1
           }
       - run: npx eslint .
-      - run: npx prettier --check .
+      - run: bun fmt --check
       - run: bun run typecheck
 
   test:

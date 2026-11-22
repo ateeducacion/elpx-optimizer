@@ -35,7 +35,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BUN_VERSION: 1.4.0
+  # 1.4.5 is the first stable release with bun fmt and bun check.
+  BUN_VERSION: 1.4.5
   NODE_VERSION: 24
   # The Docker image (the CLI; the web app is on GitHub Pages).
   IMAGE: elpx-optimizer

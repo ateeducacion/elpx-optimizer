@@ -6,7 +6,7 @@ exists in Spanish and English (`src/web/i18n.ts`).
 ## Setup
 
 ```bash
-bun install --frozen-lockfile        # Bun ≥ 1.3, Node ≥ 22
+bun install --frozen-lockfile        # Bun ≥ 1.4.5, Node ≥ 22
 npx playwright install chromium      # browser tests and E2E
 # ffmpeg and ffprobe with libx264 on PATH for native media tests (PDF tests need nothing extra:
 # qpdf comes from npm as WebAssembly)
@@ -16,7 +16,7 @@ make help
 ## Before opening a pull request
 
 ```bash
-make lint typecheck        # ESLint, Prettier, TypeScript (the core is checked without DOM/Node types)
+make lint typecheck        # ESLint, bun fmt, bun check (the core is checked without DOM/Node types)
 make coverage              # Vitest, Node + Chromium, ≥ 90 % lines/statements/functions/branches
 make test-bun              # the same core and CLI under the Bun runtime
 make e2e                   # Playwright against dist/web served statically
