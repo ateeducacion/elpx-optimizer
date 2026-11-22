@@ -32,7 +32,7 @@
     "test:browser": "vitest run --project browser",
     "test:bun": "bun test test/bun",
     "coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
+    "test:e2e": "bunx --bun playwright test",
     "fixtures": "node scripts/generate-media-fixtures.mjs && bun scripts/generate-elpx-fixtures.ts",
     "skill:validate": "bun scripts/validate-skill.ts"
   },

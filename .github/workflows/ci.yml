@@ -56,7 +56,7 @@ jobs:
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
-      - run: npx playwright install --with-deps chromium
+      - run: bunx --bun playwright install --with-deps chromium
       - name: Coverage (fails under 90% lines/statements/functions/branches)
         run: npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
       - name: Upload coverage to Codecov
@@ -168,9 +168,9 @@ jobs:
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: bunx --bun playwright install --with-deps ${{ matrix.browser }}
       - run: bun run build:web
-      - run: npx playwright test --project ${{ matrix.browser }}
+      - run: bunx --bun playwright test --project ${{ matrix.browser }}
       # Only worth keeping when something broke.
       - uses: actions/upload-artifact@v7
         if: failure()
