@@ -332,7 +332,7 @@ minor and 14 for major Bun updates) before an update is proposed; security updat
 
 Packages that have to move together are grouped into one pull request: `ffmpeg-wasm` (`@ffmpeg/*`,
 whose cores and JavaScript API are released together and whose encoders the web app pins), `jsquash`,
-`build-and-test` (Vite, Vitest, Playwright), `typescript`, `lint`, `web-ui` (Bootstrap, icons, Sass,
+`build-and-test` (Vite, Vitest, Playwright), `typescript` (the `@types/*` packages), `web-ui` (Bootstrap, icons, Sass,
 fonts), `html-parser` (parse5 and entities), `docker-images` and `github-actions`. The runtime
 components the builds redistribute and that have no group (sharp, fflate, `@noble/hashes`,
 `@neslinesli93/qpdf-wasm`) arrive one by one: each update also means checking its entry in

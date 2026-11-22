@@ -6,7 +6,7 @@ Guidance for AI agents that develop elpx-optimizer (the Agent Skill for _using_ 
 ## Map
 
 - `src/core/` — portable core (no Node/Bun/DOM/sharp/ffmpeg imports; enforced by
-  `tsconfig.core.json` and ESLint). Entry points in `src/core/index.ts`: `analyzeArchive`,
+  `tsconfig.core.json` and `bun lint`). Entry points in `src/core/index.ts`: `analyzeArchive`,
   `buildOptimizationPlan`, `optimizeArchive`, `validateArchive`.
   - `zip/` hostile-input ZIP reader/writer · `parse/` XML, JSON, HTML (parse5), CSS, URI decoders
     with offset maps · `format/` package detection, `content.xml` model, manifest, DataGame codec,

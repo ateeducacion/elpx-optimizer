@@ -24,7 +24,7 @@
     "serve": "bun src/cli/bin.ts serve",
     "cli": "bun src/cli/bin.ts",
     "typecheck": "bun check -p tsconfig.core.json && bun check -p tsconfig.node.json && bun check -p tsconfig.web.json && bun check -p tsconfig.json",
-    "lint": "eslint .",
+    "lint": "bun lint",
     "format": "bun fmt",
     "format:check": "bun fmt --check",
     "test": "vitest run",
@@ -57,19 +57,14 @@
     "sharp": "0.35.5"
   },
   "devDependencies": {
-    "@eslint/js": "10.0.1",
     "@playwright/test": "1.65.0",
     "@types/bun": "1.4.4",
     "@types/node": "26.6.6",
     "@vitest/browser": "5.1.0",
     "@vitest/browser-playwright": "5.1.0",
     "@vitest/coverage-v8": "5.1.0",
-    "eslint": "10.14.0",
-    "globals": "17.14.0",
     "playwright": "1.65.0",
     "sass": "1.108.1",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.72.2",
     "vite": "8.3.8",
     "vitest": "5.1.0"
   }

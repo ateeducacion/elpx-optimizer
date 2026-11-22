@@ -22,11 +22,6 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: Deps
-    ignore:
-      # TypeScript 7 (the native compiler) is not supported by typescript-eslint 8 yet
-      # ("typescript-eslint does not support TS 7.0"); lift this when it is.
-      - dependency-name: typescript
-        versions: ['>=7']
     groups:
       # The FFmpeg WebAssembly cores and their JavaScript API are released
       # together; the web app pins the encoders each core provides.
@@ -39,12 +34,9 @@ updates:
       # browser mode and the E2E tests drive) must agree on versions.
       build-and-test:
         patterns: ['vite', 'vitest', '@vitest/*', 'playwright', '@playwright/*']
-      # TypeScript and the type packages it checks against.
+      # The type packages bun check reads.
       typescript:
-        patterns: ['typescript', '@types/*']
-      # Linting and formatting.
-      lint:
-        patterns: ['eslint', '@eslint/*', 'typescript-eslint', 'globals']
+        patterns: ['@types/*']
       # The interface: Bootstrap's Sass is compiled with sass, plus icons and font.
       web-ui:
         patterns: ['bootstrap', 'bootstrap-icons', 'sass', '@fontsource/*']
