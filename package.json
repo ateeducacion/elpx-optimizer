@@ -64,7 +64,7 @@
     "@vitest/browser-playwright": "5.1.0",
     "@vitest/coverage-v8": "5.1.0",
     "playwright": "1.65.0",
-    "sass": "1.108.1",
+    "sass": "1.108.2",
     "vite": "8.3.8",
     "vitest": "5.1.0"
   }
