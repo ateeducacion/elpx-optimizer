@@ -168,7 +168,7 @@ export class App {
         h(
           'div',
           { className: 'navbar-brand d-flex align-items-center gap-2 me-auto text-wrap' },
-          h('span', { className: 'brand-mark' }, icon('feather')),
+          h('span', { className: 'brand-mark' }, icon('logo')),
           h('h1', { className: 'brand-title mb-0' }, this.t('title')),
         ),
         h(

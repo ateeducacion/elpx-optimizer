@@ -29,9 +29,7 @@ try {
   await app.setInputFiles('#file-input', join(root, 'test', 'fixtures', 'elpx', 'legacy-folders.elpx'));
   await app.locator('#h-step2').waitFor();
   for (const id of ['opt-removeUnused', 'opt-deduplicate', 'opt-flatten', 'opt-missingReferences']) await app.locator(`#${id}`).check();
-  await app.locator('form.options button[type=submit]').click();
-  await app.locator('#h-step4').waitFor();
-  await app.locator('.step-step4 .btn-primary').first().click();
+  await app.locator('form.options button[type=submit]').first().click();
   await app.locator('.saved-figure').waitFor({ timeout: 120_000 });
   await app.mouse.move(0, 0);
   const shot = await app.locator('.step-step6').screenshot({ animations: 'disabled' });
@@ -39,7 +37,7 @@ try {
   // 2. The card.
   const font = dataUri(join(root, 'node_modules/@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-700-normal.woff2'), 'font/woff2');
   const fontRegular = dataUri(join(root, 'node_modules/@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2'), 'font/woff2');
-  const feather = readFileSync(join(root, 'node_modules/bootstrap-icons/icons/feather.svg'), 'utf8');
+  const logo = readFileSync(join(root, 'src/web/assets/logo.svg'), 'utf8');
   const ate = dataUri(join(root, 'src/web/assets/ate-logo.png'), 'image/png');
   const card = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
   await card.setContent(`<!doctype html><html><head><style>
@@ -50,7 +48,7 @@ try {
       background: radial-gradient(circle at 85% 20%, #56629f 0, transparent 55%), #3f4c8a; position: relative; }
     .text { position: absolute; left: 72px; top: 72px; width: 560px; }
     .mark { display: inline-grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: #fff; color: #3f4c8a; }
-    .mark svg { width: 38px; height: 38px; }
+    .mark svg { width: 56px; height: 51px; }
     h1 { font-size: 92px; line-height: 1; letter-spacing: -0.03em; margin-top: 36px; }
     h2 { font-size: 40px; font-weight: 400; margin-top: 10px; opacity: .92; }
     p { font-size: 27px; line-height: 1.35; margin-top: 30px; opacity: .88; }
@@ -61,7 +59,7 @@ try {
     .shot img { display: block; width: 100%; }
   </style></head><body>
     <div class="text">
-      <span class="mark">${feather.replace('<svg', '<svg fill="currentColor"')}</span>
+      <span class="mark">${logo}</span>
       <h1>Optimizador</h1>
       <h2>de proyectos eXeLearning</h2>
       <p>Aligera tus .elpx en el navegador: vídeo, imágenes y audio más ligeros, sin subir nada.</p>

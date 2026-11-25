@@ -155,6 +155,7 @@ describe('icons', () => {
     'pencil-square': true,
     'shield-lock': true,
     feather: true,
+    logo: true,
     translate: true,
     trash3: true,
     'x-circle-fill': true,
@@ -173,7 +174,8 @@ describe('icons', () => {
       // Sized by CSS (1em), not by the file.
       expect(svg.hasAttribute('width')).toBe(false);
       expect(svg.hasAttribute('height')).toBe(false);
-      expect(svg.getAttribute('viewBox')).toBe('0 0 16 16');
+      // Bootstrap Icons share one grid; the app's own logo keeps the eXeLearning X proportions.
+      expect(svg.getAttribute('viewBox')).toBe(name === 'logo' ? '47 -5 256 234' : '0 0 16 16');
       expect(svg.querySelector('parsererror')).toBeNull();
       expect(svg.querySelector('path')).not.toBeNull();
       expect(svg.querySelector('script, foreignObject')).toBeNull();

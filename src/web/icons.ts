@@ -1,5 +1,5 @@
 /**
- * Bootstrap Icons (MIT), bundled as static SVG text and turned into elements
+ * Bootstrap Icons (MIT), plus the app's own logo, bundled as static SVG text and turned into elements
  * with DOMParser. They are the app's own files: nothing from a project is
  * ever parsed here.
  */
@@ -35,6 +35,7 @@ import musicNoteBeamed from 'bootstrap-icons/icons/music-note-beamed.svg?raw';
 import pencilSquare from 'bootstrap-icons/icons/pencil-square.svg?raw';
 import shieldLock from 'bootstrap-icons/icons/shield-lock.svg?raw';
 import feather from 'bootstrap-icons/icons/feather.svg?raw';
+import logo from './assets/logo.svg?raw';
 import translate from 'bootstrap-icons/icons/translate.svg?raw';
 import sun from 'bootstrap-icons/icons/sun.svg?raw';
 import moonStars from 'bootstrap-icons/icons/moon-stars.svg?raw';
@@ -74,6 +75,7 @@ const SOURCES = {
   'pencil-square': pencilSquare,
   'shield-lock': shieldLock,
   feather,
+  logo,
   translate,
   sun,
   'moon-stars': moonStars,
